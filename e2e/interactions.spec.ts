@@ -4,6 +4,7 @@
 // The phone is Chromium mobile emulation (Pixel 7), not a physical device.
 
 import { devices, expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { joinAs as openPlayer } from "./helpers.ts";
 
 interface DebugPlayer {
   id: string;
@@ -20,17 +21,9 @@ test.afterEach(async () => {
 });
 
 async function joinAs(browser: Browser, name: string, contextOptions = {}): Promise<{ context: BrowserContext; page: Page; id: string }> {
-  const context = await browser.newContext(contextOptions);
-  openContexts.push(context);
-  const page = await context.newPage();
-  page.on("pageerror", (error) => console.error(`[${name}] page error:`, error.message));
-  await page.goto("/");
-  await page.fill("#name", name);
-  await page.click("#join-button");
-  await expect(page.locator("#join")).toBeHidden({ timeout: 15_000 });
-  await page.waitForFunction(() => (window as any).__padova?.status === "connected");
-  const id = await page.evaluate(() => (window as any).__padova.selfId as string);
-  return { context, page, id };
+  const player = await openPlayer(browser, name, contextOptions);
+  openContexts.push(player.context);
+  return player;
 }
 
 const interaction = (page: Page) => page.evaluate(() => (window as any).__padova.interaction());
@@ -143,11 +136,13 @@ test("desktop: select a bench, sit, stand up from yourself, greet another player
     await expect.poll(async () => (await playerSeenBy(bruno.page, alice.id))?.activity).toBe("idle");
   });
 
-  await test.step("clicking yourself while standing selects nothing", async () => {
+  await test.step("clicking yourself while standing offers your own options, never player actions", async () => {
     await alice.page.waitForTimeout(400);
     const self = await targetPoint(alice.page, "player", alice.id);
     await alice.page.mouse.click(self.x, self.y);
-    expect(await interaction(alice.page)).toMatchObject({ selection: null, menu: null });
+    expect(await interaction(alice.page)).toMatchObject({ menu: { title: "Alice", subtitle: "You", options: ["Edit appearance"] } });
+    await alice.page.keyboard.press("Escape");
+    await expect(alice.page.locator("#action-menu")).toBeHidden();
   });
 
   await test.step("a study desk offers Study and Sit, and the action can be cancelled while walking to it", async () => {

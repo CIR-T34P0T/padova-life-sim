@@ -31,7 +31,16 @@ export default defineConfig({
   webServer: [
     {
       command: `npm run start -w server`,
-      env: { PORT: String(SERVER_PORT), LOG_LEVEL: "warn" },
+      // In-memory database so tests never touch a developer's saved data in .data/.
+      // Set E2E_DATABASE_URL to run the browser tests against a real PostgreSQL server.
+      env: {
+        PORT: String(SERVER_PORT),
+        LOG_LEVEL: "warn",
+        PGLITE_DATA_DIR: "memory://",
+        // The suite creates many characters from one address; lift the abuse limit for tests only.
+        GUEST_CREATIONS_PER_IP_PER_HOUR: "1000",
+        DATABASE_URL: process.env.E2E_DATABASE_URL ?? "",
+      },
       port: SERVER_PORT,
       reuseExistingServer: false,
       timeout: 30_000,

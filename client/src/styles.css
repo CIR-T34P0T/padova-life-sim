@@ -212,35 +212,9 @@ body {
   font-size: 14px;
 }
 
-.join-panel input {
-  font: inherit;
-  font-size: 17px; /* ≥16px stops iOS zooming into the field */
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 2px solid #e2d4c3;
-  background: #fff;
-}
-
 .join-panel input:focus {
   outline: none;
   border-color: var(--terracotta);
-}
-
-.join-panel button {
-  font: inherit;
-  font-size: 17px;
-  font-weight: 800;
-  min-height: 48px;
-  border: none;
-  border-radius: 12px;
-  background: var(--terracotta);
-  color: var(--paper);
-  cursor: pointer;
-}
-
-.join-panel button:disabled {
-  opacity: 0.6;
-  cursor: progress;
 }
 
 .join-error {
@@ -508,4 +482,128 @@ body {
 /* The toast sits below the progress pill when both are visible. */
 .toast {
   top: max(112px, calc(env(safe-area-inset-top) + 104px));
+}
+
+/* ── M4: profile panel ────────────────────────────────────────────── */
+
+.join-panel {
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.panel-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.join-panel input {
+  font: inherit;
+  font-size: 17px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 2px solid #e2d4c3;
+  background: #fff;
+}
+
+.join-notice {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #f6e3cf;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.pickers {
+  display: grid;
+  gap: 10px;
+}
+
+.picker-title {
+  font-size: 13px;
+  font-weight: 800;
+  margin-bottom: 6px;
+  opacity: 0.75;
+}
+
+.picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: var(--swatch);
+  box-shadow: 0 0 0 1px #d8c8b4;
+  cursor: pointer;
+}
+
+.swatch[aria-checked="true"] {
+  box-shadow: 0 0 0 3px var(--terracotta);
+}
+
+.pill-option {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 2px solid #e2d4c3;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.pill-option[aria-checked="true"] {
+  border-color: var(--terracotta);
+  background: #fbe6dc;
+}
+
+@media (pointer: coarse) {
+  .swatch {
+    width: 44px;
+    height: 44px;
+  }
+  .pill-option {
+    min-height: 44px;
+  }
+}
+
+.panel-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.panel-actions button {
+  flex: 1;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  min-height: 48px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.panel-actions .primary {
+  border: none;
+  background: var(--terracotta);
+  color: var(--paper);
+}
+
+.panel-actions .primary:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.panel-actions .secondary {
+  border: 2px solid #e2d4c3;
+  background: transparent;
+  color: var(--ink);
 }

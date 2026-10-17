@@ -18,6 +18,10 @@ work, make friends and choose their own path. No single storyline.
 3. **Work and money** — student jobs and careers, shifts, wages, rent and expenses. Money matters without being punishing.
 4. **Relationships** — friendships, adult romance, rivalry, reputation and groups that grow from shared experiences, not just a meter. Privacy, blocking and reporting from the start of social features.
 5. **Character customisation** — anime-inspired 3D male and female characters, wide range of skin tones, modular hair, clothing and accessories.
+   *Since M4:* a saved profile with name, age category and appearance (two body
+   presets, 8 skin tones, 3 hair styles, 8 hair colours, 6 eye colours, 6
+   outfits), drawn by placeholder avatars. Player characters are university-age
+   adults (D-019); non-adult categories exist in the data model for future NPCs.
 6. **Housing** — dorms, shared flats, roommates, furnishing with a controlled catalogue first.
 7. **Emergent stories** — meaningful events are recorded and influence the future.
 

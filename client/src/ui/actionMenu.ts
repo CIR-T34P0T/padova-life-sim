@@ -5,8 +5,11 @@
 
 import type { ActionId } from "@padova/shared";
 
+/** A server action, or a client-only option (handled locally, never sent as an action). */
+export type MenuChoice = ActionId | "edit-appearance";
+
 export interface MenuOption {
-  id: ActionId;
+  id: MenuChoice;
   label: string;
 }
 
@@ -20,7 +23,7 @@ export interface ActionMenu {
   readonly kind: "radial" | "sheet";
   readonly isOpen: boolean;
   readonly current: MenuSpec | null;
-  open(spec: MenuSpec, onChoose: (id: ActionId) => void): void;
+  open(spec: MenuSpec, onChoose: (id: MenuChoice) => void): void;
   /** Replaces the options of the open menu without moving it. */
   update(spec: MenuSpec): void;
   close(): void;
@@ -45,7 +48,7 @@ class RadialMenu implements ActionMenu {
   readonly kind = "radial" as const;
   current: MenuSpec | null = null;
   private readonly element: HTMLElement;
-  private onChoose: ((id: ActionId) => void) | null = null;
+  private onChoose: ((id: MenuChoice) => void) | null = null;
   private anchor = { x: 0, y: 0, visible: false };
 
   constructor(root: HTMLElement) {
@@ -61,7 +64,7 @@ class RadialMenu implements ActionMenu {
     return this.current !== null;
   }
 
-  open(spec: MenuSpec, onChoose: (id: ActionId) => void): void {
+  open(spec: MenuSpec, onChoose: (id: MenuChoice) => void): void {
     this.onChoose = onChoose;
     this.render(spec);
   }
@@ -141,7 +144,7 @@ class ActionSheet implements ActionMenu {
   private readonly titleElement: HTMLElement;
   private readonly subtitleElement: HTMLElement;
   private readonly list: HTMLElement;
-  private onChoose: ((id: ActionId) => void) | null = null;
+  private onChoose: ((id: MenuChoice) => void) | null = null;
 
   constructor(root: HTMLElement, private readonly onDismiss: () => void) {
     this.element = document.createElement("div");
@@ -182,7 +185,7 @@ class ActionSheet implements ActionMenu {
     return this.current !== null;
   }
 
-  open(spec: MenuSpec, onChoose: (id: ActionId) => void): void {
+  open(spec: MenuSpec, onChoose: (id: MenuChoice) => void): void {
     this.onChoose = onChoose;
     this.render(spec);
     document.body.classList.add("sheet-open");

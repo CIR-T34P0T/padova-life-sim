@@ -9,7 +9,7 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M1 | Walkable world | Tested | Greybox piazza, third-person camera, click/tap-to-move with pathfinding, WASD, joystick, collision |
 | M2 | Real multiplayer | Tested | Server-authoritative movement, join/leave, interpolation, reconnection, 2 desktop + 1 mobile-emulated browser |
 | M3 | Interaction system | Tested | Select objects and players; contextual menu (desktop radial, mobile sheet); server-validated walk-to-then-act (bench sit/stand, desk study/sit, greet) |
-| M4 | Identity and persistence | Planned | Guest accounts, PostgreSQL with migrations, character and position restored after reload |
+| M4 | Identity and persistence | Tested (persistence verified) | Temporary guest identity, PostgreSQL with migrations, versioned character profile, appearance and position restored after reload and server restart |
 | M5 | Time and needs | Planned | Server game clock; hunger, energy, social, fun; café and bed as first need sources |
 | M6 | Characters | Planned | VRM avatars, idle/walk/sit animations, presets and colours; pipeline spike first |
 | M7 | Money and a first job | Planned | Café shift pays a wage; server-side purchases |
@@ -50,42 +50,64 @@ Not yet **verified**: needs a run on a real phone and the product owner's sign-o
 
 Not yet **verified**: real phone, Windows, and the product owner's sign-off.
 
+## M4 identity and persistence: acceptance criteria
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| Versioned profile: character id, account id, name, age category (adult vs non-adult), appearance (preset, hair, eyes, skin, outfit), timestamps, schema version | Implemented, tested | `characters` + `character_appearance` tables; `PROFILE_VERSION` with upgrade steps; shared and database tests |
+| Gameplay data kept separate from the profile | Implemented | Saved position in `character_state`; future systems get their own tables (DATA_MODEL "Rules to keep") |
+| Create a profile | Tested | Integration + e2e: first visit → form → character stored with a guest account in one transaction |
+| Load it in a later session | Persistence verified | Integration; e2e reload; manual server restart on on-disk PGlite; e2e on real PostgreSQL 16 |
+| Save valid appearance changes | Tested | Integration + e2e: saved, replicated to others, kept after reload |
+| One player cannot modify another's profile | Tested | Integration (forged ids ignored) + database tests (owner-scoped SQL refuses other accounts) |
+| Invalid or outdated data handled safely | Tested | Malformed payloads, unknown option ids, retired options repaired on load, newer-version profile read-only and never overwritten |
+| Preserved across reloads and reconnects | Tested | e2e reload; integration network drop; regression test for leave-and-rejoin race |
+| Multiple sessions of the same player | Tested | Newest session wins (D-018); e2e second tab; integration eviction |
+| Temporary guest identity, safe within the architecture | Tested, temporary by design | Hashed 256-bit token, checked before joining, never trusted ids; limitations documented (D-017) |
+| No database credentials in the browser | Verified by design | `DATABASE_URL` read only by the server; the client never receives it |
+| Migrations tested | Tested | Up, idempotent re-run, rollback and re-apply on PGlite and PostgreSQL 16 |
+
+Not yet **verified** by the owner: real phone, Windows, sign-off.
+
 ## Current state (handoff, 2026-10-17)
 
 Read this first when starting a new session.
 
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
-M0–M3 implemented and covered by automated tests (51 unit/integration tests,
-3 browser tests). No persistence, no real art, no needs/skills/economy yet.
+M0–M4 implemented and covered by automated tests (94 unit/integration tests,
+7 browser tests). Characters are saved in PostgreSQL (embedded PGlite in
+development). Still placeholders: avatars built from primitives, greybox
+world, minimal profile forms. No needs, skills, money or university systems yet.
 
-**What a player can do today:** join with a name, walk by click/tap, keyboard
-or joystick, see other players, click a bench to sit or stand, click a study
-desk to sit or study (an 8-second timed session that has no effect yet), click
-another player to greet them, cancel any action, and get an explanation when
-something is refused.
+**What a player can do today:** create a character (name, look) on first
+visit; come back later, even after a server restart, to the same character
+at the same spot; change their look; walk, sit on benches, study at desks,
+greet other players; get a clear message when something is refused.
+
+**Genuinely persistent:** account (guest), character profile, appearance,
+last position. **Temporary:** activity, seats, pending actions, cooldowns,
+online status; the guest identity itself lives only in one browser.
 
 **Open items, in priority order:**
 
 | # | Item | Status | Owner |
 | --- | --- | --- | --- |
-| 1 | Run the game on the product owner's Windows PC (`npm install`, `npm run dev`, two browser windows) | In progress — the first attempt stopped because Git was not installed; setup steps were provided | Product owner, report results |
-| 2 | Real-phone test (Android and/or iPhone on the same Wi-Fi), including tapping a bench and greeting, using the manual checklist in `docs/TESTING.md` | Planned | Product owner |
-| 3 | Confirm `npm run dev` (scripts/dev.mjs) works on Windows; fix it if not | Planned (untested on Windows) | Next session, from the owner's report |
-| 4 | Decide the shared-world time model (`docs/GAME_DESIGN.md`) | Open question, needed before M5 | Product owner, with a proposal from Claude |
-| 5 | Decide the first real district | Open question, needed before real geometry | Product owner |
+| 1 | Run the game on the product owner's Windows PC (`git pull`, `npm install`, `npm run dev`), including creating a character and reloading | In progress — setup steps provided; no report yet | Product owner |
+| 2 | Real-phone test using the manual checklist in `docs/TESTING.md` (now includes saved characters) | Planned | Product owner |
+| 3 | Confirm `npm run dev` and the embedded database work on Windows; fix if not | Planned (untested on Windows) | Next session, from the owner's report |
+| 4 | Decide on a real sign-in method to replace guest accounts, and on account deletion | Open decision (auth model needs approval) | Product owner, with options from Claude |
+| 5 | Decide the shared-world time model (`docs/GAME_DESIGN.md`) | Open question, needed before M5 | Product owner, with a proposal from Claude |
+| 6 | Decide the first real district | Open question, needed before real geometry | Product owner |
 
-M0–M3 move from **tested** to **verified** once items 1–3 pass and the product
-owner signs off.
+**Recommended next task:** items 1–3, a real-device check of M0–M4 on the
+owner's Windows PC and phone. Windows is the main remaining risk: the embedded
+database (PGlite, WebAssembly) and the dev script have only run on Linux.
+Then M5 (time and needs), which needs item 5 decided first.
 
-**Recommended next task:** items 1–3 — a real-device check of everything built
-so far (about 30 minutes for the owner), fixing any platform bug found. Then
-M4: identity and persistence.
+## Next: M5 time and needs (proposed)
 
-## Next: M4 identity and persistence (proposed)
-
-Smallest useful version: a guest account created on first visit (a random
-token stored in the browser), PostgreSQL with versioned migrations, the
-character's name, colour and last position saved and restored after a reload
-or reconnect, and seats/actions reset cleanly on restore. Needs a decision on
-running PostgreSQL locally (Docker) and later hosting; no paid service until
-approved.
+Smallest useful version: a server game clock with a day/night cycle; hunger,
+energy, social and fun that change over time and through existing actions
+(sitting, studying, greeting) plus one new need source (e.g. a café counter);
+needs saved in their own table; a compact needs display. Requires the
+shared-world time model decision first.

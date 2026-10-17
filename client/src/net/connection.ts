@@ -8,11 +8,16 @@ import {
   ROOM_NAME,
   ServerMessage,
   type ActionUpdatePayload,
+  type Appearance,
   type GreetedPayload,
+  type IdentityPayload,
   type InteractPayload,
-  type JoinOptions,
+  type JoinOptionsWithIdentity,
   type MoveDirectionPayload,
   type MoveToPayload,
+  type NewCharacterInput,
+  type ProfileErrorPayload,
+  type ProfilePayload,
   type RejectedPayload,
   type SeatOccupancy,
 } from "@padova/shared";
@@ -26,14 +31,20 @@ export interface ReplicatedPlayer {
   rotation: number;
   moving: boolean;
   connected: boolean;
-  hue: number;
+  preset: string;
+  skinTone: string;
+  hairStyle: string;
+  hairColour: string;
+  eyeColour: string;
+  outfit: string;
   activity: string;
   seatId: string;
   targetId: string;
 }
 
 export interface ConnectionEvents {
-  onStatus(status: ConnectionStatus, detail?: string): void;
+  /** `code` is the close code when the connection ended (e.g. CLOSE_SIGNED_IN_ELSEWHERE). */
+  onStatus(status: ConnectionStatus, detail?: string, code?: number): void;
   onPlayerAdded(id: string, player: ReplicatedPlayer): void;
   onPlayerChanged(id: string, player: ReplicatedPlayer): void;
   onPlayerRemoved(id: string): void;
@@ -41,6 +52,21 @@ export interface ConnectionEvents {
   onRejected(payload: RejectedPayload): void;
   onActionUpdate(payload: ActionUpdatePayload): void;
   onGreeted(payload: GreetedPayload): void;
+  onProfile(payload: ProfilePayload): void;
+  onIdentity(payload: IdentityPayload): void;
+  onProfileError(payload: ProfileErrorPayload): void;
+}
+
+/** Copies the appearance fields out of a replicated player. */
+export function appearanceOf(player: ReplicatedPlayer): Appearance {
+  return {
+    preset: player.preset,
+    skinTone: player.skinTone,
+    hairStyle: player.hairStyle,
+    hairColour: player.hairColour,
+    eyeColour: player.eyeColour,
+    outfit: player.outfit,
+  };
 }
 
 export function resolveServerUrl(): string {
@@ -66,7 +92,12 @@ export class GameConnection {
     return (this.room?.state?.seats as SeatOccupancy | undefined) ?? NO_SEATS;
   }
 
-  async join(options: JoinOptions): Promise<void> {
+  /**
+   * Joins the plaza. A stored guest token goes in the matchmaking request
+   * body (never in a URL). Throws if the server refuses the token
+   * (error code ERROR_INVALID_GUEST_TOKEN).
+   */
+  async join(options: JoinOptionsWithIdentity): Promise<void> {
     this.events.onStatus("connecting");
     const client = new Client(resolveServerUrl());
     const room = await client.joinOrCreate(ROOM_NAME, options);
@@ -75,12 +106,15 @@ export class GameConnection {
     room.onDrop(() => this.events.onStatus("reconnecting"));
     room.onReconnect(() => this.events.onStatus("connected"));
     room.onLeave((code, reason) => {
-      this.events.onStatus("disconnected", reason ? `${reason} (${code})` : `code ${code}`);
+      this.events.onStatus("disconnected", reason ? `${reason} (${code})` : `code ${code}`, code);
     });
     room.onError((code, message) => this.events.onStatus("disconnected", message ?? `error ${code}`));
     room.onMessage(ServerMessage.Rejected, (payload: RejectedPayload) => this.events.onRejected(payload));
     room.onMessage(ServerMessage.ActionUpdate, (payload: ActionUpdatePayload) => this.events.onActionUpdate(payload));
     room.onMessage(ServerMessage.Greeted, (payload: GreetedPayload) => this.events.onGreeted(payload));
+    room.onMessage(ServerMessage.Profile, (payload: ProfilePayload) => this.events.onProfile(payload));
+    room.onMessage(ServerMessage.Identity, (payload: IdentityPayload) => this.events.onIdentity(payload));
+    room.onMessage(ServerMessage.ProfileError, (payload: ProfileErrorPayload) => this.events.onProfileError(payload));
 
     // The SDK's callback proxy is loosely typed for schema() classes.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,6 +149,14 @@ export class GameConnection {
 
   cancelAction(): void {
     this.room?.send(ClientMessage.CancelAction);
+  }
+
+  createCharacter(input: NewCharacterInput): void {
+    this.room?.send(ClientMessage.CreateCharacter, input);
+  }
+
+  updateAppearance(appearance: Appearance): void {
+    this.room?.send(ClientMessage.UpdateAppearance, { appearance });
   }
 
   /** Consented leave: removes the character for everyone immediately. */

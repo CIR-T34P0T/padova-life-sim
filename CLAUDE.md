@@ -20,7 +20,9 @@ Never imply affiliation with the University of Padua.
   (D-007); it may be added for data-heavy panels without new approval, never
   for the game loop.
 - Server: Node.js 22 + Colyseus 0.18 (`@colyseus/core`, `@colyseus/ws-transport`).
-- Database: PostgreSQL planned for M4. Not installed yet.
+- Database: PostgreSQL via `pg` in production (`DATABASE_URL`); embedded
+  PGlite for development and tests (D-015). Own SQL migration runner (D-016).
+- Identity: temporary guest tokens only (D-017). Do not present them as accounts.
 - Tests: Vitest (unit + server integration), Playwright (multi-browser e2e).
 
 Do not change the renderer, networking framework, database, package manager
@@ -36,6 +38,11 @@ or auth model without the product owner's approval.
   use them for display and early feedback only.
 - **Validate every message** on the server with the parsers in
   `shared/src/protocol.ts`. Unknown message types are ignored.
+- **Ownership comes from the session.** Profile reads/writes are scoped by the
+  account id resolved in `onAuth`; never accept an account or character id from
+  a client as proof of ownership. All SQL lives in `server/src/profiles/profileRepository.ts`.
+- **Schema changes are migrations** (`server/migrations/NNNN_name.sql` with up
+  and down). Profile data shape changes bump `PROFILE_VERSION` with an upgrade step.
 - **Replicate only what others need to see.** Internal state (paths, rate
   counters) stays in server-only structures, not in the Colyseus schema.
 - **Tuning values go in `shared/src/config.ts`**, not inline.

@@ -1,6 +1,6 @@
 # Architecture
 
-Status as of M3 (walking skeleton + contextual interactions). Sections marked *planned* describe
+Status as of M4 (walking skeleton, contextual interactions, identity and persistence). Sections marked *planned* describe
 intent, not code.
 
 ## Overview
@@ -9,14 +9,15 @@ intent, not code.
  Browser (client/)                         Node.js (server/)
  ┌──────────────────────────┐   WebSocket  ┌───────────────────────────┐
  │ input/  gestures → intents├────────────►│ PlazaRoom                  │
- │ net/    Colyseus SDK      │◄────────────┤  validates intents         │
- │ render/ Three.js scene    │ state patches│  runs shared rules @20 Hz │
- │ ui/     DOM overlay       │              │  replicates PlazaState    │
- └────────────┬─────────────┘              └─────────────┬─────────────┘
+ │ net/    Colyseus SDK,     │◄────────────┤  validates intents         │
+ │         guest token store │ state patches│  runs shared rules @20 Hz │
+ │ render/ Three.js scene    │              │  replicates PlazaState    │
+ │ ui/     DOM overlay       │              │ ProfileService ── SQL ──► PostgreSQL
+ └────────────┬─────────────┘              └─────────────┬─────────────┘  (or embedded PGlite)
               │ imports                                  │ imports
               └──────────────► shared/ ◄─────────────────┘
                  world layout + interactables · collision · pathfinding · movement
-                 interaction rules · message contract + validators · tuning config
+                 interaction rules · profile model + catalogue · message contract + validators · tuning config
 ```
 
 ## Packages
@@ -24,7 +25,7 @@ intent, not code.
 | Package | Responsibility | Must not contain |
 | --- | --- | --- |
 | `shared/` | Deterministic game rules and the message contract | Rendering, DOM, networking, Node-only APIs |
-| `server/` | Rooms, validation, simulation loop, replication | Rendering; trust in client-reported results |
+| `server/` | Rooms, validation, simulation loop, replication, identity, persistence | Rendering; trust in client-reported results or identities |
 | `client/` | Rendering, input, UI, interpolation, network glue | Authoritative decisions |
 
 `shared/` is consumed as TypeScript source (no build step): Vite bundles it for
@@ -93,8 +94,9 @@ routes messages and runs movement, then `interactions.tick()`.
 **Client (`client/src/interaction/interactionController.ts`).** Raycasts
 taps against the ground, obstacles and avatar bodies (`pick`). Results:
 object, other player, self, ground, or a non-interactive obstacle. Tapping
-yourself while seated opens the seat's menu (Stand up); standing, it selects
-nothing. Menus are built with the shared rules over replicated state and
+yourself while seated opens the seat's menu (Stand up); standing, it opens
+your own menu ("Edit appearance", since M4). Own options are client-side and
+never sent as interactions. Menus are built with the shared rules over replicated state and
 re-rendered only when their contents change. With a menu open, tapping
 elsewhere only dismisses it.
 
@@ -113,17 +115,59 @@ See `NETWORKING.md`. In short: Colyseus room per area, server-authoritative
 movement, delta-encoded state patches every 50 ms, client-side snapshot
 interpolation 100 ms in the past, automatic reconnection within 20 s.
 
-## Persistence and identity
+## Identity and persistence (M4)
 
-None yet. Players are anonymous; display names are not reserved. A reload or
-closed tab creates a new character. *Planned (M4):* guest accounts, PostgreSQL,
-saved character and position.
+**Database (`server/src/db`).** One small `Database` interface with two
+PostgreSQL backends: a real server through `pg` when `DATABASE_URL` is set,
+otherwise embedded PGlite stored in `.data/pglite` (D-015). Numbered SQL
+migrations run on server start and through `npm run db:migrate` (D-016).
+Schema and rules: `DATA_MODEL.md`.
+
+**Identity (`server/src/identity/guestIdentity.ts`).** Temporary guest
+accounts only (D-017). The browser keeps a random secret token
+(`client/src/net/identityStore.ts`, `localStorage`) and sends it in the
+matchmaking request body. `PlazaRoom.onAuth` resolves it to an account id
+before the player joins; an unknown token is refused with error 4401 and the
+client starts over with an explanation. No token → anonymous visitor, who may
+create a character. Account and character ids from clients are never trusted.
+
+**Profiles (`server/src/profiles`).** `profileRepository.ts` holds all SQL,
+every query scoped by the owning account id. `ProfileService.ts` loads with
+upgrade/repair (newer versions read-only), creates (guest account + character
+in one transaction, rate-limited per IP), updates appearance and saves
+position. Validation rules (names, age categories, appearance catalogue,
+version upgrades) live in `shared/src/profile.ts`.
+
+**Room lifecycle (`server/src/PlazaRoom.ts`).**
+- Anonymous join → `profile {status: "needs_character"}`; nobody is placed in the world.
+- `createCharacter` → validated, stored, `identity {guestToken}` sent once, character spawned.
+- Join with a valid token → saved character loaded and spawned at its saved
+  position (spawn point if that spot is no longer walkable).
+- `updateAppearance` → validated against the catalogue, saved, replicated.
+- Leave, eviction, room disposal → position saved; autosave every 30 s for
+  players who moved.
+- Same account in a second session → the newest wins (D-018,
+  `profiles/sessionRegistry.ts`); the older one is saved first and closed with
+  code 4100. A new session waits for an in-flight save before loading.
+- Brief network drop → same session resumes within 20 s; nothing reloads.
+
+**Client.** `main.ts` drives the page: connect with the stored token →
+create form or straight into the game. `ui/profilePanel.ts` is a deliberately
+MINIMAL form (name, adult-only notice, appearance pickers) and the edit form,
+reached by clicking yourself → "Edit appearance". It is not the character
+creator (no live preview); that comes later. Avatars (`render/avatars.ts`)
+draw every catalogue option with placeholder primitives.
+
+**Services wiring.** `app.ts` builds a `ProfileService` and `SessionRegistry`
+per game server and registers them under a key passed in room options
+(`services.ts`), so rooms never receive live objects through options.
 
 ## Not yet decided or built
 
 - UI framework for larger panels (character info, inventory). Plain DOM was
   enough for M3 menus; see D-007.
-- Authentication provider, database schema and migration tool (M4).
+- A real sign-in method to replace guest accounts (needs the product owner's decision).
+- Hosting, managed PostgreSQL and backups.
 - Character pipeline (VRM, M6) — see `ASSET_PIPELINE.md`.
 - Shared-world time model — see `GAME_DESIGN.md` open questions.
-- Hosting and deployment.
+- Deployment pipeline.

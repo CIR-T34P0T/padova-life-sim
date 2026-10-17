@@ -22,7 +22,7 @@ import {
 import type { GameConnection, ReplicatedPlayer } from "../net/connection.ts";
 import type { AvatarView } from "../render/avatars.ts";
 import type { WorldScene } from "../render/worldScene.ts";
-import type { ActionMenu, MenuSpec } from "../ui/actionMenu.ts";
+import type { ActionMenu, MenuChoice, MenuSpec } from "../ui/actionMenu.ts";
 import type { ActionProgress } from "../ui/actionProgress.ts";
 import type { Hud } from "../ui/hud.ts";
 import { reasonText } from "../ui/reasons.ts";
@@ -40,7 +40,8 @@ export type Pick =
   | { kind: "ground"; point: { x: number; z: number } }
   | { kind: "blocked"; label?: string };
 
-type Selection = { kind: TargetKind; id: string } | null;
+/** "self" = the local player; its menu holds client-side options such as editing appearance. */
+type Selection = { kind: TargetKind | "self"; id: string } | null;
 
 function sameMenu(a: MenuSpec | null, b: MenuSpec): boolean {
   return (
@@ -78,6 +79,8 @@ export class InteractionController {
       progress: ActionProgress;
       /** Called for a tap on open ground when no menu is open. */
       onGroundTap: (point: { x: number; z: number }) => void;
+      /** Called when the player picks "Edit appearance" on themselves. */
+      onEditAppearance: () => void;
     },
   ) {}
 
@@ -94,10 +97,11 @@ export class InteractionController {
         this.select({ kind: "player", id: pick.id });
         return;
       case "self": {
-        // Tapping yourself while seated offers what you can do where you sit.
+        // Seated: what you can do where you sit. Standing: your own options.
         const seated = this.selfSeat();
+        const selfId = this.deps.entities.selfId();
         if (seated) this.select({ kind: "object", id: seated.id });
-        else this.clearSelection();
+        else if (selfId) this.select({ kind: "self", id: selfId });
         return;
       }
       case "blocked":
@@ -223,9 +227,11 @@ export class InteractionController {
     if (anchor) this.deps.menu.setAnchor(anchor.x, anchor.y, anchor.visible);
   }
 
-  private choose(selection: NonNullable<Selection>, action: ActionId): void {
-    this.deps.connection.interact({ targetKind: selection.kind, targetId: selection.id, action });
+  private choose(selection: NonNullable<Selection>, choice: MenuChoice): void {
     this.setSelection(null);
+    if (choice === "edit-appearance") return this.deps.onEditAppearance();
+    if (selection.kind === "self") return;
+    this.deps.connection.interact({ targetKind: selection.kind, targetId: selection.id, action: choice });
   }
 
   clearSelection(): void {
@@ -240,6 +246,10 @@ export class InteractionController {
   private buildMenu(selection: NonNullable<Selection>): MenuSpec | null {
     const actor = this.selfActor();
     if (!actor) return null;
+    if (selection.kind === "self") {
+      const self = this.deps.entities.get(selection.id)?.latest;
+      return { title: self ? self.name : "You", subtitle: "You", options: [{ id: "edit-appearance", label: "Edit appearance" }] };
+    }
     if (selection.kind === "object") {
       const item = findInteractable(PLAZA_LAYOUT, selection.id);
       if (!item) return null;
@@ -265,6 +275,7 @@ export class InteractionController {
 
   private emptyMenuMessage(selection: NonNullable<Selection>): string {
     if (selection.kind === "object") return reasonText("no_free_seat");
+    if (selection.kind === "self") return reasonText("action_not_available");
     const target = this.deps.entities.get(selection.id)?.latest;
     return target && !target.connected ? reasonText("target_offline") : reasonText("action_not_available");
   }
@@ -311,7 +322,7 @@ export class InteractionController {
   }
 
   /** Screen point above a target, for anchoring the radial menu and for tests. */
-  anchorFor(selection: NonNullable<Selection>): { x: number; y: number; visible: boolean } | null {
+  anchorFor(selection: { kind: TargetKind | "self"; id: string }): { x: number; y: number; visible: boolean } | null {
     const position = new THREE.Vector3();
     if (selection.kind === "object") {
       const mesh = this.deps.world.interactableMeshes.get(selection.id);
@@ -320,7 +331,7 @@ export class InteractionController {
     } else {
       const entity = this.deps.entities.get(selection.id);
       if (!entity) return null;
-      entity.view.hitMesh.getWorldPosition(position);
+      entity.view.anchor.getWorldPosition(position);
     }
     return this.project(position);
   }

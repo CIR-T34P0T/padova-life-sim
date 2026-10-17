@@ -22,10 +22,10 @@ We depend on `@colyseus/core` + `@colyseus/ws-transport` rather than the
 all-in-one `colyseus` package to avoid unused auth/monitor/Redis modules.
 MIT licence.
 
-## D-004 — PostgreSQL for persistence (2026-10-17, approved, not yet installed)
+## D-004 — PostgreSQL for persistence (2026-10-17, approved; in use since M4)
 
 Relational data (players, relationships, jobs, grades, transactions) fits a
-relational database. Introduced at M4 with versioned migrations.
+relational database. Introduced at M4 with versioned migrations (D-015, D-016).
 
 ## D-005 — Grid A* pathfinding for the first area (2026-10-17)
 
@@ -53,8 +53,8 @@ added, React renders UI panels only, never the game loop.
 
 `pagehide` sends a consented leave so a closed tab disappears for everyone at
 once. Unexpected disconnects hold the character for 20 s while the SDK
-reconnects automatically. Consequence: reloading the page creates a new
-character until persistence (M4) exists.
+reconnects automatically. Since M4 a reload or a later visit loads the same
+saved character (D-017), at the position saved when the tab closed.
 
 ## D-009 — Source control on a private GitHub repo, trunk on `main` (2026-10-17)
 
@@ -96,3 +96,74 @@ gameplay code never checks the device. `?menu=radial|sheet` forces either.
 limit, world layout) to the room. Production passes none and uses the shared
 config. This keeps integration tests fast and lets them use purpose-built
 worlds (e.g. an unreachable bench) without test-only branches in game code.
+
+## D-015 — PostgreSQL in production, embedded PGlite for development and tests (2026-10-17, M4)
+
+Driver: `pg` (node-postgres, MIT) when `DATABASE_URL` is set. Without it the
+server uses PGlite (`@electric-sql/pglite`, Apache-2.0): PostgreSQL compiled
+to WebAssembly, running inside the server process and storing data in
+`.data/pglite` (or in memory with `PGLITE_DATA_DIR=memory://`). Both run the
+same SQL and migrations behind one small interface (`server/src/db/database.ts`).
+
+Why: nobody has to install or run a database server to develop or test,
+including on Windows, while production uses a real PostgreSQL as approved in
+D-004. Trade-offs: PGlite is single-connection and in-process, fine for one
+developer, not for production. Database tests run on both backends when
+`TEST_DATABASE_URL` is set (verified against PostgreSQL 16.15). An ORM was not
+added; queries are short, parameterised SQL in one repository module.
+
+## D-016 — Own minimal migration runner (2026-10-17, M4)
+
+Numbered SQL files in `server/migrations` (`0001_name.sql`) with
+`-- migrate:up` and `-- migrate:down` sections, applied in order, each in its
+own transaction together with its `schema_migrations` row, serialised with a
+PostgreSQL advisory lock. Commands: `npm run db:migrate | db:rollback | db:status`;
+the server also migrates on start unless `DB_MIGRATE_ON_START=false`.
+About 110 lines with no extra dependency. Limitation: statements are split on
+line-ending semicolons, so a migration needing semicolons inside a string or
+function body must go in its own file. Revisit if migrations grow complex.
+
+## D-017 — Temporary guest identity only (2026-10-17, M4)
+
+There is no sign-in yet. On first visit the server creates a **guest account**
+and gives the browser a random 256-bit secret ("guest token", prefix `plsg1_`),
+shown once. The server stores only its SHA-256 hash. The browser keeps the token
+in `localStorage` and sends it in the matchmaking request body (never a URL);
+the server resolves it to an account in `onAuth` before the player joins. A
+client-supplied account or character id is never accepted as proof of anything.
+
+This is a stand-in, not an account system, and the UI says so. Limitations:
+whoever holds the token controls the character; clearing site data or using
+another device or browser starts over; no recovery; a script running on the
+page (XSS) could read the token; no account deletion yet. New guest accounts
+are limited per IP address per hour (default 10, `GUEST_CREATIONS_PER_IP_PER_HOUR`),
+in memory per server process. A real sign-in method needs the product owner's
+decision (auth model, D-004 scope) before it is built.
+
+## D-018 — One live session per account: the newest wins (2026-10-17, M4)
+
+Opening the game in a second tab, window or device with the same guest token
+moves the character there. The older session's position is saved, the
+character is removed, and that connection is closed with code 4100; its page
+explains "Playing in another window" with a "Play here instead" button. A
+session waiting in its reconnection window is also cancelled, so it cannot come
+back as a duplicate. A new session waits for the old session's final save
+before loading, so it never loads an older position. Single process only: a
+shared registry (Colyseus presence/Redis) is needed before running several
+server processes.
+
+## D-019 — Player characters are adults (2026-10-17, M4)
+
+The profile stores an age category (`child`, `teen`, `adult`) so the data
+model distinguishes adults from non-adults (needed later for NPCs and for
+rules such as romance being adult-only). Player-created characters must be
+`adult`; the server refuses anything else (`age_category_not_allowed`), and
+the create form states that all player characters are university-age adults.
+Product owner can revisit; changing it is a rules change in
+`shared/src/profile.ts` (`PLAYER_AGE_CATEGORIES`), not a migration.
+
+## D-020 — One character per account, for now (2026-10-17, M4)
+
+Enforced by a unique index on `characters.account_id`. Several characters per
+account later means dropping that index and adding a character picker; the
+tables already separate account and character.

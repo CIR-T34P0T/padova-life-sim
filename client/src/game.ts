@@ -3,10 +3,20 @@
 
 import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { GAME_CONFIG, PLAZA_LAYOUT, type RejectedPayload } from "@padova/shared";
+import {
+  GAME_CONFIG,
+  PLAZA_LAYOUT,
+  type Appearance,
+  type IdentityPayload,
+  type JoinOptionsWithIdentity,
+  type NewCharacterInput,
+  type ProfileErrorPayload,
+  type ProfilePayload,
+  type RejectedPayload,
+} from "@padova/shared";
 import { InputController } from "./input/inputController.ts";
 import { InteractionController } from "./interaction/interactionController.ts";
-import { GameConnection, type ConnectionStatus, type ReplicatedPlayer } from "./net/connection.ts";
+import { GameConnection, appearanceOf, type ConnectionStatus, type ReplicatedPlayer } from "./net/connection.ts";
 import { SnapshotBuffer } from "./net/interpolation.ts";
 import { createAvatar, type AvatarView } from "./render/avatars.ts";
 import { CameraRig } from "./render/cameraRig.ts";
@@ -21,6 +31,15 @@ interface RemoteEntity {
   view: AvatarView;
   buffer: SnapshotBuffer;
   latest: ReplicatedPlayer;
+}
+
+/** Profile events the page (main.ts) reacts to. */
+export interface ProfileHandlers {
+  onProfile(payload: ProfilePayload): void;
+  onIdentity(payload: IdentityPayload): void;
+  onProfileError(payload: ProfileErrorPayload): void;
+  onDisconnected(code: number | undefined): void;
+  onEditAppearance(): void;
 }
 
 /** Minimum time between direction updates sent to the server (ms). */
@@ -46,6 +65,7 @@ export class Game {
     private readonly container: HTMLElement,
     joystick: HTMLElement,
     private readonly hud: Hud,
+    private readonly profileHandlers: ProfileHandlers,
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: this.quality.antialias, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.maxPixelRatio));
@@ -58,7 +78,7 @@ export class Game {
     container.appendChild(this.labelRenderer.domElement);
 
     this.connection = new GameConnection({
-      onStatus: (status, detail) => this.onStatus(status, detail),
+      onStatus: (status, detail, code) => this.onStatus(status, detail, code),
       onPlayerAdded: (id, player) => this.addEntity(id, player),
       onPlayerChanged: (id, player) => this.updateEntity(id, player),
       onPlayerRemoved: (id) => this.removeEntity(id),
@@ -66,6 +86,9 @@ export class Game {
       onRejected: (payload) => this.onRejected(payload),
       onActionUpdate: (payload) => this.interactions.onActionUpdate(payload),
       onGreeted: (payload) => this.interactions.onGreeted(payload),
+      onProfile: (payload) => this.profileHandlers.onProfile(payload),
+      onIdentity: (payload) => this.profileHandlers.onIdentity(payload),
+      onProfileError: (payload) => this.profileHandlers.onProfileError(payload),
     });
 
     const overlay = document.body;
@@ -78,13 +101,14 @@ export class Game {
       entities: {
         selfId: () => this.connection.sessionId,
         get: (id) => this.entities.get(id),
-        hitMeshes: () => [...this.entities.values()].map((entity) => entity.view.hitMesh),
+        hitMeshes: () => [...this.entities.values()].flatMap((entity) => entity.view.hitMeshes),
       },
       connection: this.connection,
       hud,
       menu,
       progress,
       onGroundTap: (point) => this.walkTo(point),
+      onEditAppearance: () => this.profileHandlers.onEditAppearance(),
     });
 
     this.input = new InputController(container, joystick, {
@@ -109,10 +133,19 @@ export class Game {
     this.resize();
   }
 
-  async start(name: string): Promise<void> {
-    await this.connection.join({ name });
+  /** Joins the plaza. Rejects if the server refuses the guest token. */
+  async start(options: JoinOptionsWithIdentity): Promise<void> {
+    await this.connection.join(options);
     this.renderer.setAnimationLoop(() => this.frame());
     this.exposeDebugHook();
+  }
+
+  createCharacter(input: NewCharacterInput): void {
+    this.connection.createCharacter(input);
+  }
+
+  updateAppearance(appearance: Appearance): void {
+    this.connection.updateAppearance(appearance);
   }
 
   private frame(): void {
@@ -181,15 +214,16 @@ export class Game {
     this.hud.toast(reasonText(payload.reason));
   }
 
-  private onStatus(status: ConnectionStatus, detail?: string): void {
+  private onStatus(status: ConnectionStatus, detail?: string, code?: number): void {
     this.status = status;
-    this.hud.setStatus(status, detail);
+    this.hud.setStatus(status, detail, code);
+    if (status === "disconnected") this.profileHandlers.onDisconnected(code);
   }
 
   private addEntity(id: string, player: ReplicatedPlayer): void {
     if (this.entities.has(id)) return;
     const isSelf = id === this.connection.sessionId;
-    const view = createAvatar(id, player.hue, isSelf, this.quality);
+    const view = createAvatar(id, appearanceOf(player), isSelf, this.quality);
     view.setName(player.name);
     view.setAway(!player.connected);
     view.setActivity(player.activity, player.seatId !== "");
@@ -206,6 +240,17 @@ export class Game {
     if (!entity) return;
     if (entity.latest.connected !== player.connected) entity.view.setAway(!player.connected);
     if (entity.latest.name !== player.name) entity.view.setName(player.name);
+    const before = entity.latest;
+    if (
+      before.preset !== player.preset ||
+      before.skinTone !== player.skinTone ||
+      before.hairStyle !== player.hairStyle ||
+      before.hairColour !== player.hairColour ||
+      before.eyeColour !== player.eyeColour ||
+      before.outfit !== player.outfit
+    ) {
+      entity.view.setAppearance(appearanceOf(player));
+    }
     if (entity.latest.activity !== player.activity || entity.latest.seatId !== player.seatId) {
       entity.view.setActivity(player.activity, player.seatId !== "");
     }

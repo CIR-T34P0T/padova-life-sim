@@ -3,7 +3,8 @@
 // method. The phone is Chromium mobile EMULATION (touch, small viewport,
 // mobile user agent), not a physical device.
 
-import { devices, expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { devices, expect, test, type Page } from "@playwright/test";
+import { joinAs } from "./helpers.ts";
 
 interface DebugPlayer {
   id: string;
@@ -14,24 +15,6 @@ interface DebugPlayer {
   connected: boolean;
 }
 
-async function joinAs(browser: Browser, name: string, contextOptions = {}): Promise<{ context: BrowserContext; page: Page }> {
-  const context = await browser.newContext(contextOptions);
-  const page = await context.newPage();
-  page.on("pageerror", (error) => console.error(`[${name}] page error:`, error.message));
-  await page.goto("/");
-  await page.fill("#name", name);
-  await page.click("#join-button");
-  // Generous timeout: the first page load compiles on demand under Vite and
-  // test machines may render WebGL in software. A failed join shows its error.
-  try {
-    await expect(page.locator("#join")).toBeHidden({ timeout: 15_000 });
-  } catch (error) {
-    const shown = await page.locator("#join-error").textContent();
-    throw new Error(`${name} could not join (on-screen error: "${shown}")`, { cause: error });
-  }
-  await page.waitForFunction(() => (window as any).__padova?.status === "connected");
-  return { context, page };
-}
 
 const players = (page: Page) => page.evaluate(() => (window as any).__padova.players() as DebugPlayer[]);
 const selfId = (page: Page) => page.evaluate(() => (window as any).__padova.selfId as string);
@@ -88,15 +71,17 @@ test("two desktop players and a touch player share the piazza", async ({ browser
   });
 
   await test.step("touch tap-to-move is replicated to the others", async () => {
-    // A point straight ahead of the player, which is always on a portrait screen.
+    // Open ground ahead of the player and a little to the side, so the tap is
+    // not hidden behind the player's own head from the camera's point of view.
     const start = await positionSeenBy(phone.page, phoneId);
-    const target = { x: start.x, z: start.z - 2.5 };
+    const target = { x: start.x + 1.5, z: start.z - 3.5 };
     const point = await screenPointFor(phone.page, target.x, target.z);
     const viewport = phone.page.viewportSize()!;
     expect(point.x).toBeGreaterThan(0);
     expect(point.x).toBeLessThan(viewport.width);
     expect(point.y).toBeGreaterThan(0);
     expect(point.y).toBeLessThan(viewport.height);
+    expect(await phone.page.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [point.x, point.y] as const)).toMatchObject({ kind: "ground" });
     await phone.page.touchscreen.tap(point.x, point.y);
     await expect
       .poll(async () => {

@@ -1,3 +1,4 @@
+import { CLOSE_SIGNED_IN_ELSEWHERE } from "@padova/shared";
 import type { ConnectionStatus } from "../net/connection.ts";
 
 const STATUS_TEXT: Record<ConnectionStatus, string> = {
@@ -16,11 +17,12 @@ export class Hud {
     private readonly toastElement: HTMLElement,
   ) {}
 
-  setStatus(status: ConnectionStatus, detail?: string): void {
+  setStatus(status: ConnectionStatus, detail?: string, code?: number): void {
     this.statusElement.dataset.state = status;
     this.statusElement.textContent = STATUS_TEXT[status];
     this.statusElement.title = detail ?? "";
-    if (status === "disconnected") this.toast("Connection lost. Reload the page to rejoin.", 8000);
+    // "Signed in elsewhere" gets its own explanation from the profile panel.
+    if (status === "disconnected" && code !== CLOSE_SIGNED_IN_ELSEWHERE) this.toast("Connection lost. Reload the page to rejoin.", 8000);
   }
 
   setPlayerCount(count: number): void {
