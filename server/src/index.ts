@@ -12,7 +12,19 @@ if (process.env.DB_MIGRATE_ON_START !== "false") {
   if (applied.length) log.info("server", `applied migrations: ${applied.join(", ")}`);
 }
 
-const server = createGameServer({ db });
+/** Optional override of the per-IP guest creation limit (default in shared PROFILE_CONFIG). */
+function guestLimitFromEnv(): number | undefined {
+  const raw = process.env.GUEST_CREATIONS_PER_IP_PER_HOUR?.trim();
+  if (!raw) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`GUEST_CREATIONS_PER_IP_PER_HOUR must be a whole number of at least 1 (got "${raw}")`);
+  }
+  return value;
+}
+
+const guestCreationsPerIpPerHour = guestLimitFromEnv();
+const server = createGameServer({ db, tuning: guestCreationsPerIpPerHour ? { guestCreationsPerIpPerHour } : undefined });
 await server.listen(port, "0.0.0.0");
 log.info("server", `Padova Life SIM server listening on ws://0.0.0.0:${port}`);
 

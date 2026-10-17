@@ -150,3 +150,15 @@ for (const backend of testBackends) {
     });
   });
 }
+
+describe("database configuration", () => {
+  it("uses real PostgreSQL only when DATABASE_URL is set, and resolves PGlite folders from the repo root", async () => {
+    const { databaseConfigFromEnv, DEFAULT_PGLITE_DIR } = await import("../src/db/database.ts");
+    expect(databaseConfigFromEnv({ DATABASE_URL: "postgresql://u:p@h/db" })).toEqual({ kind: "postgres", url: "postgresql://u:p@h/db" });
+    expect(databaseConfigFromEnv({})).toEqual({ kind: "pglite", dataDir: DEFAULT_PGLITE_DIR });
+    expect(databaseConfigFromEnv({ DATABASE_URL: "  " })).toEqual({ kind: "pglite", dataDir: DEFAULT_PGLITE_DIR });
+    expect(databaseConfigFromEnv({ PGLITE_DATA_DIR: "memory://" })).toEqual({ kind: "pglite", dataDir: null });
+    // ".data/pglite" relative = the default folder, wherever the command runs from.
+    expect(databaseConfigFromEnv({ PGLITE_DATA_DIR: ".data/pglite" })).toEqual({ kind: "pglite", dataDir: DEFAULT_PGLITE_DIR });
+  });
+});

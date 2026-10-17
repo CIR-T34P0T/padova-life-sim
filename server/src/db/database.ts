@@ -43,14 +43,16 @@ export const DEFAULT_PGLITE_DIR = path.join(repoRoot, ".data", "pglite");
 /**
  * DATABASE_URL set → real PostgreSQL. Otherwise embedded PGlite stored in
  * PGLITE_DATA_DIR (default `.data/pglite` in the repo), or in memory when
- * PGLITE_DATA_DIR is "memory://".
+ * PGLITE_DATA_DIR is "memory://". A relative PGLITE_DATA_DIR is resolved from
+ * the repository root, so commands run from different folders (npm workspace
+ * scripts run inside server/) always use the same database.
  */
 export function databaseConfigFromEnv(env: NodeJS.ProcessEnv = process.env): DatabaseConfig {
   const url = env.DATABASE_URL?.trim();
   if (url) return { kind: "postgres", url };
   const dir = env.PGLITE_DATA_DIR?.trim();
   if (dir === "memory://") return { kind: "pglite", dataDir: null };
-  return { kind: "pglite", dataDir: dir ? path.resolve(dir) : DEFAULT_PGLITE_DIR };
+  return { kind: "pglite", dataDir: dir ? path.resolve(repoRoot, dir) : DEFAULT_PGLITE_DIR };
 }
 
 export async function openDatabase(config: DatabaseConfig): Promise<Database> {

@@ -15,7 +15,9 @@ import {
 } from "@padova/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { isWellFormedGuestToken } from "../src/identity/guestIdentity.ts";
+import type { Database } from "../src/db/database.ts";
 import { connect, joinWithNewCharacter, sleep, startTestServer, waitFor, type ProfileClient, type TestServer } from "./helpers/gameClient.ts";
+import { migratedTestDatabase } from "./helpers/testDatabase.ts";
 
 const count = async (server: TestServer, table: string) =>
   (await server.db.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table}`)).rows[0]!.n;
@@ -284,5 +286,63 @@ describe("autosave", () => {
     expect(saved.pos_x).toBeCloseTo(5, 1);
     expect(saved.pos_z).toBeCloseTo(10, 1);
     expect(playerIn(kai, kai.room.sessionId)).toBeDefined(); // still online: this was an autosave, not a save on leave
+  });
+});
+
+describe("leaving and coming straight back", () => {
+  // Regression test: a reload used to load the character from the database
+  // before the closing tab's final position save had finished, putting the
+  // player back at their previous saved spot. Saves are slowed down here so
+  // the race happens every time.
+  const SAVE_DELAY_MS = 400;
+  const context = { server: undefined as unknown as TestServer };
+  const rooms: Room[] = [];
+  beforeAll(async () => {
+    const db = await migratedTestDatabase();
+    const slowSaves: Database = Object.assign(Object.create(db) as Database, {
+      async query(sql: string, params?: unknown[]) {
+        if (sql.includes("INSERT INTO character_state") && sql.includes("ON CONFLICT")) await sleep(SAVE_DELAY_MS);
+        return db.query(sql, params);
+      },
+    });
+    context.server = await startTestServer(2620, { walkSpeed: 9 }, slowSaves);
+  });
+  afterEach(async () => {
+    await Promise.all(rooms.splice(0).map((room) => Promise.race([room.leave(true).catch(() => undefined), sleep(500)])));
+  });
+  afterAll(async () => {
+    await context.server.stop();
+  });
+
+  it("loads the position saved by the session that just left, not an older one", async () => {
+    const first = await joinWithNewCharacter(context.server.url, "Elena");
+    rooms.push(first.room);
+    first.room.send(ClientMessage.MoveTo, { x: -7, z: 11 });
+    await waitFor(() => {
+      const me = playerIn(first, first.room.sessionId);
+      return Math.hypot(me.x + 7, me.z - 11) < 0.1 && !me.moving;
+    }, 6000, "walked");
+    // Leave and immediately come back, like a page reload: no waiting for the save.
+    void first.room.leave(true);
+    const again = await connect(context.server.url, { guestToken: first.guestToken });
+    rooms.push(again.room);
+    await waitFor(() => playerIn(again, again.room.sessionId) !== undefined, 4000, "spawned");
+    const me = playerIn(again, again.room.sessionId);
+    expect(Math.hypot(me.x + 7, me.z - 11)).toBeLessThan(0.1);
+  });
+
+  it("does the same when the new session arrives before the old one has left", async () => {
+    const first = await joinWithNewCharacter(context.server.url, "Fabio");
+    rooms.push(first.room);
+    first.room.send(ClientMessage.MoveTo, { x: 5, z: 10 });
+    await waitFor(() => {
+      const me = playerIn(first, first.room.sessionId);
+      return Math.hypot(me.x - 5, me.z - 10) < 0.1 && !me.moving;
+    }, 6000, "walked");
+    const again = await connect(context.server.url, { guestToken: first.guestToken });
+    rooms.push(again.room);
+    await waitFor(() => playerIn(again, again.room.sessionId) !== undefined, 4000, "spawned");
+    const me = playerIn(again, again.room.sessionId);
+    expect(Math.hypot(me.x - 5, me.z - 10)).toBeLessThan(0.1);
   });
 });

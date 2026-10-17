@@ -40,6 +40,12 @@ interface Session {
   evicted: boolean;
   creating: boolean;
   lastSaved: { x: number; z: number } | null;
+  /**
+   * Set once removal starts: resolves when the final save is written. A new
+   * session of the same account waits for it before loading, so it never
+   * reads a position older than the one being saved.
+   */
+  removal: Promise<void> | null;
 }
 
 interface AuthResult {
@@ -129,6 +135,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       evicted: false,
       creating: false,
       lastSaved: null,
+      removal: null,
     };
     this.sessions.set(client.sessionId, session);
 
@@ -193,8 +200,10 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
 
   private async evict(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
-    if (!session || session.evicted) return;
+    if (!session) return;
+    if (session.evicted) return session.removal ?? undefined;
     session.evicted = true;
+    // If the old session is already leaving, this waits for its save in flight.
     await this.saveAndRemove(sessionId);
     log.info("plaza", `${sessionId} signed in elsewhere; disconnecting this session`);
     this.clients.getById(sessionId)?.leave(CLOSE_SIGNED_IN_ELSEWHERE, "signed_in_elsewhere");
@@ -296,13 +305,20 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     log.info("plaza", `${loaded.profile.displayName} (${client.sessionId}) entered; ${this.state.players.size} in the world`);
   }
 
-  /** Saves the character (if any) and removes it from the world. */
-  private async saveAndRemove(sessionId: string): Promise<void> {
+  /**
+   * Saves the character (if any) and removes it from the world. Safe to call
+   * more than once: later calls wait for the same save instead of starting
+   * a second one after the character is already gone.
+   */
+  private saveAndRemove(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (session?.removal) return session.removal;
     const save = this.saveCharacter(sessionId);
+    if (session) session.removal = save;
     this.interactions.onLeave(sessionId);
     this.state.players.delete(sessionId);
     this.runtimes.delete(sessionId);
-    await save;
+    return save;
   }
 
   /** Persists position. Seated characters are saved at the spot they would stand up to. */
