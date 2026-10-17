@@ -22,21 +22,40 @@ architecture. It is **not** the game yet.
 | Character creation, needs, jobs, university, persistence | Not started (see docs/ROADMAP.md) |
 
 "Tested" means covered by the automated tests in `docs/TESTING.md`. Mobile is
-verified in Chromium mobile emulation only; a real phone has not been tested yet.
+tested in Chromium mobile emulation only; a real phone has not been tested yet.
+All automated runs so far were on Linux; running on Windows is not yet confirmed.
+Open items and the next task are listed in `docs/ROADMAP.md` ("Current state").
 
 ## Prerequisites
 
 - Node.js 22 or newer (`node -v`)
 - npm 10 or newer (comes with Node)
+- Git (`git --version`). On Windows: `winget install --id Git.Git -e --source winget`, then open a new terminal.
 
 No database or Docker is needed yet.
 
 ## Getting started
 
+The repository is private: <https://github.com/CIR-T34P0T/padova-life-sim>
+
 ```bash
+git clone https://github.com/CIR-T34P0T/padova-life-sim.git
+cd padova-life-sim
 npm install
 npm run dev
 ```
+
+### Windows notes
+
+- Use a normal (not Administrator) PowerShell or Command Prompt, and clone into
+  your user folder (for example `cd $HOME\Documents`), not `C:\Windows\system32`.
+- If PowerShell says "running scripts is disabled", use Command Prompt, or run
+  `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+- When Windows Firewall asks about Node.js, allow it on private networks
+  (needed for phones on the same Wi-Fi).
+- If `npm run dev` fails, start the two parts in separate terminals:
+  `npm run dev -w server` and `npm run dev -w client`, and report the error
+  (the combined script has not been tested on Windows yet).
 
 Then open <http://localhost:5173>. Open a second browser window (or a private
 window) to see two players.

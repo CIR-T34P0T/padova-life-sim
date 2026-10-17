@@ -42,6 +42,14 @@ or auth model without the product owner's approval.
   into gestures; gameplay code never checks the device type.
 - Placeholders must be labelled as placeholders in code and docs.
 
+## Starting a new session
+
+1. `git status` and `git pull` (repo: `CIR-T34P0T/padova-life-sim`, branch `main`).
+2. Read `docs/ROADMAP.md` → "Current state": open items and the next task.
+3. Read `docs/TESTING.md` → known issues, and how to run tests in Claude's cloud
+   workspace (Playwright needs `CHROMIUM_PATH` there).
+4. Run `npm install` and `npm run check` to confirm a green baseline before editing.
+
 ## Workflow
 
 1. Read the relevant docs and code before changing anything.

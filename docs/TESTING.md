@@ -40,10 +40,26 @@ removes the player for the others. Screenshots are saved to `test-results/`.
 | 2026-10-17 | unit + integration | 22/22 pass | Repeated runs, all passing |
 | 2026-10-17 | e2e | 13 of 14 runs passed | Counted after fixing three test-script bugs (an occluded click target, a target at the screen edge, a single-shot check that should poll). One run then failed waiting up to 5 s for a join to finish; the join timeout is now 15 s and a failed join reports its on-screen error. 7 consecutive passes since. Suspected cause: CPU contention from three software-rendered WebGL pages. Runs used a preinstalled Chromium 141 via `CHROMIUM_PATH` because Playwright's browser download was blocked in that environment. |
 
-## Known gaps
+## Known issues and gaps
+
+Bugs (behaviour that is wrong or unreliable):
+
+- **E2E join intermittently slow**: 1 of 14 runs timed out waiting for a join
+  (see results log). Not reproduced since the timeout was raised; watch for it.
+
+Untested or limited (behaviour that is unverified, or limited by design for now):
 
 - **No physical phone or tablet tested yet.** Mobile results come from
   emulation. Manual check needed on a real Android phone and an iPhone (Safari).
+- **Windows not tested.** All automated runs were on Linux. `scripts/dev.mjs`
+  uses `npm.cmd` with `shell: true` on Windows, which has not been exercised.
+- Reloading the page creates a new character (no persistence until M4, see D-008).
+- Ground hidden behind an object from the camera's angle cannot be clicked:
+  the click lands on the object and is refused. Rotate the camera instead.
+  A later UX pass may route clicks to the ground behind low objects.
+- The local player has no client-side prediction, so it responds with about
+  100–150 ms of delay (D-006).
+- Display names are not unique or reserved.
 - Firefox and Safari not tested.
 - Reconnection-window expiry (player removed after 20 s offline) is not
   covered by an automated test.
@@ -53,6 +69,15 @@ removes the player for the others. Screenshots are saved to `test-results/`.
   (pulled in by the SDK, unused by this project). The suggested `--force` fix
   would downgrade Colyseus to 0.15, so it was not applied. Recheck on Colyseus updates.
 - Client bundle is 727 KB (194 KB gzipped), mostly Three.js; code splitting is a later optimisation.
+
+## Notes for running tests in Claude's cloud workspace
+
+- Playwright's browser download (`cdn.playwright.dev`) is blocked there. A
+  Chromium is preinstalled; run the e2e suite with
+  `CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test:e2e`.
+- Use absolute paths (`/home/claude/padova-life-sim`): `~` in the shell resolves
+  to `/root`, not the project's parent folder.
+- The Colyseus startup banner appears in test output; it is cosmetic.
 
 ## Manual test checklist (real devices)
 

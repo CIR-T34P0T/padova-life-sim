@@ -53,3 +53,17 @@ menus and character panels arrive.
 once. Unexpected disconnects hold the character for 20 s while the SDK
 reconnects automatically. Consequence: reloading the page creates a new
 character until persistence (M4) exists.
+
+## D-009 — Source control on a private GitHub repo, trunk on `main` (2026-10-17)
+
+Code lives at `CIR-T34P0T/padova-life-sim` (private). Small, tested changes go
+straight to `main`; risky or multi-step features use a branch and are merged
+once `npm run check` and the e2e suite pass. Check the working tree and pull
+before changing anything.
+
+## D-010 — Tooling versions (2026-10-17)
+
+TypeScript 7 (native compiler), Vite 8, Vitest 5, Playwright 1.64, tsx 4,
+Three.js r186, Colyseus 0.18. Vitest 4 could not be installed: npm 10 failed
+while resolving its optional peer dependencies. Vitest 5 installs cleanly.
+Upgrade majors deliberately and record the change here.
