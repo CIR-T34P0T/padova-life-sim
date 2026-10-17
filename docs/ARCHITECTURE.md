@@ -1,6 +1,6 @@
 # Architecture
 
-Status as of the walking skeleton (M0–M2). Sections marked *planned* describe
+Status as of M3 (walking skeleton + contextual interactions). Sections marked *planned* describe
 intent, not code.
 
 ## Overview
@@ -15,8 +15,8 @@ intent, not code.
  └────────────┬─────────────┘              └─────────────┬─────────────┘
               │ imports                                  │ imports
               └──────────────► shared/ ◄─────────────────┘
-                 world layout · collision · pathfinding · movement
-                 message contract + validators · tuning config
+                 world layout + interactables · collision · pathfinding · movement
+                 interaction rules · message contract + validators · tuning config
 ```
 
 ## Packages
@@ -43,7 +43,8 @@ the client, `tsx` runs it on the server.
 ## Input
 
 `client/src/input/inputController.ts` is the single input layer. It emits
-device-neutral events: `onTap`, `onRotate`, `onZoom`, `onMoveInput`.
+device-neutral events: `onTap`, `onHover` (mouse only), `onCancel` (Escape),
+`onRotate`, `onZoom`, `onMoveInput`.
 
 - Tap vs drag: ≤ 8 px movement and < 450 ms is a tap; anything else rotates
   the camera. Two pointers pinch-zoom and never produce a tap.
@@ -60,6 +61,52 @@ device-neutral events: `onTap`, `onRotate`, `onZoom`, `onMoveInput`.
   cutting) with line-of-sight smoothing (`navigation.ts`). See D-005.
 - The server steps every character at 20 Hz (`movement.ts`).
 
+## Interactions (M3)
+
+Click/tap-to-interact, inspired by life-sim games, with original UI.
+
+**Data (`shared/src/world.ts`).** Each clickable object is an `Interactable`
+with a stable id equal to its obstacle id (`bench-1`, `desk-2`), a kind, a
+menu label, and `seats`. A seat has a stable id (`bench-1/seat-a`), the
+seated position and facing, and an `approach` point on walkable ground where
+the character stands before sitting and returns to when standing up.
+
+**Rules (`shared/src/interactions.ts`).** Pure functions:
+`objectActions` / `playerActions` decide menu contents;
+`validateObjectAction` / `validatePlayerAction` are the server checks
+(action offered by this target, straight-line distance ≤ 35 m, free seat,
+not yourself, target connected, 5 s greeting cooldown per pair);
+`chooseSeat` and `greetApproachPoint` pick interaction points.
+
+**Server (`server/src/InteractionSystem.ts`).** One pending action per
+player. A request is validated, then any previous action is cancelled
+("replaced"), a seat is reserved in replicated `state.seats`, a path to the
+interaction point is planned (unreachable → rejected, nothing reserved), and
+the character walks there. Every tick the system checks arrival: within
+0.25 m of the point it executes (snaps to the seat, sets `activity`);
+stuck short of it → `failed: blocked`. Studying and greeting run on server
+timers. Movement orders interrupt actions and stand a seated player up;
+a drop cancels the pending action but keeps an occupied seat for the
+reconnection window; leaving frees all seats. The room (`PlazaRoom`) only
+routes messages and runs movement, then `interactions.tick()`.
+
+**Client (`client/src/interaction/interactionController.ts`).** Raycasts
+taps against the ground, obstacles and avatar bodies (`pick`). Results:
+object, other player, self, ground, or a non-interactive obstacle. Tapping
+yourself while seated opens the seat's menu (Stand up); standing, it selects
+nothing. Menus are built with the shared rules over replicated state and
+re-rendered only when their contents change. With a menu open, tapping
+elsewhere only dismisses it.
+
+**Presentation (`client/src/ui`).** `actionMenu.ts` has two implementations
+of one interface: a radial fan of options anchored above the target
+(fine pointer) and a bottom sheet with 56 px buttons (coarse pointer; docked
+right in landscape, full width in portrait with the joystick hidden while
+open). Override with `?menu=radial|sheet`. `actionProgress.ts` shows the
+current action with a progress bar for timed actions and a Cancel button.
+Highlights (`render/worldScene.ts` outline, `render/avatars.ts` rings),
+the seated pose, activity label and "Ciao!" bubble are presentation only.
+
 ## Multiplayer
 
 See `NETWORKING.md`. In short: Colyseus room per area, server-authoritative
@@ -74,7 +121,8 @@ saved character and position.
 
 ## Not yet decided or built
 
-- UI framework for panels (React planned at M3).
+- UI framework for larger panels (character info, inventory). Plain DOM was
+  enough for M3 menus; see D-007.
 - Authentication provider, database schema and migration tool (M4).
 - Character pipeline (VRM, M6) — see `ASSET_PIPELINE.md`.
 - Shared-world time model — see `GAME_DESIGN.md` open questions.

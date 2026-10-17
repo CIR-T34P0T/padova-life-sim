@@ -13,7 +13,11 @@ const KIND_COLOURS: Record<ObstacleKind, number> = {
   stall: 0xc4623f, // terracotta awnings
   bench: 0x8a6a4f,
   planter: 0x6f8f4e,
+  desk: 0x9a7b5a,
 };
+
+const SELECTED_EDGE = 0xc4623f;
+const HOVER_EDGE = 0xf2b89c;
 
 export interface WorldScene {
   scene: THREE.Scene;
@@ -23,6 +27,10 @@ export interface WorldScene {
   blockers: THREE.Object3D[];
   /** Ground ring shown where the player last asked to walk. */
   targetMarker: THREE.Mesh;
+  /** Meshes of clickable objects, keyed by interactable id (`userData.interactableId`). */
+  interactableMeshes: Map<string, THREE.Mesh>;
+  /** Shows an outline on one object as selected and/or another as hovered (null clears). */
+  highlight(selectedId: string | null, hoveredId: string | null): void;
 }
 
 export function buildWorldScene(world: WorldLayout, quality: QualityProfile): WorldScene {
@@ -74,6 +82,8 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile): Wo
   }
 
   const blockers: THREE.Object3D[] = [];
+  const interactableMeshes = new Map<string, THREE.Mesh>();
+  const interactableIds = new Set(world.interactables.map((item) => item.id));
   const materials = new Map<ObstacleKind, THREE.MeshStandardMaterial>();
   const unitBox = new THREE.BoxGeometry(1, 1, 1);
   for (const obstacle of world.obstacles) {
@@ -91,9 +101,41 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile): Wo
     mesh.receiveShadow = quality.shadows;
     mesh.name = obstacle.id;
     mesh.userData.label = obstacle.label;
+    if (interactableIds.has(obstacle.id)) {
+      mesh.userData.interactableId = obstacle.id;
+      interactableMeshes.set(obstacle.id, mesh);
+    }
     scene.add(mesh);
     blockers.push(mesh);
   }
+
+  // One outline object, re-parented onto whichever object is highlighted.
+  // It is a child of the (scaled) unit box, so a unit-box outline fits exactly.
+  const edgeGeometry = new THREE.EdgesGeometry(unitBox);
+  const makeOutline = (color: number) => {
+    const outline = new THREE.LineSegments(edgeGeometry, new THREE.LineBasicMaterial({ color, depthTest: false }));
+    outline.scale.setScalar(1.04);
+    outline.renderOrder = 10;
+    outline.visible = false;
+    outline.raycast = () => undefined; // never pickable
+    return outline;
+  };
+  const selectedOutline = makeOutline(SELECTED_EDGE);
+  const hoverOutline = makeOutline(HOVER_EDGE);
+  const attach = (outline: THREE.LineSegments, id: string | null) => {
+    const mesh = id ? interactableMeshes.get(id) : undefined;
+    if (!mesh) {
+      outline.visible = false;
+      outline.removeFromParent();
+      return;
+    }
+    if (outline.parent !== mesh) mesh.add(outline);
+    outline.visible = true;
+  };
+  const highlight = (selectedId: string | null, hoveredId: string | null) => {
+    attach(selectedOutline, selectedId);
+    attach(hoverOutline, hoveredId && hoveredId !== selectedId ? hoveredId : null);
+  };
 
   const targetMarker = new THREE.Mesh(
     new THREE.RingGeometry(0.35, 0.5, 32),
@@ -104,5 +146,5 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile): Wo
   targetMarker.visible = false;
   scene.add(targetMarker);
 
-  return { scene, ground, blockers, targetMarker };
+  return { scene, ground, blockers, targetMarker, interactableMeshes, highlight };
 }

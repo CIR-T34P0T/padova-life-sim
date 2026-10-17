@@ -12,6 +12,10 @@
 
 export interface InputHandlers {
   onTap(clientX: number, clientY: number): void;
+  /** Mouse moved with no button pressed (desktop hover). Null when the pointer leaves. */
+  onHover(clientX: number | null, clientY: number | null): void;
+  /** Escape key: close a menu or cancel the current action. */
+  onCancel(): void;
   onRotate(deltaX: number, deltaY: number): void;
   onZoom(factor: number): void;
   /** Movement relative to the camera: forward and right in [-1, 1]. */
@@ -48,6 +52,9 @@ export class InputController {
     this.listen(surface, "pointermove", (e) => this.onPointerMove(e as PointerEvent));
     this.listen(surface, "pointerup", (e) => this.onPointerUp(e as PointerEvent));
     this.listen(surface, "pointercancel", (e) => this.onPointerCancel(e as PointerEvent));
+    this.listen(surface, "pointerleave", (e) => {
+      if ((e as PointerEvent).pointerType === "mouse") this.handlers.onHover(null, null);
+    });
     this.listen(surface, "wheel", (e) => this.onWheel(e as WheelEvent), { passive: false });
     this.listen(surface, "contextmenu", (e) => e.preventDefault());
     this.listen(window, "keydown", (e) => this.onKey(e as KeyboardEvent, true));
@@ -91,7 +98,11 @@ export class InputController {
 
   private onPointerMove(e: PointerEvent): void {
     const pointer = this.pointers.get(e.pointerId);
-    if (!pointer) return;
+    if (!pointer) {
+      // A mouse moving with no button held is hovering. Touch has no hover.
+      if (e.pointerType === "mouse" && e.buttons === 0) this.handlers.onHover(e.clientX, e.clientY);
+      return;
+    }
     const dx = e.clientX - pointer.lastX;
     const dy = e.clientY - pointer.lastY;
     pointer.lastX = e.clientX;
@@ -141,6 +152,10 @@ export class InputController {
   private onKey(e: KeyboardEvent, down: boolean): void {
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     const code = e.code;
+    if (code === "Escape") {
+      if (down) this.handlers.onCancel();
+      return;
+    }
     if (!MOVE_KEYS.has(code)) return;
     e.preventDefault();
     if (down) this.keys.add(code);

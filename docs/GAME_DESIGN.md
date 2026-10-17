@@ -37,8 +37,11 @@ The current greybox piazza is a placeholder test space, not a real location.
 - Mobile: tap to select, optional joystick, gestures for the camera, large touch
   targets, landscape preferred.
 - Reference screenshots supplied: a radial menu around the target (desktop
-  life-sim) and a card list with costs/durations (mobile life-sim). We will
-  design our own visual language for both layouts in M3.
+  life-sim) and a card list with costs/durations (mobile life-sim).
+- **Implemented in M3** with an original look: terracotta pill options fanned
+  above the target on desktop; a bottom sheet with large buttons on touch.
+  Objects so far: benches (sit, stand) and study desks (sit, study). Players:
+  greet. Only currently valid actions are shown; the server re-checks them.
 
 ## Open design questions
 

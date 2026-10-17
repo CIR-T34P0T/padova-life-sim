@@ -16,8 +16,9 @@ Never imply affiliation with the University of Padua.
 ## Stack (approved, see docs/DECISIONS.md)
 
 - TypeScript everywhere, npm workspaces: `shared/`, `server/`, `client/`.
-- Client: Three.js (WebGL2), Vite, DOM/CSS overlay for UI. No React yet;
-  React for UI panels is planned from M3 and needs no new approval.
+- Client: Three.js (WebGL2), Vite, DOM/CSS overlay for UI. No React yet
+  (D-007); it may be added for data-heavy panels without new approval, never
+  for the game loop.
 - Server: Node.js 22 + Colyseus 0.18 (`@colyseus/core`, `@colyseus/ws-transport`).
 - Database: PostgreSQL planned for M4. Not installed yet.
 - Tests: Vitest (unit + server integration), Playwright (multi-browser e2e).
@@ -38,6 +39,10 @@ or auth model without the product owner's approval.
 - **Replicate only what others need to see.** Internal state (paths, rate
   counters) stays in server-only structures, not in the Colyseus schema.
 - **Tuning values go in `shared/src/config.ts`**, not inline.
+- **Interactions follow one lifecycle** (`server/src/InteractionSystem.ts`):
+  validate → reserve → walk to the interaction point → execute on arrival →
+  complete. New object types add data to `shared/src/world.ts` and rules to
+  `shared/src/interactions.ts`; they don't add special cases to the room.
 - **Input is device-agnostic.** `client/src/input` turns mouse/touch/keyboard
   into gestures; gameplay code never checks the device type.
 - Placeholders must be labelled as placeholders in code and docs.

@@ -9,6 +9,10 @@ The server is authoritative over every replicated value.
 | --- | --- | --- | --- |
 | Player position, facing, moving flag | Server | Yes (all players in room) | No |
 | Display name, placeholder colour | Server (name sanitised from join option) | Yes | No |
+| Activity (`idle`/`sitting`/`studying`/`greeting`), seat, greeting target | Server | Yes | No |
+| Seat occupancy and reservations (`state.seats`) | Server | Yes | No |
+| Pending action (phase, goal, timer), greeting cooldowns | Server | No | No |
+| Selection, open menu, hover, progress-bar animation | Client | No | No |
 | Connected flag (reconnection window) | Server | Yes | No |
 | Current path / direction intent | Server | No | No |
 | Rate-limit counters | Server | No | No |
@@ -27,14 +31,22 @@ Client → server (intents only):
 | --- | --- | --- |
 | `moveTo` | `{ x, z }` | Validates numbers, bounds and walkability, pathfinds from the server-side position. Rejects with a reason if not possible. |
 | `moveDir` | `{ dx, dz }` | Clamps length to ≤ 1 (no speed hacks). Zero vector = stop. |
-| `stop` | none | Stops walking. |
+| `stop` | none | Stops walking and interrupts the current action (does not stand up). |
+| `interact` | `{ targetKind: "object" \| "player", targetId, action }` | Validates and runs the interaction lifecycle (see ARCHITECTURE "Interactions"). Malformed → `rejected`; refused → `action` with status `rejected`. Counts toward the 20/s intent limit. |
+| `cancelAction` | none | Cancels the current action, if any. |
 | anything else | — | Ignored and logged at warn level. |
 
 Server → client:
 
 | Type | Payload | Meaning |
 | --- | --- | --- |
-| `rejected` | `{ action, reason }` | Reasons: `invalid_payload`, `target_out_of_bounds`, `target_blocked`, `unreachable`, `search_limit`, `rate_limited` |
+| `rejected` | `{ action, reason }` | Movement or malformed `interact`. Reasons: `invalid_payload`, `target_out_of_bounds`, `target_blocked`, `unreachable`, `search_limit`, `rate_limited` |
+| `action` | `{ actionId, status, action, targetKind, targetId, reason?, durationMs? }` | Sent only to the actor. Status flow: `queued` → `started` → `completed`, or `rejected` (never started, `actionId` 0), `failed`, `cancelled`. Refusal reasons: `unknown_target`, `target_is_self`, `target_offline`, `action_not_available`, `no_free_seat`, `too_far`, `unreachable`, `blocked`, `target_left`, `target_moved`, `too_soon`, `rate_limited`. Cancel reasons: `cancelled`, `interrupted`, `replaced`, `disconnected`. |
+| `greeted` | `{ fromId, fromName }` | Sent to the player being greeted. |
+
+Direct messages are sent immediately, while state patches go out every 50 ms,
+so a client can receive `completed` slightly before the state shows the
+character seated. Clients must not assume the two arrive together.
 
 State is synchronised automatically via `PlazaState` (`server/src/schema.ts`).
 
@@ -67,4 +79,5 @@ The local player is rendered the same way (no prediction yet, see D-006).
 - Multiple rooms or areas, room transfer between districts.
 - Authentication; player identity across sessions.
 - Client-side prediction and reconciliation for the local player.
-- Chat, private messaging, blocking and reporting.
+- Chat, private messaging, blocking and reporting. Greetings are limited
+  only by a 5 s cooldown per pair and the intent rate limit.

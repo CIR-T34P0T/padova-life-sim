@@ -9,6 +9,7 @@ Nothing is persisted. All data lives in the room and disappears when players lea
 ```
 PlazaState
   players: Map<sessionId, PlayerState>
+  seats:   Map<seatId, sessionId>   occupied or reserved seats
 
 PlayerState
   name: string         sanitised display name (2–20 chars) or "Guest N"
@@ -17,13 +18,19 @@ PlayerState
   moving: boolean
   connected: boolean   false during the reconnection window
   hue: uint16          placeholder body colour, derived from session id
+  activity: string     "idle" | "sitting" | "studying" | "greeting"
+  seatId: string       seat occupied while sitting/studying, else ""
+  targetId: string     player being greeted while greeting, else ""
 ```
 
-**Server-only (`PlazaRoom.runtimes`):** current movement intent (path
-waypoints or direction) and rate-limit counters per player.
+**Server-only (`PlayerRuntime`, `server/src/runtime.ts`):** current movement
+intent (path waypoints or direction), rate-limit counters, the pending action
+(id, action, target, reserved seat, phase, goal point, timer, re-plan count)
+and last greeting time per target.
 
 **Static content (`shared/src/world.ts`):** world bounds, obstacle boxes with
-kind and placeholder label, spawn points.
+kind and placeholder label, spawn points, and interactables (id = obstacle id,
+kind `bench` | `desk`, label, seats with seated position/facing and approach point).
 
 ## Planned (M4 onward, not implemented)
 

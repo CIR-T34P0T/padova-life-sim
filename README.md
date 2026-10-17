@@ -5,7 +5,7 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton (M0–M2)
+## Current status: walking skeleton + interactions (M0–M3)
 
 What exists today is a deliberately plain, end-to-end slice that proves the
 architecture. It is **not** the game yet.
@@ -18,8 +18,11 @@ architecture. It is **not** the game yet.
 | Keyboard (WASD/arrows) and on-screen joystick movement | Multiplayer functional, tested |
 | Server-authoritative movement and validation | Multiplayer functional, tested |
 | Join / leave / brief-disconnect reconnection | Multiplayer functional, tested |
+| Click/tap objects and players for contextual actions (desktop radial menu, mobile bottom sheet) | Multiplayer functional, tested |
+| Bench: sit / stand · Study desk: sit / study · Other player: greet | Multiplayer functional, tested (studying has no effect yet) |
+| Action progress, cancel, and explanations when refused | Multiplayer functional, tested |
 | Placeholder capsule avatars with name tags | Placeholder |
-| Character creation, needs, jobs, university, persistence | Not started (see docs/ROADMAP.md) |
+| Character creation, needs, skills, jobs, university, persistence | Not started (see docs/ROADMAP.md) |
 
 "Tested" means covered by the automated tests in `docs/TESTING.md`. Mobile is
 tested in Chromium mobile emulation only; a real phone has not been tested yet.
@@ -61,6 +64,15 @@ Then open <http://localhost:5173>. Open a second browser window (or a private
 window) to see two players.
 
 The client runs on port 5173 and the game server on port 2567.
+
+### How to play
+
+- **Walk:** click/tap the ground, or use WASD/arrow keys (desktop) or the joystick (touch).
+- **Interact:** click/tap a bench, a study desk (in front of the university hall,
+  north-west) or another player, then pick an action from the menu.
+- **Stand up:** click/tap yourself while seated, or just walk away.
+- **Cancel:** the Cancel button on the action bar, or Escape.
+- **Camera:** drag to turn; mouse wheel or pinch to zoom.
 
 ### Playing from a phone on the same Wi-Fi
 

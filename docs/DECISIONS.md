@@ -41,11 +41,13 @@ impossible by construction. Trade-off: the local player sees its own movement
 with ~100–150 ms delay (no client prediction yet). Prediction with
 reconciliation is a planned improvement once interactions exist.
 
-## D-007 — No React in the walking skeleton (2026-10-17)
+## D-007 — No React yet (2026-10-17, revised for M3)
 
-The skeleton's UI is a join form and two status pills; plain DOM is enough.
-React (UI panels only, never the game loop) is planned for M3 when contextual
-menus and character panels arrive.
+The skeleton's UI was a join form and two status pills. M3's radial menu,
+action sheet and progress pill were also built in plain DOM/TypeScript
+(about 300 lines) without trouble, so React was still not added. Revisit when
+data-heavy panels arrive (character info, inventory, relationships). If
+added, React renders UI panels only, never the game loop.
 
 ## D-008 — Closing the tab leaves immediately; network drops get 20 s (2026-10-17)
 
@@ -67,3 +69,30 @@ TypeScript 7 (native compiler), Vite 8, Vitest 5, Playwright 1.64, tsx 4,
 Three.js r186, Colyseus 0.18. Vitest 4 could not be installed: npm 10 failed
 while resolving its optional peer dependencies. Vitest 5 installs cleanly.
 Upgrade majors deliberately and record the change here.
+
+## D-011 — One action at a time; a new request replaces the current one (2026-10-17)
+
+Each player has at most one pending action (walking to it or doing it). A new
+valid request cancels the old one with reason `replaced`; an invalid request
+leaves the current action untouched. A multi-step action queue (as in
+life-sim games) can be added later on top of the same lifecycle.
+
+## D-012 — Seats are reserved when an action is accepted, and replicated (2026-10-17)
+
+The seat is claimed when the request is accepted, not on arrival, so two
+players can never walk to the same seat. Reservations live in replicated
+`state.seats` so every client's menu shows only free seats. Released on
+cancel, failure, standing up, or leaving.
+
+## D-013 — Menu presentation follows the pointer type (2026-10-17)
+
+Fine pointer (mouse) → radial menu anchored to the target; coarse pointer
+(touch) → bottom sheet. This is a presentation choice made in `ui/`;
+gameplay code never checks the device. `?menu=radial|sheet` forces either.
+
+## D-014 — Per-room tuning overrides for tests (2026-10-17)
+
+`createGameServer(tuning)` passes overrides (walking speed, timers, distance
+limit, world layout) to the room. Production passes none and uses the shared
+config. This keeps integration tests fast and lets them use purpose-built
+worlds (e.g. an unreachable bench) without test-only branches in game code.

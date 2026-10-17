@@ -5,28 +5,23 @@ import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import { GAME_CONFIG, PLAZA_LAYOUT, type RejectedPayload } from "@padova/shared";
 import { InputController } from "./input/inputController.ts";
+import { InteractionController } from "./interaction/interactionController.ts";
 import { GameConnection, type ConnectionStatus, type ReplicatedPlayer } from "./net/connection.ts";
 import { SnapshotBuffer } from "./net/interpolation.ts";
 import { createAvatar, type AvatarView } from "./render/avatars.ts";
 import { CameraRig } from "./render/cameraRig.ts";
 import { detectQuality } from "./render/quality.ts";
 import { buildWorldScene } from "./render/worldScene.ts";
+import { createActionMenu } from "./ui/actionMenu.ts";
+import { ActionProgress } from "./ui/actionProgress.ts";
 import { Hud } from "./ui/hud.ts";
+import { reasonText } from "./ui/reasons.ts";
 
 interface RemoteEntity {
   view: AvatarView;
   buffer: SnapshotBuffer;
   latest: ReplicatedPlayer;
 }
-
-const REJECTION_TEXT: Record<string, string> = {
-  target_blocked: "You can't walk there.",
-  target_out_of_bounds: "That's outside the piazza.",
-  unreachable: "There's no way to get there.",
-  search_limit: "That's too far to plan a route.",
-  rate_limited: "Slow down a little.",
-  invalid_payload: "That action wasn't understood.",
-};
 
 /** Minimum time between direction updates sent to the server (ms). */
 const DIRECTION_SEND_INTERVAL_MS = 80;
@@ -37,10 +32,10 @@ export class Game {
   private readonly labelRenderer = new CSS2DRenderer();
   private readonly world = buildWorldScene(PLAZA_LAYOUT, this.quality);
   private readonly rig = new CameraRig(window.innerWidth / window.innerHeight);
-  private readonly raycaster = new THREE.Raycaster();
   private readonly entities = new Map<string, RemoteEntity>();
   private readonly connection: GameConnection;
   private readonly input: InputController;
+  private readonly interactions: InteractionController;
   private status: ConnectionStatus = "connecting";
   private moveInput = { forward: 0, right: 0 };
   private lastSentDirection = { dx: 0, dz: 0 };
@@ -67,11 +62,37 @@ export class Game {
       onPlayerAdded: (id, player) => this.addEntity(id, player),
       onPlayerChanged: (id, player) => this.updateEntity(id, player),
       onPlayerRemoved: (id) => this.removeEntity(id),
+      onSeatsChanged: () => this.interactions.onWorldChanged(),
       onRejected: (payload) => this.onRejected(payload),
+      onActionUpdate: (payload) => this.interactions.onActionUpdate(payload),
+      onGreeted: (payload) => this.interactions.onGreeted(payload),
+    });
+
+    const overlay = document.body;
+    const menu = createActionMenu(overlay, () => this.interactions.clearSelection());
+    const progress = new ActionProgress(overlay, () => this.interactions.cancelCurrentAction());
+    this.interactions = new InteractionController({
+      world: this.world,
+      camera: () => this.rig.camera,
+      canvas: this.renderer.domElement,
+      entities: {
+        selfId: () => this.connection.sessionId,
+        get: (id) => this.entities.get(id),
+        hitMeshes: () => [...this.entities.values()].map((entity) => entity.view.hitMesh),
+      },
+      connection: this.connection,
+      hud,
+      menu,
+      progress,
+      onGroundTap: (point) => this.walkTo(point),
     });
 
     this.input = new InputController(container, joystick, {
-      onTap: (x, y) => this.onTap(x, y),
+      onTap: (x, y) => {
+        if (this.status === "connected") this.interactions.handleTap(x, y);
+      },
+      onHover: (x, y) => this.interactions.handleHover(x, y),
+      onCancel: () => this.interactions.handleCancel(),
       onRotate: (dx, dy) => this.rig.rotate(-dx * 0.006, dy * 0.004),
       onZoom: (factor) => this.rig.zoom(factor),
       onMoveInput: (forward, right) => {
@@ -116,6 +137,7 @@ export class Game {
       }
     }
 
+    this.interactions.frame(now);
     this.rig.update(dt);
     this.renderer.render(this.world.scene, this.rig.camera);
     this.labelRenderer.render(this.world.scene, this.rig.camera);
@@ -148,23 +170,7 @@ export class Game {
     this.lastDirectionSentAt = now;
   }
 
-  private onTap(clientX: number, clientY: number): void {
-    if (this.status !== "connected") return;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const pointer = new THREE.Vector2(
-      ((clientX - rect.left) / rect.width) * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1,
-    );
-    this.raycaster.setFromCamera(pointer, this.rig.camera);
-    const hits = this.raycaster.intersectObjects([this.world.ground, ...this.world.blockers], false);
-    const hit = hits[0];
-    if (!hit) return;
-    if (hit.object !== this.world.ground) {
-      const label = hit.object.userData.label as string | undefined;
-      this.hud.toast(label ? `${label}: you can't walk there.` : "You can't walk there.");
-      return;
-    }
-    const target = { x: hit.point.x, z: hit.point.z };
+  private walkTo(target: { x: number; z: number }): void {
     this.connection.moveTo(target);
     this.world.targetMarker.position.set(target.x, 0.03, target.z);
     this.world.targetMarker.visible = true;
@@ -172,7 +178,7 @@ export class Game {
 
   private onRejected(payload: RejectedPayload): void {
     this.world.targetMarker.visible = false;
-    this.hud.toast(REJECTION_TEXT[payload.reason] ?? "That action was refused.");
+    this.hud.toast(reasonText(payload.reason));
   }
 
   private onStatus(status: ConnectionStatus, detail?: string): void {
@@ -183,9 +189,10 @@ export class Game {
   private addEntity(id: string, player: ReplicatedPlayer): void {
     if (this.entities.has(id)) return;
     const isSelf = id === this.connection.sessionId;
-    const view = createAvatar(player.hue, isSelf, this.quality);
+    const view = createAvatar(id, player.hue, isSelf, this.quality);
     view.setName(player.name);
     view.setAway(!player.connected);
+    view.setActivity(player.activity, player.seatId !== "");
     this.world.scene.add(view.root);
     const buffer = new SnapshotBuffer();
     const entity: RemoteEntity = { view, buffer, latest: { ...player } };
@@ -199,13 +206,18 @@ export class Game {
     if (!entity) return;
     if (entity.latest.connected !== player.connected) entity.view.setAway(!player.connected);
     if (entity.latest.name !== player.name) entity.view.setName(player.name);
+    if (entity.latest.activity !== player.activity || entity.latest.seatId !== player.seatId) {
+      entity.view.setActivity(player.activity, player.seatId !== "");
+    }
     entity.latest = { ...player };
     this.pushSnapshot(entity, player);
+    this.interactions.onWorldChanged();
   }
 
   private removeEntity(id: string): void {
     const entity = this.entities.get(id);
     if (!entity) return;
+    this.interactions.onPlayerRemoved(id);
     entity.view.dispose();
     this.entities.delete(id);
     this.hud.setPlayerCount(this.entities.size);
@@ -242,6 +254,24 @@ export class Game {
       },
       players() {
         return [...game.entities].map(([id, e]) => ({ id, ...e.latest }));
+      },
+      /** Selection, open menu, progress text and current action. */
+      interaction() {
+        return game.interactions.debugState();
+      },
+      /** Replicated seat occupancy as [seatId, playerId] pairs. */
+      seats() {
+        const entries: [string, string][] = [];
+        (game.connection.seats as unknown as { forEach(cb: (v: string, k: string) => void): void }).forEach((v, k) => entries.push([k, v]));
+        return entries;
+      },
+      /** Screen point above an interactable object or a player, for tests that tap targets. */
+      targetScreenPoint(kind: "object" | "player", id: string) {
+        return game.interactions.anchorFor({ kind, id });
+      },
+      /** What a tap at this screen point would select (no side effects). */
+      pickAt(x: number, y: number) {
+        return game.interactions.pick(x, y);
       },
       /** Screen coordinates of a ground point, for tests that tap the world. */
       worldToScreen(x: number, z: number) {

@@ -256,3 +256,256 @@ body {
   font-size: 12px;
   opacity: 0.6;
 }
+
+/* ── M3: interactions ─────────────────────────────────────────────── */
+
+.name-tag-activity {
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.speech-bubble {
+  position: relative;
+  padding: 4px 12px;
+  border-radius: 14px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.25);
+  pointer-events: none;
+  animation: bubble-pop 0.25s ease-out;
+}
+
+.speech-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  margin-left: -6px;
+  border: 6px solid transparent;
+  border-bottom: 0;
+  border-top-color: #fff;
+}
+
+@keyframes bubble-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+/* Desktop radial menu: a fan of pills above the selected target. */
+.radial-menu {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.radial-menu[hidden] {
+  display: none;
+}
+
+.radial-option,
+.radial-title {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+}
+
+.radial-option {
+  pointer-events: auto;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  min-height: 38px;
+  padding: 8px 18px;
+  border: 2px solid var(--paper);
+  border-radius: 999px;
+  background: var(--terracotta);
+  color: var(--paper);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  animation: option-in 0.14s ease-out;
+}
+
+.radial-option:hover,
+.radial-option:focus-visible {
+  background: var(--terracotta-dark);
+  outline: none;
+}
+
+.radial-title {
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: rgb(43 33 27 / 0.85);
+  color: var(--paper);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+@keyframes option-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Touch action sheet: docked to the bottom with large targets. */
+.action-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 8;
+  background: var(--paper);
+  border-radius: 20px 20px 0 0;
+  padding: 16px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  box-shadow: 0 -6px 24px rgb(0 0 0 / 0.2);
+  animation: sheet-in 0.18s ease-out;
+}
+
+.action-sheet[hidden] {
+  display: none;
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(40%);
+    opacity: 0;
+  }
+}
+
+/* Landscape: dock to the right so the joystick on the left stays usable. */
+@media (orientation: landscape) {
+  .action-sheet {
+    left: auto;
+    width: min(380px, 48vw);
+    border-radius: 20px 0 0 0;
+  }
+}
+
+/* Portrait: the sheet spans the width, so hide the joystick until it closes. */
+@media (orientation: portrait) {
+  body.sheet-open .joystick {
+    display: none;
+  }
+}
+
+.sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sheet-title {
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.sheet-subtitle {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.sheet-close {
+  font: inherit;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: none;
+  border-radius: 50%;
+  background: #eadfce;
+  color: var(--ink);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.sheet-options {
+  display: grid;
+  gap: 10px;
+}
+
+.sheet-option {
+  font: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  min-height: 56px;
+  border: none;
+  border-radius: 14px;
+  background: var(--terracotta);
+  color: var(--paper);
+  cursor: pointer;
+}
+
+.sheet-option:active {
+  background: var(--terracotta-dark);
+}
+
+/* Current action with progress and Cancel. */
+.action-progress {
+  position: fixed;
+  top: max(60px, calc(env(safe-area-inset-top) + 52px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 999px;
+  background: rgb(251 245 236 / 0.95);
+  box-shadow: var(--shadow);
+  font-weight: 800;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.action-progress[hidden] {
+  display: none;
+}
+
+.action-progress-bar {
+  width: 96px;
+  height: 8px;
+  border-radius: 999px;
+  background: #eadfce;
+  overflow: hidden;
+}
+
+.action-progress-bar[hidden] {
+  display: none;
+}
+
+.action-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--terracotta);
+}
+
+.action-progress-cancel {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  min-height: 36px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+}
+
+@media (pointer: coarse) {
+  .action-progress-cancel {
+    min-height: 44px;
+  }
+}
+
+/* The toast sits below the progress pill when both are visible. */
+.toast {
+  top: max(112px, calc(env(safe-area-inset-top) + 104px));
+}
