@@ -29,4 +29,24 @@ export const GAME_CONFIG = {
   interpolationDelayMs: 100,
 } as const;
 
+/** Tuning for contextual interactions (M3). */
+export const INTERACTION_CONFIG = {
+  /** Straight-line distance (m) beyond which an interaction is refused as too far. */
+  maxDistance: 35,
+  /** How close (m) a character must get to an interaction point before acting. */
+  arrivalTolerance: 0.25,
+  /** Centre-to-centre distance (m) within which a greeting can happen. */
+  greetRange: 2.5,
+  /** Distance (m) from the other player where the greeter stops. */
+  greetStandOff: 1.3,
+  /** How many times a greeter re-plans when the other player walks away. */
+  maxGreetReplans: 3,
+  /** Duration of the greeting gesture (ms). */
+  greetDurationMs: 2000,
+  /** Minimum time (ms) between greetings from the same player to the same player. */
+  greetCooldownMs: 5000,
+  /** Length of one study session at a desk (ms). Placeholder until skills exist. */
+  studyDurationMs: 8000,
+} as const;
+
 export const ROOM_NAME = "plaza";

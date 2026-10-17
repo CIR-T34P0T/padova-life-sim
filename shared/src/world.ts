@@ -4,7 +4,32 @@
 //
 // Coordinates: metres, X to the east, Z to the south, Y up. Origin = piazza centre.
 
-export type ObstacleKind = "building" | "arcade" | "fountain" | "stall" | "bench" | "planter";
+export type ObstacleKind = "building" | "arcade" | "fountain" | "stall" | "bench" | "planter" | "desk";
+
+export type InteractableKind = "bench" | "desk";
+
+/** One place a character can occupy on an interactable object. */
+export interface Seat {
+  /** Stable id, unique across the world, e.g. "bench-1/seat-a". */
+  id: string;
+  /** Where the character is placed while seated. */
+  x: number;
+  z: number;
+  /** Facing while seated, radians around Y; 0 faces +Z. */
+  rotation: number;
+  /** Walkable point the character walks to before sitting down, and returns to when standing up. */
+  approach: { x: number; z: number };
+}
+
+/** An object players can click to get contextual actions. */
+export interface Interactable {
+  /** Stable id used in network messages. Equal to the obstacle id it is drawn as. */
+  id: string;
+  kind: InteractableKind;
+  /** Name shown in menus (placeholder wording). */
+  label: string;
+  seats: readonly Seat[];
+}
 
 export interface Obstacle {
   id: string;
@@ -23,7 +48,38 @@ export interface WorldLayout {
   /** The walkable area is the square [-halfSize, halfSize] on X and Z. */
   halfSize: number;
   obstacles: readonly Obstacle[];
+  /** Clickable objects. Each one's `id` matches an obstacle's `id`. */
+  interactables: readonly Interactable[];
   spawnPoints: readonly { x: number; z: number }[];
+}
+
+/** Gap between a character's edge and the furniture when it stands ready to sit. */
+const APPROACH_CLEARANCE = 0.5;
+
+/**
+ * Seats along the south edge (+Z side) of a box-shaped object.
+ * "away": the character sits facing +Z, back to the object (a bench).
+ * "towards": the character sits facing the object, -Z (a desk).
+ */
+function seatsAlongSouthEdge(
+  obstacle: Obstacle,
+  count: number,
+  facing: "away" | "towards",
+  playerRadius = 0.35,
+): Seat[] {
+  const width = obstacle.maxX - obstacle.minX;
+  const seats: Seat[] = [];
+  for (let i = 0; i < count; i++) {
+    const x = obstacle.minX + (width * (i + 0.5)) / count;
+    seats.push({
+      id: `${obstacle.id}/seat-${String.fromCharCode(97 + i)}`,
+      x,
+      z: obstacle.maxZ + (facing === "away" ? 0.05 : 0.3),
+      rotation: facing === "away" ? 0 : Math.PI,
+      approach: { x, z: obstacle.maxZ + playerRadius + APPROACH_CLEARANCE },
+    });
+  }
+  return seats;
 }
 
 const box = (
@@ -46,9 +102,7 @@ const box = (
   height,
 });
 
-export const PLAZA_LAYOUT: WorldLayout = {
-  halfSize: 24,
-  obstacles: [
+const plazaObstacles: Obstacle[] = [
     // Perimeter buildings, with street openings on each side.
     box("north-west-block", "building", -13, -21, 20, 6, 14, "University hall (placeholder)"),
     box("north-east-block", "building", 13.5, -21, 19, 6, 12, "Library (placeholder)"),
@@ -71,6 +125,25 @@ export const PLAZA_LAYOUT: WorldLayout = {
     box("bench-2", "bench", 6, -8, 2, 0.6, 0.5, "Bench"),
     box("planter-1", "planter", 9, 3, 1.5, 1.5, 0.9),
     box("planter-2", "planter", -11, -2, 1.5, 1.5, 0.9),
+    // Study desks in front of the (placeholder) university hall.
+    box("desk-1", "desk", -15, -14, 1.6, 0.8, 0.75, "Study desk"),
+    box("desk-2", "desk", -10, -14, 1.6, 0.8, 0.75, "Study desk"),
+];
+
+const obstacle = (id: string): Obstacle => {
+  const found = plazaObstacles.find((o) => o.id === id);
+  if (!found) throw new Error(`World layout has no obstacle "${id}"`);
+  return found;
+};
+
+export const PLAZA_LAYOUT: WorldLayout = {
+  halfSize: 24,
+  obstacles: plazaObstacles,
+  interactables: [
+    { id: "bench-1", kind: "bench", label: "Bench", seats: seatsAlongSouthEdge(obstacle("bench-1"), 2, "away") },
+    { id: "bench-2", kind: "bench", label: "Bench", seats: seatsAlongSouthEdge(obstacle("bench-2"), 2, "away") },
+    { id: "desk-1", kind: "desk", label: "Study desk", seats: seatsAlongSouthEdge(obstacle("desk-1"), 1, "towards") },
+    { id: "desk-2", kind: "desk", label: "Study desk", seats: seatsAlongSouthEdge(obstacle("desk-2"), 1, "towards") },
   ],
   spawnPoints: [
     { x: 0, z: 13 },
