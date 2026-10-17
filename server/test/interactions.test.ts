@@ -2,13 +2,11 @@
 // game rules. Tuning only shortens waits (faster walking, shorter timers) and,
 // in two suites, the distance limit and the world layout.
 
-import type { Server } from "@colyseus/core";
-import { Client, type Room } from "@colyseus/sdk";
+import type { Room } from "@colyseus/sdk";
 import {
   ClientMessage,
   INTERACTION_CONFIG,
   PLAZA_LAYOUT,
-  ROOM_NAME,
   ServerMessage,
   findSeat,
   type ActionUpdatePayload,
@@ -17,19 +15,11 @@ import {
   type WorldLayout,
 } from "@padova/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { createGameServer } from "../src/app.ts";
 import type { RoomTuning } from "../src/tuning.ts";
+import { joinWithNewCharacter, sleep, startTestServer, waitFor, type TestServer } from "./helpers/gameClient.ts";
 
 const FAST: Partial<RoomTuning> = { walkSpeed: 9, studyDurationMs: 1200, greetDurationMs: 500 };
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-async function waitFor(predicate: () => boolean, timeoutMs = 6000, what = "condition"): Promise<void> {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) throw new Error(`waitFor timed out: ${what}`);
-    await sleep(20);
-  }
-}
 
 interface TestPlayer {
   room: Room;
@@ -44,25 +34,23 @@ interface TestPlayer {
 
 /** Starts a server for one suite and returns helpers bound to it. */
 function useServer(port: number, tuning: Partial<RoomTuning>) {
-  let server: Server;
+  let server: TestServer;
   const open: Room[] = [];
 
   beforeAll(async () => {
-    server = createGameServer(tuning);
-    await server.listen(port, "127.0.0.1");
+    server = await startTestServer(port, tuning);
   });
   afterEach(async () => {
     await Promise.all(open.splice(0).map((room) => Promise.race([room.leave(true).catch(() => undefined), sleep(500)])));
     await sleep(150);
   });
   afterAll(async () => {
-    await server.gracefullyShutdown(false);
+    await server.stop();
   });
 
   async function join(name: string): Promise<TestPlayer> {
-    const room = await new Client(`ws://127.0.0.1:${port}`).joinOrCreate(ROOM_NAME, { name });
+    const { room } = await joinWithNewCharacter(server.url, name);
     open.push(room);
-    await waitFor(() => room.state?.players?.get(room.sessionId) !== undefined, 4000, "own player state");
     const player: TestPlayer = {
       room,
       id: room.sessionId,
@@ -161,7 +149,7 @@ describe("object interactions", () => {
   });
 
   it("fills a bench and refuses a third player", async () => {
-    const players = await joinAll("A", "B", "C");
+    const players = await joinAll("Anna", "Bea", "Cleo");
     for (const p of players) interact(p, "object", "bench-1", "sit");
     await waitFor(() => players.every((p) => p.updates.length > 0), 4000, "all answered");
     const firstReplies = players.map((p) => p.updates[0]!);

@@ -4,6 +4,7 @@
 
 import { GAME_CONFIG } from "./config.ts";
 import { ACTION_IDS, type ActionId, type CancelReason, type InteractionFailure, type TargetKind } from "./interactions.ts";
+import type { CharacterProfile, ProfileFailure } from "./profile.ts";
 
 export const ClientMessage = {
   /** Walk to a point using pathfinding. Payload: MoveToPayload. */
@@ -16,6 +17,10 @@ export const ClientMessage = {
   Interact: "interact",
   /** Cancel the current action, if any. No payload. */
   CancelAction: "cancelAction",
+  /** Create this session's character (first visit). Payload: NewCharacterInput. */
+  CreateCharacter: "createCharacter",
+  /** Change your own character's appearance. Payload: { appearance }. */
+  UpdateAppearance: "updateAppearance",
 } as const;
 
 export const ServerMessage = {
@@ -25,7 +30,44 @@ export const ServerMessage = {
   ActionUpdate: "action",
   /** Someone greeted the receiving player. Payload: GreetedPayload. */
   Greeted: "greeted",
+  /** Profile state for this session. Payload: ProfilePayload. */
+  Profile: "profile",
+  /** A new guest identity was created; the client stores the token. Payload: IdentityPayload. */
+  Identity: "identity",
+  /** A profile request was refused. Payload: ProfileErrorPayload. */
+  ProfileError: "profileError",
 } as const;
+
+/** Close code used when the same account joins from another window or device. */
+export const CLOSE_SIGNED_IN_ELSEWHERE = 4100;
+/** Error code returned when a stored guest token is not recognised. */
+export const ERROR_INVALID_GUEST_TOKEN = 4401;
+
+export interface ProfilePayload {
+  /** "needs_character": show the create form. "ready": the character is in the world. */
+  status: "needs_character" | "ready";
+  profile?: CharacterProfile;
+  /** True when the stored profile came from a newer server version and cannot be edited here. */
+  readOnly?: boolean;
+  /** Human-readable notices, e.g. retired appearance options that were replaced. */
+  notices?: string[];
+}
+
+export interface IdentityPayload {
+  /** Secret that proves ownership of this guest account. Store it; it is shown only once. */
+  guestToken: string;
+}
+
+export interface ProfileErrorPayload {
+  action: "createCharacter" | "updateAppearance";
+  reason: ProfileFailure;
+  field?: string;
+}
+
+export interface JoinOptionsWithIdentity {
+  /** Stored guest token, if this browser has one. Sent in the matchmaking request body, never in a URL. */
+  guestToken?: string;
+}
 
 export interface InteractPayload {
   targetKind: TargetKind;
@@ -74,6 +116,7 @@ export interface RejectedPayload {
   reason: string;
 }
 
+/** @deprecated Names come from the saved character profile since M4. */
 export interface JoinOptions {
   name?: string;
 }

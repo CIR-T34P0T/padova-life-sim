@@ -7,12 +7,20 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "build": "tsc --noEmit -p .",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "db:migrate": "tsx src/db/cli.ts migrate",
+    "db:rollback": "tsx src/db/cli.ts rollback",
+    "db:status": "tsx src/db/cli.ts status"
   },
   "dependencies": {
-    "@padova/shared": "0.1.0",
     "@colyseus/core": "^0.18.19",
     "@colyseus/schema": "^5.0.40",
-    "@colyseus/ws-transport": "^0.18.4"
+    "@colyseus/ws-transport": "^0.18.4",
+    "@electric-sql/pglite": "^0.5.10",
+    "@padova/shared": "0.1.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23"
   }
 }

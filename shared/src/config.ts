@@ -49,4 +49,12 @@ export const INTERACTION_CONFIG = {
   studyDurationMs: 8000,
 } as const;
 
+/** Tuning for identity and persistence (M4). */
+export const PROFILE_CONFIG = {
+  /** New guest accounts allowed per IP address per hour (abuse protection). */
+  guestCreationsPerIpPerHour: 10,
+  /** How often moved characters' positions are saved while online (ms). */
+  autosaveIntervalMs: 30_000,
+} as const;
+
 export const ROOM_NAME = "plaza";

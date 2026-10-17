@@ -5,3 +5,4 @@ export * from "./navigation.ts";
 export * from "./movement.ts";
 export * from "./interactions.ts";
 export * from "./protocol.ts";
+export * from "./profile.ts";

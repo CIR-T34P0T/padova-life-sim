@@ -1,27 +1,24 @@
 // Integration tests: a real server on a real port, driven by the real client
 // SDK over WebSockets. Nothing is mocked.
 
-import type { Server } from "@colyseus/core";
-import { Client, getStateCallbacks, type Room } from "@colyseus/sdk";
+import { getStateCallbacks, type Room } from "@colyseus/sdk";
 import {
   ClientMessage,
   GAME_CONFIG,
   PLAZA_LAYOUT,
-  ROOM_NAME,
   ServerMessage,
   isPositionWalkable,
   type RejectedPayload,
 } from "@padova/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { createGameServer } from "../src/app.ts";
+import { connect, joinWithNewCharacter, sleep, startTestServer, waitFor, type TestServer } from "./helpers/gameClient.ts";
 
 const PORT = 2611;
-let server: Server;
+let server: TestServer;
 const openRooms: Room[] = [];
 
 beforeAll(async () => {
-  server = createGameServer();
-  await server.listen(PORT, "127.0.0.1");
+  server = await startTestServer(PORT);
 });
 
 afterEach(async () => {
@@ -33,25 +30,14 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await server.gracefullyShutdown(false);
+  await server.stop();
 });
 
+/** Joins with a freshly created character (the M4 join flow). */
 async function join(name: string): Promise<Room> {
-  const client = new Client(`ws://127.0.0.1:${PORT}`);
-  const room = await client.joinOrCreate(ROOM_NAME, { name });
+  const { room } = await joinWithNewCharacter(server.url, name);
   openRooms.push(room);
-  await waitFor(() => room.state?.players !== undefined);
   return room;
-}
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function waitFor(predicate: () => boolean, timeoutMs = 4000): Promise<void> {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) throw new Error("waitFor timed out");
-    await sleep(20);
-  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,9 +53,14 @@ describe("plaza room", () => {
     expect(playerIn(b, a.sessionId).connected).toBe(true);
   });
 
-  it("assigns a guest name when the requested name is unusable", async () => {
-    const a = await join("<");
-    expect(playerIn(a, a.sessionId).name).toMatch(/^Guest \d+$/);
+  it("refuses a character with an unusable name and keeps the visitor out of the world", async () => {
+    const visitor = await connect(server.url);
+    openRooms.push(visitor.room);
+    expect(visitor.lastProfile()).toEqual({ status: "needs_character" });
+    visitor.room.send(ClientMessage.CreateCharacter, { displayName: "<", ageCategory: "adult", appearance: {} });
+    await waitFor(() => visitor.errors.length === 1);
+    expect(visitor.errors[0]).toMatchObject({ action: "createCharacter", reason: "invalid_name" });
+    expect(visitor.room.state.players.get(visitor.room.sessionId)).toBeUndefined();
   });
 
   it("moves a player along a server-computed path and replicates it", async () => {

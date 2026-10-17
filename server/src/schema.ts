@@ -14,8 +14,13 @@ export const PlayerState = schema(
     moving: t.boolean(),
     /** False while the player is dropped and inside the reconnection window. */
     connected: t.boolean(),
-    /** Placeholder body colour (0-359) until real character customisation exists. */
-    hue: t.uint16(),
+    /** Appearance option ids from the shared catalogue (see shared/src/profile.ts). */
+    preset: t.string(),
+    skinTone: t.string(),
+    hairStyle: t.string(),
+    hairColour: t.string(),
+    eyeColour: t.string(),
+    outfit: t.string(),
     /** "idle" | "sitting" | "studying" | "greeting" (shared Activity type). */
     activity: t.string(),
     /** Seat occupied while sitting or studying; "" when standing. */
