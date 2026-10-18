@@ -57,6 +57,21 @@ npm install
 npm run dev
 ```
 
+### Updating to the latest version
+
+Stop the game (Ctrl+C), then in the project folder:
+
+```bash
+git pull
+npm ci
+```
+
+`npm ci` installs exactly the versions in `package-lock.json` and never edits
+it. (`npm install` can rewrite the lockfile, for example with a different npm
+version, and the next `git pull` then stops with "Your local changes to
+package-lock.json would be overwritten". Fix that with
+`git restore package-lock.json`, then pull again.)
+
 ### Windows notes
 
 - Use a normal (not Administrator) PowerShell or Command Prompt, and clone into
