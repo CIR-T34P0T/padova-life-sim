@@ -1,4 +1,4 @@
-import { CLOSE_SIGNED_IN_ELSEWHERE } from "@padova/shared";
+import { CLOSE_SIGNED_IN_ELSEWHERE, formatEuros, readClock, type LifePayload, type MoodLevel } from "@padova/shared";
 import type { ConnectionStatus } from "../net/connection.ts";
 
 const STATUS_TEXT: Record<ConnectionStatus, string> = {
@@ -8,33 +8,83 @@ const STATUS_TEXT: Record<ConnectionStatus, string> = {
   disconnected: "Disconnected",
 };
 
+const MOOD_TEXT: Record<MoodLevel, string> = {
+  miserable: "Miserable",
+  low: "Low",
+  okay: "Okay",
+  good: "Good",
+  great: "Great",
+};
+
+export interface HudElements {
+  status: HTMLElement;
+  players: HTMLElement;
+  toast: HTMLElement;
+  /** Compact "me" chip: mood colour, time and money. Opens the character panel. */
+  meChip: HTMLButtonElement;
+}
+
 export class Hud {
   private toastTimer: number | undefined;
+  private gameMinute: number | null = null;
+  private life: LifePayload | null = null;
 
-  constructor(
-    private readonly statusElement: HTMLElement,
-    private readonly playersElement: HTMLElement,
-    private readonly toastElement: HTMLElement,
-  ) {}
+  constructor(private readonly elements: HudElements) {}
+
+  /** Called when the player clicks/taps the "me" chip. */
+  onMeChip(handler: () => void): void {
+    this.elements.meChip.addEventListener("click", (event) => {
+      event.stopPropagation();
+      handler();
+    });
+  }
 
   setStatus(status: ConnectionStatus, detail?: string, code?: number): void {
-    this.statusElement.dataset.state = status;
-    this.statusElement.textContent = STATUS_TEXT[status];
-    this.statusElement.title = detail ?? "";
+    const element = this.elements.status;
+    element.dataset.state = status;
+    element.textContent = STATUS_TEXT[status];
+    element.title = detail ?? STATUS_TEXT[status];
     // "Signed in elsewhere" gets its own explanation from the profile panel.
     if (status === "disconnected" && code !== CLOSE_SIGNED_IN_ELSEWHERE) this.toast("Connection lost. Reload the page to rejoin.", 8000);
   }
 
   setPlayerCount(count: number): void {
-    this.playersElement.textContent = count === 1 ? "1 player here" : `${count} players here`;
+    this.elements.players.textContent = count === 1 ? "1 player here" : `${count} players here`;
+  }
+
+  /** The world clock, as replicated by the server. */
+  setClock(gameMinute: number): void {
+    this.gameMinute = gameMinute;
+    this.renderMeChip();
+  }
+
+  setLife(life: LifePayload): void {
+    this.life = life;
+    this.renderMeChip();
   }
 
   toast(message: string, durationMs = 2200): void {
-    this.toastElement.textContent = message;
-    this.toastElement.hidden = false;
+    this.elements.toast.textContent = message;
+    this.elements.toast.hidden = false;
     window.clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => {
-      this.toastElement.hidden = true;
+      this.elements.toast.hidden = true;
     }, durationMs);
+  }
+
+  private renderMeChip(): void {
+    const chip = this.elements.meChip;
+    if (!this.life) {
+      chip.hidden = true;
+      return;
+    }
+    const clock = readClock(this.gameMinute ?? this.life.gameMinute);
+    const time = `${String(clock.hours).padStart(2, "0")}:${String(clock.minutes).padStart(2, "0")}`;
+    const mood = MOOD_TEXT[this.life.mood.level];
+    chip.hidden = false;
+    chip.dataset.mood = this.life.mood.level;
+    chip.textContent = `${time} · ${formatEuros(this.life.money.balanceCents)}`;
+    chip.setAttribute("aria-label", `Your character: mood ${mood}, ${clock.label}, ${formatEuros(this.life.money.balanceCents)}. Open character panel.`);
+    chip.title = `Mood: ${mood} · ${clock.label}`;
   }
 }

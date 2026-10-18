@@ -24,6 +24,7 @@ const PROFILE_ERROR_TEXT: Record<string, string> = {
   invalid_name: "Names need 2 to 20 characters.",
   age_category_not_allowed: "Player characters must be adults.",
   invalid_appearance: "One of those choices isn't available. Please pick again.",
+  invalid_traits: "Pick at most two different personality traits.",
   already_has_character: "You already have a character.",
   no_character: "Create a character first.",
   profile_newer_version: "This profile was saved by a newer version of the game and can't be changed here.",
@@ -32,7 +33,7 @@ const PROFILE_ERROR_TEXT: Record<string, string> = {
 };
 
 const store = createIdentityStore();
-const hud = new Hud(byId("status"), byId("players"), byId("toast"));
+const hud = new Hud({ status: byId("status"), players: byId("players"), toast: byId("toast"), meChip: byId<HTMLButtonElement>("me-chip") });
 const panel = new ProfilePanel(byId("profile-panel"));
 let profile: CharacterProfile | null = null;
 let readOnly = false;
@@ -50,6 +51,7 @@ const game = new Game(byId("game"), byId("joystick"), hud, {
     }
     profile = payload.profile ?? profile;
     readOnly = payload.readOnly ?? false;
+    if (profile) game.setProfile(profile);
     if (panel.mode !== "hidden" && panel.mode !== "message") panel.hide();
     for (const notice of payload.notices ?? []) hud.toast(notice, 6000);
   },

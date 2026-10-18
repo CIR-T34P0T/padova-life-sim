@@ -13,6 +13,7 @@ import {
   type IdentityPayload,
   type InteractPayload,
   type JoinOptionsWithIdentity,
+  type LifePayload,
   type MoveDirectionPayload,
   type MoveToPayload,
   type NewCharacterInput,
@@ -55,6 +56,10 @@ export interface ConnectionEvents {
   onProfile(payload: ProfilePayload): void;
   onIdentity(payload: IdentityPayload): void;
   onProfileError(payload: ProfileErrorPayload): void;
+  /** The player's own needs, mood, skills and money (D-024). */
+  onLife(payload: LifePayload): void;
+  /** The replicated world clock changed (game minute). */
+  onClock(gameMinute: number): void;
 }
 
 /** Copies the appearance fields out of a replicated player. */
@@ -115,6 +120,7 @@ export class GameConnection {
     room.onMessage(ServerMessage.Profile, (payload: ProfilePayload) => this.events.onProfile(payload));
     room.onMessage(ServerMessage.Identity, (payload: IdentityPayload) => this.events.onIdentity(payload));
     room.onMessage(ServerMessage.ProfileError, (payload: ProfileErrorPayload) => this.events.onProfileError(payload));
+    room.onMessage(ServerMessage.Life, (payload: LifePayload) => this.events.onLife(payload));
 
     // The SDK's callback proxy is loosely typed for schema() classes.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -127,6 +133,7 @@ export class GameConnection {
     $(room.state).seats.onAdd(() => this.events.onSeatsChanged(), true);
     $(room.state).seats.onRemove(() => this.events.onSeatsChanged());
     $(room.state).seats.onChange(() => this.events.onSeatsChanged());
+    $(room.state).listen("gameMinute", (minute: number) => this.events.onClock(minute), true);
 
     this.events.onStatus("connected");
   }

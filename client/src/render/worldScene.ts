@@ -14,6 +14,7 @@ const KIND_COLOURS: Record<ObstacleKind, number> = {
   bench: 0x8a6a4f,
   planter: 0x6f8f4e,
   desk: 0x9a7b5a,
+  counter: 0x6e4a33,
 };
 
 const SELECTED_EDGE = 0xc4623f;

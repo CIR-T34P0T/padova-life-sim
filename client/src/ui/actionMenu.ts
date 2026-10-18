@@ -3,14 +3,20 @@
 //   ActionSheet – touch: bottom sheet with large buttons.
 // Menus only collect a choice; the caller sends the request to the server.
 
-import type { ActionId } from "@padova/shared";
-
-/** A server action, or a client-only option (handled locally, never sent as an action). */
-export type MenuChoice = ActionId | "edit-appearance";
+/**
+ * Option key, also exposed as `data-action`: a server action ("sit"), a café
+ * purchase ("buy:panino"), or a client-only option ("character",
+ * "edit-appearance") that is handled locally and never sent as an action.
+ */
+export type MenuChoice = string;
 
 export interface MenuOption {
   id: MenuChoice;
   label: string;
+  /** Secondary text, e.g. a price. */
+  detail?: string;
+  /** Shown but not selectable (e.g. too tired, not enough money); `detail` says why. */
+  disabled?: boolean;
 }
 
 export interface MenuSpec {
@@ -41,8 +47,14 @@ export function createActionMenu(root: HTMLElement, onDismiss: () => void): Acti
 }
 
 const RADIUS_PX = 78;
+/** The fan may widen up to this radius for longer labels; beyond it the options stack instead. */
+const MAX_RADIUS_PX = 124;
 const SPREAD_DEG = 52;
 const EDGE_MARGIN_PX = 8;
+/** Minimum gap between two options. */
+const OPTION_GAP_PX = 6;
+/** Stacked layout: distance from the target to the lowest option. */
+const STACK_OFFSET_PX = 36;
 
 class RadialMenu implements ActionMenu {
   readonly kind = "radial" as const;
@@ -93,14 +105,11 @@ class RadialMenu implements ActionMenu {
     title.textContent = spec.subtitle ? `${spec.title} · ${spec.subtitle}` : spec.title;
     this.element.appendChild(title);
     for (const option of spec.options) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "radial-option";
+      const button = optionButton("radial-option", option);
       button.setAttribute("role", "menuitem");
-      button.dataset.action = option.id;
-      button.textContent = option.label;
       button.addEventListener("click", (event) => {
         event.stopPropagation();
+        if (option.disabled) return;
         const choose = this.onChoose;
         this.close();
         choose?.(option.id);
@@ -116,16 +125,54 @@ class RadialMenu implements ActionMenu {
     if (!this.current) return;
     this.element.style.visibility = this.anchor.visible ? "visible" : "hidden";
     const buttons = [...this.element.querySelectorAll<HTMLElement>(".radial-option")];
-    const count = buttons.length;
-    buttons.forEach((button, index) => {
-      const angle = ((-90 + (index - (count - 1) / 2) * SPREAD_DEG) * Math.PI) / 180;
-      const x = this.anchor.x + Math.cos(angle) * RADIUS_PX;
-      const y = this.anchor.y + Math.sin(angle) * RADIUS_PX;
-      place(button, x, y);
-    });
+    const sizes = buttons.map((button) => ({ w: button.offsetWidth, h: button.offsetHeight }));
+    const offsets = fanOffsets(sizes) ?? stackOffsets(sizes);
+    buttons.forEach((button, index) => place(button, this.anchor.x + offsets[index]!.x, this.anchor.y + offsets[index]!.y));
     const title = this.element.querySelector<HTMLElement>(".radial-title");
     if (title) place(title, this.anchor.x, this.anchor.y + 34);
   }
+}
+
+interface Size {
+  w: number;
+  h: number;
+}
+
+/** Option centres fanned above the target, at the smallest radius where no two overlap; null if none fits. */
+function fanOffsets(sizes: readonly Size[]): { x: number; y: number }[] | null {
+  const count = sizes.length;
+  for (let radius = RADIUS_PX; radius <= MAX_RADIUS_PX; radius += 6) {
+    const offsets = sizes.map((_, index) => {
+      const angle = ((-90 + (index - (count - 1) / 2) * SPREAD_DEG) * Math.PI) / 180;
+      return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+    });
+    if (!anyOverlap(offsets, sizes)) return offsets;
+  }
+  return null;
+}
+
+/** Option centres in a column above the target, first option on top. */
+function stackOffsets(sizes: readonly Size[]): { x: number; y: number }[] {
+  const total = sizes.reduce((sum, size) => sum + size.h, 0) + OPTION_GAP_PX * Math.max(0, sizes.length - 1);
+  let top = -STACK_OFFSET_PX - total;
+  return sizes.map((size) => {
+    const centre = { x: 0, y: top + size.h / 2 };
+    top += size.h + OPTION_GAP_PX;
+    return centre;
+  });
+}
+
+function anyOverlap(centres: readonly { x: number; y: number }[], sizes: readonly Size[]): boolean {
+  for (let i = 0; i < centres.length; i++) {
+    for (let j = i + 1; j < centres.length; j++) {
+      const a = centres[i]!;
+      const b = centres[j]!;
+      const apartX = Math.abs(a.x - b.x) >= (sizes[i]!.w + sizes[j]!.w) / 2 + OPTION_GAP_PX;
+      const apartY = Math.abs(a.y - b.y) >= (sizes[i]!.h + sizes[j]!.h) / 2 + OPTION_GAP_PX;
+      if (!apartX && !apartY) return true;
+    }
+  }
+  return false;
 }
 
 /** Centres an absolutely positioned element on (x, y), clamped inside the viewport. */
@@ -212,12 +259,9 @@ class ActionSheet implements ActionMenu {
     this.subtitleElement.textContent = spec.subtitle ?? "";
     this.list.replaceChildren(
       ...spec.options.map((option) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "sheet-option";
-        button.dataset.action = option.id;
-        button.textContent = option.label;
+        const button = optionButton("sheet-option", option);
         button.addEventListener("click", () => {
+          if (option.disabled) return;
           const choose = this.onChoose;
           this.close();
           choose?.(option.id);
@@ -227,4 +271,27 @@ class ActionSheet implements ActionMenu {
     );
     this.element.hidden = false;
   }
+}
+
+/** A menu button: label, optional detail (price, reason), disabled state. */
+function optionButton(className: string, option: MenuOption): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.dataset.action = option.id;
+  const label = document.createElement("span");
+  label.className = "option-label";
+  label.textContent = option.label;
+  button.append(label);
+  if (option.detail) {
+    const detail = document.createElement("span");
+    detail.className = "option-detail";
+    detail.textContent = option.detail;
+    button.append(detail);
+  }
+  if (option.disabled) {
+    button.setAttribute("aria-disabled", "true");
+    button.classList.add("is-disabled");
+  }
+  return button;
 }

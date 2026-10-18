@@ -7,7 +7,9 @@ import {
   GAME_CONFIG,
   PLAZA_LAYOUT,
   type Appearance,
+  type CharacterProfile,
   type IdentityPayload,
+  type LifePayload,
   type JoinOptionsWithIdentity,
   type NewCharacterInput,
   type ProfileErrorPayload,
@@ -24,6 +26,7 @@ import { detectQuality } from "./render/quality.ts";
 import { buildWorldScene } from "./render/worldScene.ts";
 import { createActionMenu } from "./ui/actionMenu.ts";
 import { ActionProgress } from "./ui/actionProgress.ts";
+import { CharacterPanel } from "./ui/characterPanel.ts";
 import { Hud } from "./ui/hud.ts";
 import { reasonText } from "./ui/reasons.ts";
 
@@ -55,6 +58,8 @@ export class Game {
   private readonly connection: GameConnection;
   private readonly input: InputController;
   private readonly interactions: InteractionController;
+  private readonly characterPanel: CharacterPanel;
+  private life: LifePayload | null = null;
   private status: ConnectionStatus = "connecting";
   private moveInput = { forward: 0, right: 0 };
   private lastSentDirection = { dx: 0, dz: 0 };
@@ -89,9 +94,16 @@ export class Game {
       onProfile: (payload) => this.profileHandlers.onProfile(payload),
       onIdentity: (payload) => this.profileHandlers.onIdentity(payload),
       onProfileError: (payload) => this.profileHandlers.onProfileError(payload),
+      onLife: (payload) => this.onLife(payload),
+      onClock: (minute) => this.hud.setClock(minute),
     });
 
     const overlay = document.body;
+    this.characterPanel = new CharacterPanel(overlay);
+    hud.onMeChip(() => {
+      this.interactions.clearSelection(); // never two sheets at once
+      this.characterPanel.toggle();
+    });
     const menu = createActionMenu(overlay, () => this.interactions.clearSelection());
     const progress = new ActionProgress(overlay, () => this.interactions.cancelCurrentAction());
     this.interactions = new InteractionController({
@@ -109,6 +121,12 @@ export class Game {
       progress,
       onGroundTap: (point) => this.walkTo(point),
       onEditAppearance: () => this.profileHandlers.onEditAppearance(),
+      onOpenCharacter: () => this.characterPanel.open(),
+      onMenuOpen: () => {
+        // On touch both are bottom sheets: the menu takes over.
+        if (this.characterPanel.mode === "sheet") this.characterPanel.close();
+      },
+      life: () => this.life,
     });
 
     this.input = new InputController(container, joystick, {
@@ -116,7 +134,10 @@ export class Game {
         if (this.status === "connected") this.interactions.handleTap(x, y);
       },
       onHover: (x, y) => this.interactions.handleHover(x, y),
-      onCancel: () => this.interactions.handleCancel(),
+      onCancel: () => {
+        if (this.characterPanel.isOpen) this.characterPanel.close();
+        else this.interactions.handleCancel();
+      },
       onRotate: (dx, dy) => this.rig.rotate(-dx * 0.006, dy * 0.004),
       onZoom: (factor) => this.rig.zoom(factor),
       onMoveInput: (forward, right) => {
@@ -148,6 +169,18 @@ export class Game {
     this.connection.updateAppearance(appearance);
   }
 
+  /** Name and traits for the character panel, from the saved profile. */
+  setProfile(profile: CharacterProfile): void {
+    this.characterPanel.setIdentity(profile.displayName, profile.traits);
+  }
+
+  private onLife(payload: LifePayload): void {
+    this.life = payload;
+    this.hud.setLife(payload);
+    this.characterPanel.update(payload);
+    this.interactions.onWorldChanged(); // e.g. what the player can afford changed
+  }
+
   private frame(): void {
     const now = performance.now();
     const dt = Math.min((now - this.lastFrame) / 1000, 0.1);
@@ -171,6 +204,7 @@ export class Game {
     }
 
     this.interactions.frame(now);
+    this.characterPanel.setCurrentAction(this.interactions.currentActionText());
     this.rig.update(dt);
     this.renderer.render(this.world.scene, this.rig.camera);
     this.labelRenderer.render(this.world.scene, this.rig.camera);
@@ -303,6 +337,14 @@ export class Game {
       /** Selection, open menu, progress text and current action. */
       interaction() {
         return game.interactions.debugState();
+      },
+      /** The player's latest life data from the server (needs, mood, skills, money). */
+      life() {
+        return game.life;
+      },
+      /** Character panel: open, layout mode and visible text. */
+      characterPanel() {
+        return game.characterPanel.debugState();
       },
       /** Replicated seat occupancy as [seatId, playerId] pairs. */
       seats() {

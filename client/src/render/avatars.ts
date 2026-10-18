@@ -38,6 +38,11 @@ const selectGeometry = new THREE.RingGeometry(0.58, 0.7, 40);
 const ACTIVITY_LABEL: Record<string, string> = {
   sitting: "sitting",
   studying: "studying",
+  sketching: "sketching",
+  ordering: "ordering",
+  eating: "eating",
+  drinking: "drinking",
+  washing: "freshening up",
   greeting: "",
 };
 

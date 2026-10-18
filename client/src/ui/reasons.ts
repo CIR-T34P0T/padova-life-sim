@@ -20,6 +20,13 @@ const REASON_TEXT: Record<string, string> = {
   target_left: "They left before you got there.",
   target_moved: "They walked off before you got there.",
   too_soon: "You just greeted them. Give it a moment.",
+  busy: "Someone else is using that. Try again in a moment.",
+  // Life simulation (M5)
+  too_tired: "You're too tired to focus. Grab an espresso or rest first.",
+  unknown_item: "That's not on the menu.",
+  insufficient_funds: "You can't afford that right now.",
+  purchase_failed: "The payment didn't go through. Nothing was charged.",
+  duplicate_request: "That order was already placed.",
 };
 
 export function reasonText(reason: string | undefined): string {

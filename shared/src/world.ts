@@ -148,7 +148,9 @@ const plazaObstacles: Obstacle[] = [
     box("desk-1", "desk", -15, -14, 1.6, 0.8, 0.75, "Study desk"),
     box("desk-2", "desk", -10, -14, 1.6, 0.8, 0.75, "Study desk"),
     // Café counter in front of the (placeholder) café block, served from the piazza side.
-    box("cafe-counter", "counter", 11, 15.6, 3, 0.8, 1.1, "Café counter"),
+    // Outdoor bar counter in the open piazza. Not against the south buildings:
+    // the default camera looks north, so anything there is hidden behind them.
+    box("cafe-counter", "counter", 9, 10, 3, 0.8, 1.1, "Café counter"),
 ];
 
 const obstacle = (id: string): Obstacle => {

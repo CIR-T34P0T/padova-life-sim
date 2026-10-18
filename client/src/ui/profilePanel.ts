@@ -8,10 +8,14 @@ import {
   APPEARANCE_FIELDS,
   DEFAULT_APPEARANCE,
   GAME_CONFIG,
+  MAX_TRAITS,
+  TRAITS,
+  TRAIT_IDS,
   type Appearance,
   type CatalogueOption,
   type CharacterProfile,
   type NewCharacterInput,
+  type TraitId,
 } from "@padova/shared";
 
 export type PanelMode = "hidden" | "connecting" | "create" | "edit" | "message";
@@ -28,6 +32,7 @@ const GROUP_LABELS: Record<keyof Appearance, string> = {
 export class ProfilePanel {
   mode: PanelMode = "hidden";
   private appearance: Appearance = { ...DEFAULT_APPEARANCE };
+  private traits: TraitId[] = [];
   private errorElement: HTMLElement | null = null;
   private submitButton: HTMLButtonElement | null = null;
 
@@ -42,6 +47,7 @@ export class ProfilePanel {
   /** First visit: name + appearance. Player characters are adults. */
   showCreate(onSubmit: (input: NewCharacterInput) => void, notice?: string): void {
     this.appearance = { ...DEFAULT_APPEARANCE };
+    this.traits = [];
     this.render("create", (body) => {
       body.append(heading("Create your character"));
       if (notice) body.append(paragraph(notice, "join-notice"));
@@ -54,10 +60,10 @@ export class ProfilePanel {
       input.setAttribute("autocomplete", "nickname");
       input.maxLength = GAME_CONFIG.nameMaxLength;
       input.placeholder = "e.g. Giulia";
-      body.append(label, input, this.pickers());
+      body.append(label, input, this.pickers(), this.traitPicker());
       body.append(paragraph("Age: adult (18+). All player characters are university-age adults.", "join-note"));
       body.append(this.actions("Create character", () => {
-        onSubmit({ displayName: input.value, ageCategory: "adult", appearance: { ...this.appearance } });
+        onSubmit({ displayName: input.value, ageCategory: "adult", appearance: { ...this.appearance }, traits: [...this.traits] });
       }));
       body.append(paragraph("Your progress is saved to a temporary guest profile in this browser. Clearing site data, or using another device, starts over.", "join-note"));
       body.append(paragraph("A fan-made game. Not affiliated with the University of Padua.", "join-note"));
@@ -172,6 +178,50 @@ export class ProfilePanel {
       container.append(group);
     }
     return container;
+  }
+
+  /** Up to MAX_TRAITS personality traits. Chosen once, at creation (validated again by the server). */
+  private traitPicker(): HTMLElement {
+    const group = document.createElement("div");
+    group.className = "picker-group trait-picker";
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "Personality");
+    group.dataset.field = "traits";
+    const title = document.createElement("div");
+    title.className = "picker-title";
+    title.textContent = `Personality (pick up to ${MAX_TRAITS}, optional)`;
+    const row = document.createElement("div");
+    row.className = "trait-row";
+    const buttons: HTMLButtonElement[] = [];
+    const refresh = () => {
+      for (const button of buttons) {
+        const chosen = this.traits.includes(button.dataset.value as TraitId);
+        button.setAttribute("aria-pressed", String(chosen));
+        button.disabled = !chosen && this.traits.length >= MAX_TRAITS;
+      }
+    };
+    for (const id of TRAIT_IDS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "trait-option";
+      button.dataset.value = id;
+      const name = document.createElement("span");
+      name.className = "trait-name";
+      name.textContent = TRAITS[id].label;
+      const description = document.createElement("span");
+      description.className = "trait-desc";
+      description.textContent = TRAITS[id].description;
+      button.append(name, description);
+      button.addEventListener("click", () => {
+        this.traits = this.traits.includes(id) ? this.traits.filter((trait) => trait !== id) : [...this.traits, id].slice(0, MAX_TRAITS);
+        refresh();
+      });
+      buttons.push(button);
+      row.append(button);
+    }
+    refresh();
+    group.append(title, row);
+    return group;
   }
 
   private actions(label: string, onClick: () => void): HTMLElement {

@@ -48,6 +48,7 @@ async function waitForAllPlayers(pages: Page[], count: number) {
 }
 
 test("desktop: select a bench, sit, stand up from yourself, greet another player", async ({ browser }) => {
+  test.setTimeout(150_000); // many steps with two software-rendered browsers; slow on 2-CPU machines
   const alice = await joinAs(browser, "Alice");
   const bruno = await joinAs(browser, "Bruno");
   await waitForAllPlayers([alice.page, bruno.page], 2);
@@ -80,7 +81,7 @@ test("desktop: select a bench, sit, stand up from yourself, greet another player
     await expect(alice.page.locator("#action-menu")).toBeVisible();
     expect(await interaction(alice.page)).toMatchObject({
       selection: { kind: "object", id: "bench-1" },
-      menu: { kind: "radial", title: "Bench", options: ["Sit"] },
+      menu: { kind: "radial", title: "Bench", options: ["Sit", "Sketch"] },
     });
     await alice.page.screenshot({ path: "test-results/m3-desktop-menu.png" });
   });
@@ -102,12 +103,12 @@ test("desktop: select a bench, sit, stand up from yourself, greet another player
     await alice.page.screenshot({ path: "test-results/m3-desktop-seated.png" });
   });
 
-  await test.step("clicking yourself while seated offers Stand up", async () => {
+  await test.step("clicking yourself while seated offers what you can do there, and your character panel", async () => {
     await alice.page.waitForTimeout(400);
     const self = await targetPoint(alice.page, "player", alice.id);
     expect(await alice.page.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [self.x, self.y] as const)).toEqual({ kind: "self" });
     await alice.page.mouse.click(self.x, self.y);
-    expect(await interaction(alice.page)).toMatchObject({ menu: { title: "Bench", subtitle: "You're sitting here", options: ["Stand up"] } });
+    expect(await interaction(alice.page)).toMatchObject({ menu: { title: "Bench", subtitle: "You're sitting here", options: ["Sketch", "Stand up", "Character"] } });
     await alice.page.click('#action-menu [data-action="stand"]');
     await expect.poll(async () => (await playerSeenBy(bruno.page, alice.id))?.activity).toBe("idle");
     expect((await playerSeenBy(bruno.page, alice.id))?.seatId).toBe("");
@@ -140,7 +141,7 @@ test("desktop: select a bench, sit, stand up from yourself, greet another player
     await alice.page.waitForTimeout(400);
     const self = await targetPoint(alice.page, "player", alice.id);
     await alice.page.mouse.click(self.x, self.y);
-    expect(await interaction(alice.page)).toMatchObject({ menu: { title: "Alice", subtitle: "You", options: ["Edit appearance"] } });
+    expect(await interaction(alice.page)).toMatchObject({ menu: { title: "Alice", subtitle: "You", options: ["Character", "Edit appearance"] } });
     await alice.page.keyboard.press("Escape");
     await expect(alice.page.locator("#action-menu")).toBeHidden();
   });
@@ -163,6 +164,7 @@ test("desktop: select a bench, sit, stand up from yourself, greet another player
 });
 
 test("mobile: tap targets open a touch-friendly action sheet", async ({ browser }) => {
+  test.setTimeout(150_000);
   const phone = await joinAs(browser, "Chiara", { ...devices["Pixel 7"] });
   const desktop = await joinAs(browser, "Dario");
   await waitForAllPlayers([phone.page, desktop.page], 2);
@@ -173,7 +175,7 @@ test("mobile: tap targets open a touch-friendly action sheet", async ({ browser 
     await phone.page.touchscreen.tap(bench.x, bench.y);
     const sheet = phone.page.locator("#action-sheet");
     await expect(sheet).toBeVisible();
-    expect(await interaction(phone.page)).toMatchObject({ menu: { kind: "sheet", title: "Bench", options: ["Sit"] } });
+    expect(await interaction(phone.page)).toMatchObject({ menu: { kind: "sheet", title: "Bench", options: ["Sit", "Sketch"] } });
     const button = sheet.locator('[data-action="sit"]');
     const box = (await button.boundingBox())!;
     expect(box.height).toBeGreaterThanOrEqual(48);

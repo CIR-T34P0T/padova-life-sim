@@ -31,6 +31,7 @@ async function screenPointFor(page: Page, x: number, z: number) {
 }
 
 test("two desktop players and a touch player share the piazza", async ({ browser }) => {
+  test.setTimeout(150_000); // three software-rendered browsers; slow on 2-CPU machines
   const alice = await joinAs(browser, "Alice");
   const bruno = await joinAs(browser, "Bruno");
   const phone = await joinAs(browser, "Chiara", { ...devices["Pixel 7"] });
@@ -127,10 +128,12 @@ test("two desktop players and a touch player share the piazza", async ({ browser
       .toBeGreaterThan(1);
   });
 
-  await test.step("tapping a building is refused with feedback and no movement", async () => {
+  await test.step("tapping a solid, non-interactive object is refused with feedback and no movement", async () => {
     const before = await positionSeenBy(bruno.page, aliceId);
-    const building = await screenPointFor(alice.page, 0, -3); // fountain centre
-    await alice.page.mouse.click(building.x, building.y - 10);
+    // A market stall (the fountain became interactive in M5).
+    const stall = await screenPointFor(alice.page, 1, 7);
+    expect(await alice.page.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [stall.x, stall.y - 10] as const)).toMatchObject({ kind: "blocked" });
+    await alice.page.mouse.click(stall.x, stall.y - 10);
     await expect(alice.page.locator("#toast")).toBeVisible();
     await expect(alice.page.locator("#toast")).toContainText("can't walk there");
     await alice.page.waitForTimeout(500);

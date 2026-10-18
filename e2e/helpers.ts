@@ -7,13 +7,16 @@ import { expect, type Browser, type BrowserContext, type Page } from "@playwrigh
 export type AppearanceChoice = Partial<Record<"preset" | "skinTone" | "hairStyle" | "hairColour" | "eyeColour" | "outfit", string>>;
 
 /** Fills in and submits the "Create your character" panel on an already-open page. */
-export async function createCharacter(page: Page, name: string, appearance: AppearanceChoice = {}): Promise<void> {
+export async function createCharacter(page: Page, name: string, appearance: AppearanceChoice = {}, traits: string[] = []): Promise<void> {
   // Generous timeout: the first page load compiles on demand under Vite and
   // test machines may render WebGL in software.
   await expect(page.locator('#profile-panel[data-mode="create"]')).toBeVisible({ timeout: 15_000 });
   await page.fill("#character-name", name);
   for (const [field, value] of Object.entries(appearance)) {
     await page.click(`#profile-panel .picker-group[data-field="${field}"] [data-value="${value}"]`);
+  }
+  for (const trait of traits) {
+    await page.click(`#profile-panel [data-field="traits"] [data-value="${trait}"]`);
   }
   await page.click("#profile-panel button.primary");
   await waitUntilPlaying(page, name);
