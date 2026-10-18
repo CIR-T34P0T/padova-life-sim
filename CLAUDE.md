@@ -85,6 +85,9 @@ or auth model without the product owner's approval.
 4. Update docs in the same change when behaviour changes. One source of
    truth per topic: README (setup/status), docs/* (design and decisions).
 5. Report honestly: what was tested, the actual results, known limitations.
+6. End every report to the product owner with step-by-step instructions for
+   testing the change on their Windows laptop (PowerShell commands, what to
+   click, what they should see, and what to send back if it fails).
 
 Status vocabulary for features: planned, partially implemented, locally
 functional, multiplayer functional, persistence verified, production ready.
