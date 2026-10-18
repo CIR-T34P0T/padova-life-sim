@@ -18,8 +18,9 @@ import {
 } from "../src/profiles/profileRepository.ts";
 import { testBackends } from "./helpers/testDatabase.ts";
 
-const input: NewCharacterInput = { displayName: "Giulia", ageCategory: "adult", appearance: { ...DEFAULT_APPEARANCE } };
+const input: NewCharacterInput = { displayName: "Giulia", ageCategory: "adult", appearance: { ...DEFAULT_APPEARANCE }, traits: [] };
 const spawn = { area: "plaza", x: 0, z: 13, rotation: Math.PI };
+const seed = { startingBalanceCents: 10_000, gameMinute: 480 };
 
 const tableNames = async (db: Database) =>
   (await db.query<{ table_name: string }>(
@@ -81,7 +82,7 @@ for (const backend of testBackends) {
       });
 
       it("creates a guest with a character atomically and never stores the token itself", async () => {
-        const { accountId, guestToken, character } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn);
+        const { accountId, guestToken, character } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
         expect(isWellFormedGuestToken(guestToken)).toBe(true);
         expect(character).toMatchObject({ accountId, displayName: "Giulia", ageCategory: "adult", profileVersion: PROFILE_VERSION });
         expect(character.appearance).toEqual(DEFAULT_APPEARANCE);
@@ -93,7 +94,7 @@ for (const backend of testBackends) {
       });
 
       it("finds the account only with the exact token", async () => {
-        const { accountId, guestToken } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn);
+        const { accountId, guestToken } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
         expect(await findAccountIdByGuestToken(db, guestToken)).toBe(accountId);
         const tampered = guestToken.slice(0, -1) + (guestToken.endsWith("A") ? "B" : "A");
         expect(await findAccountIdByGuestToken(db, tampered)).toBeNull();
@@ -102,7 +103,7 @@ for (const backend of testBackends) {
       });
 
       it("saves and loads appearance and position", async () => {
-        const { accountId, character } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn);
+        const { accountId, character } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
         const owner = { accountId, characterId: character.characterId };
         const changed = { ...DEFAULT_APPEARANCE, hairColour: "teal", outfit: "hoodie-navy" };
         const updated = await updateAppearance(db, owner, changed, PROFILE_VERSION);
@@ -116,8 +117,8 @@ for (const backend of testBackends) {
       });
 
       it("refuses reads and writes by an account that does not own the character", async () => {
-        const alice = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn);
-        const bruno = await createGuestWithCharacter(db, { ...input, displayName: "Bruno" }, PROFILE_VERSION, spawn);
+        const alice = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
+        const bruno = await createGuestWithCharacter(db, { ...input, displayName: "Bruno" }, PROFILE_VERSION, spawn, seed);
         const brunoAttack = { accountId: bruno.accountId, characterId: alice.character.characterId };
         expect(await updateAppearance(db, brunoAttack, { ...DEFAULT_APPEARANCE, hairColour: "rose" }, PROFILE_VERSION)).toBeNull();
         expect(await saveState(db, brunoAttack, { area: "plaza", x: 20, z: 20, rotation: 0 })).toBe(false);
@@ -128,12 +129,12 @@ for (const backend of testBackends) {
       });
 
       it("allows one character per account", async () => {
-        const { accountId } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn);
-        expect(await createCharacterForAccount(db, accountId, { ...input, displayName: "Second" }, PROFILE_VERSION, spawn)).toBeNull();
+        const { accountId } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
+        expect(await createCharacterForAccount(db, accountId, { ...input, displayName: "Second" }, PROFILE_VERSION, spawn, seed)).toBeNull();
       });
 
       it("enforces age category and version constraints in the database itself", async () => {
-        const { accountId, character } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn);
+        const { accountId, character } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
         await expect(db.query("UPDATE characters SET age_category = 'toddler' WHERE id = $1", [character.characterId])).rejects.toThrow();
         await expect(db.query("UPDATE characters SET profile_version = 0 WHERE id = $1", [character.characterId])).rejects.toThrow();
         await expect(db.query("INSERT INTO accounts (id, kind) VALUES ($1, 'admin')", [crypto.randomUUID()])).rejects.toThrow();
@@ -143,7 +144,7 @@ for (const backend of testBackends) {
       it("rolls back a failed creation completely", async () => {
         const before = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM accounts")).rows[0]!.n;
         // An over-long name violates the table constraint after the account row was inserted.
-        await expect(createGuestWithCharacter(db, { ...input, displayName: "x".repeat(41) }, PROFILE_VERSION, spawn)).rejects.toThrow();
+        await expect(createGuestWithCharacter(db, { ...input, displayName: "x".repeat(41) }, PROFILE_VERSION, spawn, seed)).rejects.toThrow();
         const after = (await db.query<{ n: number }>("SELECT count(*)::int AS n FROM accounts")).rows[0]!.n;
         expect(after).toBe(before);
       });

@@ -4,21 +4,28 @@
 //
 // Coordinates: metres, X to the east, Z to the south, Y up. Origin = piazza centre.
 
-export type ObstacleKind = "building" | "arcade" | "fountain" | "stall" | "bench" | "planter" | "desk";
+export type ObstacleKind = "building" | "arcade" | "fountain" | "stall" | "bench" | "planter" | "desk" | "counter";
 
-export type InteractableKind = "bench" | "desk";
+export type InteractableKind = "bench" | "desk" | "cafe" | "fountain";
 
-/** One place a character can occupy on an interactable object. */
+/**
+ * One reservable interaction point on an object (D-026). Most are seats; a
+ * point with `pose: "stand"` is a standing spot (café counter, fountain) that
+ * is reserved only while walking there and acting, never left occupied.
+ * The type keeps the name "Seat" to avoid churn across code and data.
+ */
 export interface Seat {
-  /** Stable id, unique across the world, e.g. "bench-1/seat-a". */
+  /** Stable id, unique across the world, e.g. "bench-1/seat-a" or "cafe-counter/spot-a". */
   id: string;
-  /** Where the character is placed while seated. */
+  /** Where the character is placed while using it. */
   x: number;
   z: number;
-  /** Facing while seated, radians around Y; 0 faces +Z. */
+  /** Facing while using it, radians around Y; 0 faces +Z. */
   rotation: number;
-  /** Walkable point the character walks to before sitting down, and returns to when standing up. */
+  /** Walkable point the character walks to first, and returns to when standing up. */
   approach: { x: number; z: number };
+  /** "sit" (default) or "stand". */
+  pose?: "sit" | "stand";
 }
 
 /** An object players can click to get contextual actions. */
@@ -82,6 +89,18 @@ function seatsAlongSouthEdge(
   return seats;
 }
 
+/** Standing spots along one long edge of an object, facing it. */
+function standingSpotsAlongEdge(obstacle: Obstacle, count: number, edge: "north" | "south", playerRadius = 0.35): Seat[] {
+  const width = obstacle.maxX - obstacle.minX;
+  const gap = playerRadius + 0.3;
+  const z = edge === "south" ? obstacle.maxZ + gap : obstacle.minZ - gap;
+  const rotation = edge === "south" ? Math.PI : 0;
+  return Array.from({ length: count }, (_, i) => {
+    const x = obstacle.minX + (width * (i + 0.5)) / count;
+    return { id: `${obstacle.id}/spot-${String.fromCharCode(97 + i)}`, x, z, rotation, approach: { x, z }, pose: "stand" as const };
+  });
+}
+
 const box = (
   id: string,
   kind: ObstacleKind,
@@ -128,6 +147,8 @@ const plazaObstacles: Obstacle[] = [
     // Study desks in front of the (placeholder) university hall.
     box("desk-1", "desk", -15, -14, 1.6, 0.8, 0.75, "Study desk"),
     box("desk-2", "desk", -10, -14, 1.6, 0.8, 0.75, "Study desk"),
+    // Café counter in front of the (placeholder) café block, served from the piazza side.
+    box("cafe-counter", "counter", 11, 15.6, 3, 0.8, 1.1, "Café counter"),
 ];
 
 const obstacle = (id: string): Obstacle => {
@@ -144,6 +165,8 @@ export const PLAZA_LAYOUT: WorldLayout = {
     { id: "bench-2", kind: "bench", label: "Bench", seats: seatsAlongSouthEdge(obstacle("bench-2"), 2, "away") },
     { id: "desk-1", kind: "desk", label: "Study desk", seats: seatsAlongSouthEdge(obstacle("desk-1"), 1, "towards") },
     { id: "desk-2", kind: "desk", label: "Study desk", seats: seatsAlongSouthEdge(obstacle("desk-2"), 1, "towards") },
+    { id: "cafe-counter", kind: "cafe", label: "Café counter", seats: standingSpotsAlongEdge(obstacle("cafe-counter"), 2, "north") },
+    { id: "fountain", kind: "fountain", label: "Fountain", seats: standingSpotsAlongEdge(obstacle("fountain"), 2, "south") },
   ],
   spawnPoints: [
     { x: 0, z: 13 },

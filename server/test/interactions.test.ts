@@ -15,10 +15,11 @@ import {
   type WorldLayout,
 } from "@padova/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { RoomTuning } from "../src/tuning.ts";
+import type { TuningOverrides } from "../src/tuning.ts";
 import { joinWithNewCharacter, sleep, startTestServer, waitFor, type TestServer } from "./helpers/gameClient.ts";
 
-const FAST: Partial<RoomTuning> = { walkSpeed: 9, studyDurationMs: 1200, greetDurationMs: 500 };
+const STUDY_MS = 1200;
+const FAST: TuningOverrides = { walkSpeed: 9, actionDurationsMs: { study: STUDY_MS, greet: 500 } };
 
 
 interface TestPlayer {
@@ -33,7 +34,7 @@ interface TestPlayer {
 }
 
 /** Starts a server for one suite and returns helpers bound to it. */
-function useServer(port: number, tuning: Partial<RoomTuning>) {
+function useServer(port: number, tuning: TuningOverrides) {
   let server: TestServer;
   const open: Room[] = [];
 
@@ -199,7 +200,7 @@ describe("object interactions", () => {
     expect((await request(alice, "object", "desk-2", "study")).status).toBe("queued");
     const started = await alice.waitForStatus("started");
     const startedAt = Date.now();
-    expect(started.durationMs).toBe(FAST.studyDurationMs);
+    expect(started.durationMs).toBe(STUDY_MS);
     await waitFor(() => stateOf(alice, alice.id).activity === "studying", 1000, "studying replicated");
     // A forged completion message must not end the session early.
     alice.room.send("actionComplete" as never, { actionId: started.actionId } as never);
@@ -207,7 +208,7 @@ describe("object interactions", () => {
     await sleep(400);
     expect(alice.updates.some((u) => u.status === "completed")).toBe(false);
     await alice.waitForStatus("completed", 4000);
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(FAST.studyDurationMs! - 100);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(STUDY_MS - 100);
     await waitFor(() => stateOf(alice, alice.id).activity === "sitting", 2000, "back to sitting");
     expect(stateOf(alice, alice.id).seatId).toBe("desk-2/seat-a");
   });

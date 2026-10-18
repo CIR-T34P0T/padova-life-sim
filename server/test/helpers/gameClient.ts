@@ -9,13 +9,16 @@ import {
   ROOM_NAME,
   ServerMessage,
   type Appearance,
+  type ActionUpdatePayload,
   type IdentityPayload,
+  type LifePayload,
+  type TraitId,
   type ProfileErrorPayload,
   type ProfilePayload,
 } from "@padova/shared";
 import { createGameServer } from "../../src/app.ts";
 import type { Database } from "../../src/db/database.ts";
-import type { RoomTuning } from "../../src/tuning.ts";
+import type { TuningOverrides } from "../../src/tuning.ts";
 import { migratedTestDatabase } from "./testDatabase.ts";
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -35,7 +38,7 @@ export interface TestServer {
   stop(): Promise<void>;
 }
 
-export async function startTestServer(port: number, tuning: Partial<RoomTuning> = {}, db?: Database): Promise<TestServer> {
+export async function startTestServer(port: number, tuning: TuningOverrides = {}, db?: Database): Promise<TestServer> {
   const database = db ?? (await migratedTestDatabase());
   // Tests create many guests from 127.0.0.1; lift the per-IP limit unless a test sets it.
   const server = createGameServer({ db: database, tuning: { guestCreationsPerIpPerHour: 10_000, ...tuning } });
@@ -57,7 +60,11 @@ export interface ProfileClient {
   profiles: ProfilePayload[];
   errors: ProfileErrorPayload[];
   identities: IdentityPayload[];
+  /** The owner's own life data (M5), newest last. */
+  lives: LifePayload[];
+  actions: ActionUpdatePayload[];
   lastProfile(): ProfilePayload | undefined;
+  lastLife(): LifePayload | undefined;
 }
 
 export async function connect(url: string, options: { guestToken?: string } = {}): Promise<ProfileClient> {
@@ -67,8 +74,13 @@ export async function connect(url: string, options: { guestToken?: string } = {}
     profiles: [],
     errors: [],
     identities: [],
+    lives: [],
+    actions: [],
     lastProfile: () => client.profiles.at(-1),
+    lastLife: () => client.lives.at(-1),
   };
+  room.onMessage(ServerMessage.Life, (payload: LifePayload) => client.lives.push(payload));
+  room.onMessage(ServerMessage.ActionUpdate, (payload: ActionUpdatePayload) => client.actions.push(payload));
   room.onMessage(ServerMessage.Profile, (payload: ProfilePayload) => client.profiles.push(payload));
   room.onMessage(ServerMessage.ProfileError, (payload: ProfileErrorPayload) => client.errors.push(payload));
   room.onMessage(ServerMessage.Identity, (payload: IdentityPayload) => client.identities.push(payload));
@@ -81,9 +93,10 @@ export async function joinWithNewCharacter(
   url: string,
   displayName: string,
   appearance: Appearance = DEFAULT_APPEARANCE,
+  traits: TraitId[] = [],
 ): Promise<ProfileClient & { guestToken: string }> {
   const client = await connect(url);
-  client.room.send(ClientMessage.CreateCharacter, { displayName, ageCategory: "adult", appearance });
+  client.room.send(ClientMessage.CreateCharacter, { displayName, ageCategory: "adult", appearance, traits });
   await waitFor(() => client.lastProfile()?.status === "ready" || client.errors.length > 0, 8000, `character ${displayName} ready`);
   if (client.errors.length) throw new Error(`createCharacter failed: ${JSON.stringify(client.errors)}`);
   await waitFor(() => client.room.state.players.get(client.room.sessionId) !== undefined, 4000, "own player replicated");

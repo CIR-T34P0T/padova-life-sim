@@ -6,6 +6,7 @@ import {
   GAME_CONFIG,
   NavGrid,
   ServerMessage,
+  gameMinuteAt,
   isPositionWalkable,
   parseAppearance,
   parseMoveDirection,
@@ -20,6 +21,8 @@ import {
   type RejectedPayload,
 } from "@padova/shared";
 import { InteractionSystem } from "./InteractionSystem.ts";
+import type { LifeService, LoadedLife } from "./life/LifeService.ts";
+import { LifeSystem, type GameClock } from "./life/LifeSystem.ts";
 import { log } from "./log.ts";
 import type { LoadedCharacter, ProfileService } from "./profiles/ProfileService.ts";
 import type { Owner } from "./profiles/profileRepository.ts";
@@ -27,7 +30,7 @@ import type { SessionRegistry } from "./profiles/sessionRegistry.ts";
 import type { PlayerRuntime } from "./runtime.ts";
 import { PlayerState, PlazaState } from "./schema.ts";
 import { getServices } from "./services.ts";
-import { DEFAULT_TUNING, type PlazaRoomOptions, type RoomTuning } from "./tuning.ts";
+import { DEFAULT_TUNING, resolveTuning, type PlazaRoomOptions, type RoomTuning } from "./tuning.ts";
 
 /** What the server knows about one connection's identity. Never sent to clients. */
 interface Session {
@@ -72,24 +75,42 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   private tuning: RoomTuning = DEFAULT_TUNING;
   private nav!: NavGrid;
   private interactions!: InteractionSystem;
+  private life!: LifeSystem;
+  private lifeService!: LifeService;
+  private gameClock!: GameClock;
   private profiles!: ProfileService;
   private registry!: SessionRegistry;
   private spawnCursor = 0;
 
   override onCreate(options?: PlazaRoomOptions): void {
-    this.tuning = { ...DEFAULT_TUNING, ...options?.tuning };
+    this.tuning = resolveTuning(options?.tuning);
     const services = getServices(options?.servicesKey);
     this.profiles = services.profiles;
+    this.lifeService = services.life;
+    const scale = this.tuning.timeScale;
+    this.gameClock = { scale, minute: () => gameMinuteAt(Date.now(), scale) };
     this.registry = services.sessions;
     this.nav = new NavGrid(this.tuning.world, GAME_CONFIG.navCellSize, GAME_CONFIG.playerRadius, GAME_CONFIG.maxPathExpansions);
     this.state = new PlazaState();
+    this.state.gameMinute = Math.floor(this.gameClock.minute());
+    const send = (sessionId: string, type: string, payload: unknown) => this.clients.getById(sessionId)?.send(type, payload);
+    this.life = new LifeSystem({
+      state: this.state,
+      runtimes: this.runtimes,
+      service: this.lifeService,
+      clock: this.gameClock,
+      send,
+      requestSave: (sessionId) => void this.saveCharacter(sessionId),
+      now: () => Date.now(),
+    });
     this.interactions = new InteractionSystem({
       state: this.state,
       runtimes: this.runtimes,
       nav: this.nav,
       tuning: this.tuning,
-      send: (sessionId, type, payload) => this.clients.getById(sessionId)?.send(type, payload),
+      send,
       now: () => Date.now(),
+      hooks: this.life,
     });
     this.setSimulationInterval((deltaMs) => this.tick(deltaMs), GAME_CONFIG.tickMs);
     this.clock.setInterval(() => void this.autosave(), this.tuning.autosaveIntervalMs);
@@ -152,7 +173,9 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       this.sendProfile(client, { status: "needs_character" });
       return;
     }
-    this.spawn(client, session, loaded);
+    const life = await this.lifeService.load(loaded.owner, this.gameClock.minute());
+    if (!this.isStillHere(client.sessionId)) return;
+    this.spawn(client, session, loaded, life);
     this.sendProfile(client, { status: "ready", profile: loaded.profile, readOnly: loaded.readOnly, notices: loaded.notices });
   }
 
@@ -232,8 +255,14 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     session.creating = true;
     try {
       const spawnPoint = this.nextSpawnPoint();
-      const result = await this.profiles.create(parsed.value, session.accountId, { area: AREA, x: spawnPoint.x, z: spawnPoint.z, rotation: Math.PI });
+      const result = await this.profiles.create(
+        parsed.value,
+        session.accountId,
+        { area: AREA, x: spawnPoint.x, z: spawnPoint.z, rotation: Math.PI },
+        { startingBalanceCents: this.tuning.startingBalanceCents, gameMinute: this.gameClock.minute() },
+      );
       if (result === "already_has_character") return this.profileError(client, { action: "createCharacter", reason: "already_has_character" });
+      const life = await this.lifeService.load(result.loaded.owner, this.gameClock.minute());
       if (!this.isStillHere(client.sessionId)) return;
       if (result.guestToken) {
         const identity: IdentityPayload = { guestToken: result.guestToken };
@@ -241,7 +270,8 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       }
       session.accountId = result.accountId;
       await this.claimAccount(client.sessionId, result.accountId);
-      this.spawn(client, session, result.loaded);
+      if (!this.isStillHere(client.sessionId)) return;
+      this.spawn(client, session, result.loaded, life);
       this.sendProfile(client, { status: "ready", profile: result.loaded.profile, notices: result.loaded.notices });
       log.info("plaza", `${client.sessionId} created character ${result.loaded.profile.characterId}`);
     } catch (error) {
@@ -274,7 +304,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   }
 
   /** Places a loaded character in the world, at its saved position when that is still valid. */
-  private spawn(client: Client, session: Session, loaded: LoadedCharacter): void {
+  private spawn(client: Client, session: Session, loaded: LoadedCharacter, life: LoadedLife | null): void {
     const saved = loaded.state;
     const position =
       saved && saved.area === AREA && isPositionWalkable(this.tuning.world, saved.x, saved.z, GAME_CONFIG.playerRadius)
@@ -302,6 +332,8 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     session.owner = loaded.owner;
     session.readOnly = loaded.readOnly;
     session.lastSaved = { x: position.x, z: position.z };
+    if (life) this.life.attach(client.sessionId, loaded.owner, life);
+    else log.error("plaza", `no life data for ${client.sessionId}; needs, skills and money are unavailable`);
     log.info("plaza", `${loaded.profile.displayName} (${client.sessionId}) entered; ${this.state.players.size} in the world`);
   }
 
@@ -313,36 +345,41 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   private saveAndRemove(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (session?.removal) return session.removal;
-    const save = this.saveCharacter(sessionId);
+    const save = this.saveCharacter(sessionId); // takes its snapshot synchronously
     if (session) session.removal = save;
     this.interactions.onLeave(sessionId);
+    this.life.detach(sessionId);
     this.state.players.delete(sessionId);
     this.runtimes.delete(sessionId);
     return save;
   }
 
-  /** Persists position. Seated characters are saved at the spot they would stand up to. */
+  /**
+   * Persists position and life data (needs, skills, mood events) in one
+   * transaction. Seated characters are saved at the spot they would stand up
+   * to. Everything is read synchronously before the first await, so callers
+   * may remove the character right after calling this. Money is not saved
+   * here: every money change is already its own transaction.
+   */
   private async saveCharacter(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     const runtime = this.runtimes.get(sessionId);
     if (!session?.owner || !runtime) return;
     const standing = this.interactions.standingPosition(sessionId) ?? { x: runtime.character.x, z: runtime.character.z };
     const state = { area: AREA, x: standing.x, z: standing.z, rotation: runtime.character.rotation };
+    const life = this.life.snapshot(sessionId);
     try {
-      await this.profiles.saveState(session.owner, state);
+      await this.lifeService.saveAll(session.owner, state, life);
       session.lastSaved = { x: state.x, z: state.z };
     } catch (error) {
       log.error("plaza", `could not save ${sessionId}: ${(error as Error).message}`);
     }
   }
 
+  /** Needs change all the time, so every character in the world is saved on each autosave. */
   private async autosave(): Promise<void> {
-    const moved = [...this.sessions.entries()].filter(([sessionId, session]) => {
-      const runtime = this.runtimes.get(sessionId);
-      if (!session.owner || !runtime || !session.lastSaved) return false;
-      return Math.hypot(runtime.character.x - session.lastSaved.x, runtime.character.z - session.lastSaved.z) > 0.1;
-    });
-    await Promise.all(moved.map(([sessionId]) => this.saveCharacter(sessionId)));
+    const inWorld = [...this.sessions.entries()].filter(([sessionId, session]) => session.owner && this.runtimes.has(sessionId));
+    await Promise.all(inWorld.map(([sessionId]) => this.saveCharacter(sessionId)));
   }
 
   private sendProfile(client: Client, payload: ProfilePayload): void {
@@ -370,7 +407,10 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       const moving = runtime.character.intent.kind !== "idle" && result.moved;
       if (player.moving !== moving) player.moving = moving;
     }
+    this.life.tick(dt * 1000);
     this.interactions.tick();
+    const minute = Math.floor(this.gameClock.minute());
+    if (this.state.gameMinute !== minute) this.state.gameMinute = minute;
   }
 
   private handleMoveTo(client: Client, payload: unknown): void {

@@ -41,14 +41,21 @@ describe("parseNewCharacter", () => {
   it("accepts a valid adult character and cleans the name", () => {
     expect(parseNewCharacter({ ...valid, displayName: "  Giulia  R. " })).toEqual({
       ok: true,
-      value: { displayName: "Giulia R.", ageCategory: "adult", appearance: DEFAULT_APPEARANCE },
+      value: { displayName: "Giulia R.", ageCategory: "adult", appearance: DEFAULT_APPEARANCE, traits: [] },
     });
+  });
+
+  it("accepts up to two distinct known traits and refuses anything else", () => {
+    expect(parseNewCharacter({ ...valid, traits: ["organised", "creative"] })).toMatchObject({ ok: true, value: { traits: ["organised", "creative"] } });
+    for (const traits of [["organised", "organised"], ["organised", "sociable", "creative"], ["lazy"], "organised", [3]]) {
+      expect(parseNewCharacter({ ...valid, traits })).toMatchObject({ ok: false, reason: "invalid_traits" });
+    }
   });
 
   it("ignores unexpected fields such as a client-chosen id or owner", () => {
     const parsed = parseNewCharacter({ ...valid, characterId: "stolen", accountId: "someone-else", isAdmin: true });
     expect(parsed.ok).toBe(true);
-    if (parsed.ok) expect(Object.keys(parsed.value).sort()).toEqual(["ageCategory", "appearance", "displayName"]);
+    if (parsed.ok) expect(Object.keys(parsed.value).sort()).toEqual(["ageCategory", "appearance", "displayName", "traits"]);
   });
 
   it("refuses non-adult player characters", () => {
@@ -94,6 +101,11 @@ describe("stored data safety", () => {
 
   it("leaves current-version data unchanged", () => {
     expect(upgradeProfileData(stored(PROFILE_VERSION))).toEqual({ ok: true, data: stored(PROFILE_VERSION), upgraded: false });
+  });
+
+  it("upgrades a version 1 profile (before traits) to the current version with no traits", () => {
+    const result = upgradeProfileData(stored(1));
+    expect(result).toMatchObject({ ok: true, upgraded: true, data: { profileVersion: PROFILE_VERSION, traits: [] } });
   });
 
   it("runs upgrade steps one version at a time", () => {

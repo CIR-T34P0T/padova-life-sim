@@ -6,11 +6,13 @@
 import {
   PROFILE_VERSION,
   sanitizeStoredAppearance,
+  sanitizeStoredTraits,
   upgradeProfileData,
   type AgeCategory,
   type Appearance,
   type CharacterProfile,
   type NewCharacterInput,
+  type TraitId,
 } from "@padova/shared";
 import type { Database } from "../db/database.ts";
 import { log } from "../log.ts";
@@ -23,6 +25,7 @@ import {
   updateAppearance,
   type Owner,
   type SavedState,
+  type LifeSeed,
   type StoredCharacter,
 } from "./profileRepository.ts";
 
@@ -84,19 +87,22 @@ export class ProfileService {
     input: NewCharacterInput,
     accountId: string | null,
     spawn: SavedState,
+    seed: LifeSeed,
   ): Promise<{ accountId: string; guestToken: string | null; loaded: LoadedCharacter } | "already_has_character"> {
     if (accountId) {
-      const stored = await createCharacterForAccount(this.db, accountId, input, PROFILE_VERSION, spawn);
+      const stored = await createCharacterForAccount(this.db, accountId, input, PROFILE_VERSION, spawn, seed);
       if (!stored) return "already_has_character";
       return { accountId, guestToken: null, loaded: await this.prepare(stored) };
     }
-    const created = await createGuestWithCharacter(this.db, input, PROFILE_VERSION, spawn);
+    const created = await createGuestWithCharacter(this.db, input, PROFILE_VERSION, spawn, seed);
     return { accountId: created.accountId, guestToken: created.guestToken, loaded: await this.prepare(created.character) };
   }
 
   async updateAppearance(owner: Owner, appearance: Appearance): Promise<CharacterProfile | null> {
     const stored = await updateAppearance(this.db, owner, appearance, PROFILE_VERSION);
-    return stored ? toProfile(stored, sanitizeStoredAppearance(stored.appearance).appearance, stored.profileVersion) : null;
+    return stored
+      ? toProfile(stored, sanitizeStoredAppearance(stored.appearance).appearance, stored.profileVersion, sanitizeStoredTraits(stored.traits))
+      : null;
   }
 
   saveState(owner: Owner, state: SavedState): Promise<boolean> {
@@ -112,6 +118,7 @@ export class ProfileService {
       displayName: stored.displayName,
       ageCategory: stored.ageCategory,
       appearance: stored.appearance,
+      traits: stored.traits,
     });
 
     if (!upgrade.ok) {
@@ -119,8 +126,16 @@ export class ProfileService {
       log.warn("profiles", `character ${stored.characterId} has profile version ${stored.profileVersion}: ${upgrade.reason}; loading read-only`);
       notices.push("Your profile was saved by a newer version of the game, so it can't be edited here.");
       const safe = sanitizeStoredAppearance(stored.appearance).appearance;
-      return { owner, profile: toProfile(stored, safe, stored.profileVersion), state: stored.state, readOnly: true, notices };
+      return {
+        owner,
+        profile: toProfile(stored, safe, stored.profileVersion, sanitizeStoredTraits(stored.traits)),
+        state: stored.state,
+        readOnly: true,
+        notices,
+      };
     }
+
+    const traits = sanitizeStoredTraits(upgrade.data.traits ?? []);
 
     const repaired = sanitizeStoredAppearance(upgrade.data.appearance);
     for (const field of repaired.replaced) {
@@ -130,10 +145,10 @@ export class ProfileService {
       const saved = await updateAppearance(this.db, owner, repaired.appearance, PROFILE_VERSION);
       if (saved) {
         log.info("profiles", `character ${stored.characterId} upgraded/repaired (fields: ${repaired.replaced.join(", ") || "none"})`);
-        return { owner, profile: toProfile(saved, repaired.appearance, PROFILE_VERSION), state: stored.state, readOnly: false, notices };
+        return { owner, profile: toProfile(saved, repaired.appearance, PROFILE_VERSION, traits), state: stored.state, readOnly: false, notices };
       }
     }
-    return { owner, profile: toProfile(stored, repaired.appearance, PROFILE_VERSION), state: stored.state, readOnly: false, notices };
+    return { owner, profile: toProfile(stored, repaired.appearance, PROFILE_VERSION, traits), state: stored.state, readOnly: false, notices };
   }
 }
 
@@ -146,12 +161,13 @@ const FIELD_NAMES: Record<keyof Appearance, string> = {
   outfit: "outfit",
 };
 
-function toProfile(stored: StoredCharacter, appearance: Appearance, profileVersion: number): CharacterProfile {
+function toProfile(stored: StoredCharacter, appearance: Appearance, profileVersion: number, traits: TraitId[]): CharacterProfile {
   return {
     characterId: stored.characterId,
     displayName: stored.displayName,
     ageCategory: stored.ageCategory as AgeCategory,
     appearance,
+    traits,
     profileVersion,
     createdAt: stored.createdAt.toISOString(),
     updatedAt: stored.updatedAt.toISOString(),

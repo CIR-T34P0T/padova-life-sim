@@ -4,6 +4,9 @@
 
 import { GAME_CONFIG } from "./config.ts";
 import { ACTION_IDS, type ActionId, type CancelReason, type InteractionFailure, type TargetKind } from "./interactions.ts";
+import type { MoodEventId, MoodLevel, NeedId, SkillId, TraitId } from "./life/config.ts";
+import { isValidRequestId, type TransactionView } from "./life/economy.ts";
+import type { MoodReason } from "./life/mood.ts";
 import type { CharacterProfile, ProfileFailure } from "./profile.ts";
 
 export const ClientMessage = {
@@ -36,6 +39,8 @@ export const ServerMessage = {
   Identity: "identity",
   /** A profile request was refused. Payload: ProfileErrorPayload. */
   ProfileError: "profileError",
+  /** The receiving player's own needs, mood, skills and money (D-024). Payload: LifePayload. */
+  Life: "life",
 } as const;
 
 /** Close code used when the same account joins from another window or device. */
@@ -73,6 +78,13 @@ export interface InteractPayload {
   targetKind: TargetKind;
   targetId: string;
   action: ActionId;
+  /** Menu item for "buy" (e.g. "panino"). The price comes from the server's catalogue. */
+  itemId?: string;
+  /**
+   * Client-chosen id that makes a purchase safe to repeat: the server charges
+   * once per (character, requestId). Optional; the server makes one if absent.
+   */
+  requestId?: string;
 }
 
 /**
@@ -94,6 +106,31 @@ export interface ActionUpdatePayload {
   reason?: InteractionFailure | CancelReason;
   /** Set for started timed actions. */
   durationMs?: number;
+  /** Menu item, for "buy". */
+  itemId?: string;
+}
+
+/** One skill as shown to its owner. */
+export interface SkillView {
+  xp: number;
+  level: number;
+  /** 0–1 through the current level (1 at max level). */
+  progress: number;
+}
+
+/**
+ * The owner's own life data (D-024). Sent when the player enters the world,
+ * whenever a value visibly changes (throttled), and after actions.
+ */
+export interface LifePayload {
+  /** Current game minute (same value as the replicated clock). */
+  gameMinute: number;
+  /** 0–100, one decimal. */
+  needs: Record<NeedId, number>;
+  mood: { score: number; level: MoodLevel; reasons: MoodReason[]; events: { id: MoodEventId; expiresAt: number }[] };
+  skills: Record<SkillId, SkillView>;
+  traits: TraitId[];
+  money: { balanceCents: number; recent: TransactionView[] };
 }
 
 export interface GreetedPayload {
@@ -148,9 +185,11 @@ export function parseMoveDirection(payload: unknown): Parsed<MoveDirectionPayloa
 
 const MAX_TARGET_ID_LENGTH = 64;
 
+const ITEM_ID_PATTERN = /^[a-z0-9-]{1,32}$/;
+
 export function parseInteract(payload: unknown): Parsed<InteractPayload> {
   if (!isRecord(payload)) return { ok: false, reason: "invalid_payload" };
-  const { targetKind, targetId, action } = payload;
+  const { targetKind, targetId, action, itemId, requestId } = payload;
   if (targetKind !== "object" && targetKind !== "player") return { ok: false, reason: "invalid_payload" };
   if (typeof targetId !== "string" || targetId.length === 0 || targetId.length > MAX_TARGET_ID_LENGTH) {
     return { ok: false, reason: "invalid_payload" };
@@ -158,7 +197,14 @@ export function parseInteract(payload: unknown): Parsed<InteractPayload> {
   if (typeof action !== "string" || !(ACTION_IDS as readonly string[]).includes(action)) {
     return { ok: false, reason: "invalid_payload" };
   }
-  return { ok: true, value: { targetKind, targetId, action: action as ActionId } };
+  if (itemId !== undefined && (typeof itemId !== "string" || !ITEM_ID_PATTERN.test(itemId))) {
+    return { ok: false, reason: "invalid_payload" };
+  }
+  if (requestId !== undefined && !isValidRequestId(requestId)) return { ok: false, reason: "invalid_payload" };
+  const value: InteractPayload = { targetKind, targetId, action: action as ActionId };
+  if (itemId !== undefined) value.itemId = itemId;
+  if (requestId !== undefined) value.requestId = requestId;
+  return { ok: true, value };
 }
 
 /**

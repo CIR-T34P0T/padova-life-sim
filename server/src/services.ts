@@ -2,11 +2,13 @@
 // session registry). Rooms receive a key in their options and look the
 // services up here, so live objects are never passed through room options.
 
+import type { LifeService } from "./life/LifeService.ts";
 import type { ProfileService } from "./profiles/ProfileService.ts";
 import type { SessionRegistry } from "./profiles/sessionRegistry.ts";
 
 export interface GameServices {
   profiles: ProfileService;
+  life: LifeService;
   sessions: SessionRegistry;
 }
 

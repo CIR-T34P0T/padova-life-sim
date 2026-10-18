@@ -5,21 +5,34 @@
 
 import { isPositionWalkable, type Vec2 } from "./collision.ts";
 import { GAME_CONFIG, INTERACTION_CONFIG } from "./config.ts";
+import { findMenuItem } from "./life/economy.ts";
 import type { Interactable, Seat, WorldLayout } from "./world.ts";
 
-export const ACTION_IDS = ["sit", "stand", "study", "greet"] as const;
+export const ACTION_IDS = ["sit", "stand", "study", "greet", "sketch", "buy", "wash"] as const;
 export type ActionId = (typeof ACTION_IDS)[number];
 
 export type TargetKind = "object" | "player";
 
 /** What a character is doing, as replicated to everyone. */
-export type Activity = "idle" | "sitting" | "studying" | "greeting";
+export type Activity =
+  | "idle"
+  | "sitting"
+  | "studying"
+  | "sketching"
+  | "greeting"
+  | "ordering"
+  | "eating"
+  | "drinking"
+  | "washing";
 
 export const ACTION_LABELS: Record<ActionId, string> = {
   sit: "Sit",
   stand: "Stand up",
   study: "Study",
   greet: "Greet",
+  sketch: "Sketch",
+  buy: "Buy",
+  wash: "Wash up",
 };
 
 /** Reasons an interaction can be refused or fail. Shown to players as friendly text. */
@@ -36,7 +49,13 @@ export type InteractionFailure =
   | "blocked"
   | "target_left"
   | "target_moved"
-  | "too_soon";
+  | "too_soon"
+  | "busy"
+  | "too_tired"
+  | "unknown_item"
+  | "insufficient_funds"
+  | "purchase_failed"
+  | "duplicate_request";
 
 /** Why an action ended before completing. */
 export type CancelReason = "cancelled" | "interrupted" | "replaced" | "disconnected";
@@ -90,11 +109,15 @@ export function objectActions(interactable: Interactable, actor: ActorView, occu
   const hasFreeSeat = interactable.seats.some((seat) => isFreeFor(seat, occupancy, actor.id));
   switch (interactable.kind) {
     case "bench":
-      if (seatedHere) return ["stand"];
-      return hasFreeSeat ? ["sit"] : [];
+      if (seatedHere) return actor.activity === "sketching" ? ["stand"] : ["sketch", "stand"];
+      return hasFreeSeat ? ["sit", "sketch"] : [];
     case "desk":
       if (seatedHere) return actor.activity === "studying" ? ["stand"] : ["study", "stand"];
       return hasFreeSeat ? ["study", "sit"] : [];
+    case "cafe":
+      return hasFreeSeat ? ["buy"] : [];
+    case "fountain":
+      return hasFreeSeat ? ["wash"] : [];
   }
 }
 
@@ -104,10 +127,13 @@ export function playerActions(actor: ActorView, target: { id: string; connected:
   return ["greet"];
 }
 
-const SEAT_ACTIONS: readonly ActionId[] = ["sit", "study"];
+const SEAT_ACTIONS: readonly ActionId[] = ["sit", "study", "sketch"];
+const STANDING_SPOT_ACTIONS: readonly ActionId[] = ["buy", "wash"];
 const OBJECT_ACTIONS: Record<Interactable["kind"], readonly ActionId[]> = {
-  bench: ["sit", "stand"],
+  bench: ["sit", "stand", "sketch"],
   desk: ["sit", "stand", "study"],
+  cafe: ["buy"],
+  fountain: ["wash"],
 };
 
 /** Server-side validation of an object interaction request. */
@@ -118,14 +144,16 @@ export function validateObjectAction(
   occupancy: SeatOccupancy,
   action: ActionId,
   maxDistance: number = INTERACTION_CONFIG.maxDistance,
+  itemId?: string,
 ): Check {
   if (!OBJECT_ACTIONS[interactable.kind].includes(action)) return fail("action_not_available");
+  if (action === "buy" && (!itemId || !findMenuItem(itemId))) return fail("unknown_item");
   const centre = interactableCentre(world, interactable);
   if (Math.hypot(centre.x - actor.x, centre.z - actor.z) > maxDistance) return fail("too_far");
   if (objectActions(interactable, actor, occupancy).includes(action)) return ok;
-  if (SEAT_ACTIONS.includes(action) && !interactable.seats.some((s) => isFreeFor(s, occupancy, actor.id))) {
-    return fail("no_free_seat");
-  }
+  const anyFree = interactable.seats.some((s) => isFreeFor(s, occupancy, actor.id));
+  if (SEAT_ACTIONS.includes(action) && !anyFree) return fail("no_free_seat");
+  if (STANDING_SPOT_ACTIONS.includes(action) && !anyFree) return fail("busy");
   return fail("action_not_available");
 }
 

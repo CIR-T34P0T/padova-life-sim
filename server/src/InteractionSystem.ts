@@ -1,12 +1,18 @@
-// Authoritative contextual interactions (M3).
+// Authoritative contextual interactions (M3, extended in M5).
 //
 // Lifecycle of an action:
-//   request → validate (target exists, action offered, distance, seat free,
-//   route exists) → reserve seat → walk to the interaction point ("approach")
-//   → on arrival re-check and execute ("active") → finish or keep state.
-// The client is told about each step but never decides one: arrival, timers
-// and completion are all measured here.
+//   request → validate (target exists, action offered, distance, seat or spot
+//   free, character able, route exists) → reserve the seat/spot → walk to the
+//   interaction point ("approach") → on arrival re-check and execute:
+//     seat:        sit down, then sitting / studying / sketching
+//     standing:    stand at the spot; café: pay ("paying") then eat or drink;
+//                  fountain: wash
+//   → finish (timed actions end on a server timer) or keep state (sitting).
+// The client is told about each step but never decides one: arrival, timers,
+// payments and completion are all measured here. Life effects (needs, skills,
+// money) are applied through `hooks`, implemented by the LifeSystem.
 
+import { randomUUID } from "node:crypto";
 import {
   INTERACTION_CONFIG,
   NavGrid,
@@ -14,11 +20,13 @@ import {
   chooseSeat,
   facingTowards,
   findInteractable,
+  findMenuItem,
   findSeat,
   greetApproachPoint,
   parseInteract,
   validateObjectAction,
   validatePlayerAction,
+  type ActionId,
   type ActionUpdatePayload,
   type ActorView,
   type CancelReason,
@@ -27,12 +35,39 @@ import {
   type InteractionFailure,
   type PathFailure,
   type RejectedPayload,
+  type ResolvedEffect,
+  type Seat,
   type Vec2,
 } from "@padova/shared";
 import { log } from "./log.ts";
 import type { PendingAction, PlayerRuntime } from "./runtime.ts";
 import type { PlayerState, PlazaState } from "./schema.ts";
 import type { RoomTuning } from "./tuning.ts";
+
+/** Life-simulation callbacks (LifeSystem). All optional so the system works without them. */
+export interface InteractionHooks {
+  /** Why this character can't start the action now (e.g. too tired), or null. */
+  checkStart(sessionId: string, action: ActionId, itemId?: string): InteractionFailure | null;
+  /** The effect of a timed action, or null for untimed ones. */
+  effectFor(action: ActionId, itemId?: string): ResolvedEffect | null;
+  /** Charges for a purchase on arrival at the counter. */
+  purchase(sessionId: string, pending: PendingAction): Promise<"ok" | InteractionFailure>;
+  /** A paid order that can no longer be served. */
+  refund(sessionId: string, pending: PendingAction): void;
+  /** A timed action finished normally. */
+  onCompleted(sessionId: string, pending: PendingAction): void;
+  /** A greeting started. */
+  onGreeting(greeterId: string, targetId: string): void;
+}
+
+const NO_HOOKS: InteractionHooks = {
+  checkStart: () => null,
+  effectFor: () => null,
+  purchase: async () => "purchase_failed",
+  refund: () => undefined,
+  onCompleted: () => undefined,
+  onGreeting: () => undefined,
+};
 
 export interface InteractionDeps {
   state: PlazaState;
@@ -42,6 +77,7 @@ export interface InteractionDeps {
   /** Sends a message to one connected client; silently skips absent clients. */
   send: (sessionId: string, type: string, payload: unknown) => void;
   now: () => number;
+  hooks?: InteractionHooks;
 }
 
 const PATH_FAILURE_TO_REASON: Record<PathFailure, InteractionFailure> = {
@@ -51,10 +87,16 @@ const PATH_FAILURE_TO_REASON: Record<PathFailure, InteractionFailure> = {
   search_limit: "unreachable",
 };
 
+/** Seated timed actions: begin at the seat, return to "sitting" afterwards. */
+const SEATED_TIMED: readonly ActionId[] = ["study", "sketch"];
+
 export class InteractionSystem {
   private nextActionId = 1;
+  private readonly hooks: InteractionHooks;
 
-  constructor(private readonly deps: InteractionDeps) {}
+  constructor(private readonly deps: InteractionDeps) {
+    this.hooks = deps.hooks ?? NO_HOOKS;
+  }
 
   // ── Requests ────────────────────────────────────────────────────────────
 
@@ -75,8 +117,18 @@ export class InteractionSystem {
     const { world, maxInteractionDistance } = this.deps.tuning;
     const item = findInteractable(world, request.targetId);
     if (!item) return this.reject(sessionId, request, "unknown_target");
-    const check = validateObjectAction(world, item, this.actorView(sessionId), this.deps.state.seats, request.action, maxInteractionDistance);
+    const check = validateObjectAction(
+      world,
+      item,
+      this.actorView(sessionId),
+      this.deps.state.seats,
+      request.action,
+      maxInteractionDistance,
+      request.itemId,
+    );
     if (!check.ok) return this.reject(sessionId, request, check.reason);
+    const unable = this.hooks.checkStart(sessionId, request.action, request.itemId);
+    if (unable) return this.reject(sessionId, request, unable);
 
     this.cancel(sessionId, "replaced");
     const seatedHere = item.seats.some((seat) => seat.id === player.seatId);
@@ -88,25 +140,25 @@ export class InteractionSystem {
       return;
     }
 
-    if (request.action === "study" && seatedHere) {
-      // Already at the desk: start studying where you sit.
+    if (SEATED_TIMED.includes(request.action) && seatedHere) {
+      // Already sitting here: start right away.
       const pending = this.newPending(request, player.seatId, { x: runtime.character.x, z: runtime.character.z });
       runtime.pending = pending;
-      this.beginSeatedActivity(sessionId, pending);
+      this.beginAtSeat(sessionId, pending);
       return;
     }
 
     // Sitting elsewhere? Stand up first, then walk over.
     if (player.seatId) this.standUp(sessionId);
     const seat = chooseSeat(item, this.deps.state.seats, this.actorView(sessionId));
-    if (!seat) return this.reject(sessionId, request, "no_free_seat");
+    if (!seat) return this.reject(sessionId, request, seatIsStanding(item.seats[0]) ? "busy" : "no_free_seat");
     const path = this.deps.nav.findPath(runtime.character, seat.approach);
     if (!path.ok) return this.reject(sessionId, request, PATH_FAILURE_TO_REASON[path.reason]);
 
     this.deps.state.seats.set(seat.id, sessionId);
     runtime.character.intent = { kind: "path", waypoints: path.waypoints };
     runtime.pending = this.newPending(request, seat.id, seat.approach);
-    this.update(sessionId, { actionId: runtime.pending.id, status: "queued", ...target(request) });
+    this.update(sessionId, { actionId: runtime.pending.id, status: "queued", ...target(runtime.pending) });
   }
 
   private requestPlayerAction(sessionId: string, request: InteractPayload, { player, runtime }: Context): void {
@@ -136,7 +188,7 @@ export class InteractionSystem {
 
   // ── Simulation step ─────────────────────────────────────────────────────
 
-  /** Called every server tick, after movement has been stepped. */
+  /** Called every server tick, after movement and life effects have been stepped. */
   tick(): void {
     const now = this.deps.now();
     for (const [sessionId, runtime] of this.deps.runtimes) {
@@ -160,7 +212,7 @@ export class InteractionSystem {
       } else if (pending.phase === "approach" && runtime.character.intent.kind === "idle") {
         // Path finished (or got stuck). Only act if we really are at the interaction point.
         const distance = Math.hypot(runtime.character.x - pending.goal.x, runtime.character.z - pending.goal.z);
-        if (distance <= INTERACTION_CONFIG.arrivalTolerance) this.sitDown(sessionId, pending);
+        if (distance <= INTERACTION_CONFIG.arrivalTolerance) this.arrive(sessionId, pending);
         else this.fail(sessionId, "blocked");
         continue;
       }
@@ -209,12 +261,13 @@ export class InteractionSystem {
 
   // ── Transitions ─────────────────────────────────────────────────────────
 
-  private sitDown(sessionId: string, pending: PendingAction): void {
+  /** Reached the interaction point: sit down, or stand at the spot. */
+  private arrive(sessionId: string, pending: PendingAction): void {
     const context = this.context(sessionId);
-    const seated = findSeat(this.deps.tuning.world, pending.seatId);
-    if (!context || !seated) return this.fail(sessionId, "blocked");
+    const found = findSeat(this.deps.tuning.world, pending.seatId);
+    if (!context || !found) return this.fail(sessionId, "blocked");
     const { player, runtime } = context;
-    const { seat } = seated;
+    const { seat } = found;
     runtime.character.x = seat.x;
     runtime.character.z = seat.z;
     runtime.character.rotation = seat.rotation;
@@ -222,31 +275,72 @@ export class InteractionSystem {
     player.x = seat.x;
     player.z = seat.z;
     player.rotation = seat.rotation;
-    player.seatId = seat.id;
-    this.beginSeatedActivity(sessionId, pending);
+    if (!seatIsStanding(seat)) {
+      player.seatId = seat.id;
+      this.beginAtSeat(sessionId, pending);
+      return;
+    }
+    if (pending.action === "buy") return this.pay(sessionId, pending);
+    this.beginTimed(sessionId, pending);
   }
 
-  /** At the seat: sitting completes at once; studying runs on a server timer. */
-  private beginSeatedActivity(sessionId: string, pending: PendingAction): void {
+  /** At the seat: sitting completes at once; studying and sketching run on server timers. */
+  private beginAtSeat(sessionId: string, pending: PendingAction): void {
     const context = this.context(sessionId);
     if (!context) return;
     const { player, runtime } = context;
+    if (SEATED_TIMED.includes(pending.action)) return this.beginTimed(sessionId, pending);
     pending.phase = "active";
-    if (pending.action === "study") {
-      player.activity = "studying";
-      pending.endsAt = this.deps.now() + this.deps.tuning.studyDurationMs;
-      this.update(sessionId, {
-        actionId: pending.id,
-        status: "started",
-        durationMs: this.deps.tuning.studyDurationMs,
-        ...target(pending),
-      });
-      return;
-    }
     player.activity = "sitting";
     this.update(sessionId, { actionId: pending.id, status: "started", ...target(pending) });
     this.update(sessionId, { actionId: pending.id, status: "completed", ...target(pending) });
     runtime.pending = null;
+  }
+
+  /** At the café counter: pay first (database transaction), then eat or drink. */
+  private pay(sessionId: string, pending: PendingAction): void {
+    const context = this.context(sessionId);
+    if (!context) return;
+    pending.phase = "paying";
+    context.player.activity = "ordering";
+    void this.hooks.purchase(sessionId, pending).then((result) => {
+      const still = this.deps.runtimes.get(sessionId)?.pending === pending;
+      if (!still) {
+        // Cancelled, replaced or gone while paying: give the money back (D-025).
+        if (result === "ok") this.hooks.refund(sessionId, pending);
+        return;
+      }
+      if (result === "ok") this.beginTimed(sessionId, pending);
+      else this.fail(sessionId, result);
+    });
+  }
+
+  /** Starts a timed action whose effects the life system applies as time passes. */
+  private beginTimed(sessionId: string, pending: PendingAction): void {
+    const context = this.context(sessionId);
+    if (!context) return;
+    const effect = this.hooks.effectFor(pending.action, pending.itemId);
+    const durationMs = this.durationOf(pending, effect);
+    const now = this.deps.now();
+    pending.phase = "active";
+    pending.effect = effect;
+    pending.appliedFraction = 0;
+    pending.startedAt = now;
+    pending.endsAt = now + durationMs;
+    context.player.activity = effect?.activity ?? activityFallback(pending.action);
+    this.update(sessionId, { actionId: pending.id, status: "started", durationMs, ...target(pending) });
+  }
+
+  private durationOf(pending: PendingAction, effect: ResolvedEffect | null): number {
+    const { actionDurationsMs, consumeDurationFactor } = this.deps.tuning;
+    if (pending.action === "buy") {
+      const item = pending.itemId ? findMenuItem(pending.itemId) : null;
+      return Math.max(1, Math.round((item?.consumeMs ?? 5_000) * consumeDurationFactor));
+    }
+    if (pending.action === "study" || pending.action === "sketch" || pending.action === "wash") {
+      return actionDurationsMs[pending.action];
+    }
+    return effect?.durationMs ?? actionDurationsMs.greet;
   }
 
   /** Returns "in_range", "walking" (path set) or "unreachable". */
@@ -286,6 +380,7 @@ export class InteractionSystem {
     const { player, runtime } = context;
     const now = this.deps.now();
     const facing = facingTowards(runtime.character, targetPlayer);
+    const durationMs = this.deps.tuning.actionDurationsMs.greet;
     runtime.character.intent = { kind: "idle" };
     runtime.character.rotation = facing;
     runtime.lastGreetAt.set(pending.targetId, now);
@@ -293,25 +388,27 @@ export class InteractionSystem {
     player.activity = "greeting";
     player.targetId = pending.targetId;
     pending.phase = "active";
-    pending.endsAt = now + this.deps.tuning.greetDurationMs;
-    this.update(sessionId, {
-      actionId: pending.id,
-      status: "started",
-      durationMs: this.deps.tuning.greetDurationMs,
-      ...target(pending),
-    });
+    pending.startedAt = now;
+    pending.endsAt = now + durationMs;
+    this.update(sessionId, { actionId: pending.id, status: "started", durationMs, ...target(pending) });
     const greeted: GreetedPayload = { fromId: sessionId, fromName: player.name };
     this.deps.send(pending.targetId, ServerMessage.Greeted, greeted);
+    this.hooks.onGreeting(sessionId, pending.targetId);
   }
 
   private complete(sessionId: string, pending: PendingAction): void {
     const context = this.context(sessionId);
     if (!context) return;
     const { player, runtime } = context;
-    if (pending.action === "study") player.activity = "sitting"; // stays at the desk
+    this.hooks.onCompleted(sessionId, pending);
+    if (SEATED_TIMED.includes(pending.action)) player.activity = "sitting"; // stays seated
     if (pending.action === "greet") {
       player.activity = "idle";
       player.targetId = "";
+    }
+    if (pending.action === "buy" || pending.action === "wash") {
+      player.activity = "idle";
+      this.releaseStandingSpot(sessionId, pending);
     }
     runtime.pending = null;
     this.update(sessionId, { actionId: pending.id, status: "completed", ...target(pending) });
@@ -325,7 +422,11 @@ export class InteractionSystem {
     this.endEarly(sessionId, "failed", reason);
   }
 
-  /** Stops the pending action, undoing anything it reserved, and tells the player. */
+  /**
+   * Stops the pending action, undoing anything it reserved, and tells the
+   * player. Effects already applied stay applied (partial effect). A payment
+   * still in flight is refunded when it resolves (see pay()).
+   */
   private endEarly(sessionId: string, status: "cancelled" | "failed", reason: CancelReason | InteractionFailure): void {
     const context = this.context(sessionId);
     const pending = context?.runtime.pending;
@@ -337,11 +438,14 @@ export class InteractionSystem {
       if (pending.seatId && player.seatId !== pending.seatId && this.deps.state.seats.get(pending.seatId) === sessionId) {
         this.deps.state.seats.delete(pending.seatId);
       }
-    } else if (pending.action === "study") {
+    } else if (SEATED_TIMED.includes(pending.action)) {
       player.activity = "sitting";
     } else if (pending.action === "greet") {
       player.activity = "idle";
       player.targetId = "";
+    } else if (pending.action === "buy" || pending.action === "wash") {
+      player.activity = "idle";
+      this.releaseStandingSpot(sessionId, pending);
     }
     this.update(sessionId, { actionId: pending.id, status, reason, ...target(pending) });
   }
@@ -363,6 +467,10 @@ export class InteractionSystem {
     }
   }
 
+  private releaseStandingSpot(sessionId: string, pending: PendingAction): void {
+    if (pending.seatId && this.deps.state.seats.get(pending.seatId) === sessionId) this.deps.state.seats.delete(pending.seatId);
+  }
+
   private releaseSeatsOf(sessionId: string): void {
     const owned: string[] = [];
     this.deps.state.seats.forEach((owner, seatId) => {
@@ -373,16 +481,21 @@ export class InteractionSystem {
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
-  private newPending(request: Pick<InteractPayload, "action" | "targetKind" | "targetId">, seatId: string, goal: Vec2): PendingAction {
+  private newPending(request: InteractPayload, seatId: string, goal: Vec2): PendingAction {
     return {
       id: this.nextActionId++,
       action: request.action,
       targetKind: request.targetKind,
       targetId: request.targetId,
+      itemId: request.itemId,
+      requestId: request.requestId ?? `srv-${randomUUID()}`,
       seatId,
       phase: "approach",
       goal,
       endsAt: 0,
+      startedAt: 0,
+      effect: null,
+      appliedFraction: 0,
       replans: 0,
     };
   }
@@ -419,8 +532,15 @@ interface Context {
   player: PlayerState;
 }
 
-const target = (source: Pick<InteractPayload, "action" | "targetKind" | "targetId">) => ({
+const seatIsStanding = (seat: Seat | undefined) => seat?.pose === "stand";
+
+/** Public activity for timed actions when no life system supplies an effect. */
+const FALLBACK_ACTIVITY: Partial<Record<ActionId, string>> = { study: "studying", sketch: "sketching", wash: "washing", buy: "eating" };
+const activityFallback = (action: ActionId): string => FALLBACK_ACTIVITY[action] ?? "idle";
+
+const target = (source: Pick<InteractPayload, "action" | "targetKind" | "targetId" | "itemId">) => ({
   action: source.action,
   targetKind: source.targetKind,
   targetId: source.targetId,
+  ...(source.itemId ? { itemId: source.itemId } : {}),
 });

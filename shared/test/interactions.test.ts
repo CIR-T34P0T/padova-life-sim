@@ -64,9 +64,29 @@ describe("interactable metadata", () => {
 });
 
 describe("menu contents", () => {
-  it("offers sit on a free bench and stand once seated there", () => {
-    expect(objectActions(bench, actor(), none)).toEqual(["sit"]);
-    expect(objectActions(bench, actor({ seatId: "bench-1/seat-a", activity: "sitting" }), none)).toEqual(["stand"]);
+  it("offers sit and sketch on a free bench, and sketch/stand once seated there", () => {
+    expect(objectActions(bench, actor(), none)).toEqual(["sit", "sketch"]);
+    expect(objectActions(bench, actor({ seatId: "bench-1/seat-a", activity: "sitting" }), none)).toEqual(["sketch", "stand"]);
+    expect(objectActions(bench, actor({ seatId: "bench-1/seat-a", activity: "sketching" }), none)).toEqual(["stand"]);
+  });
+
+  it("offers buying at a free café counter and washing at the fountain; busy when every spot is taken", () => {
+    const cafe = findInteractable(world, "cafe-counter")!;
+    const fountain = findInteractable(world, "fountain")!;
+    expect(objectActions(cafe, actor(), none)).toEqual(["buy"]);
+    expect(objectActions(fountain, actor(), none)).toEqual(["wash"]);
+    expect(cafe.seats.every((spot) => spot.pose === "stand")).toBe(true);
+    const full = new Map(cafe.seats.map((spot, i) => [spot.id, `p${i}`]));
+    expect(objectActions(cafe, actor(), full)).toEqual([]);
+    expect(validateObjectAction(world, cafe, actor(), full, "buy", undefined, "panino")).toEqual({ ok: false, reason: "busy" });
+  });
+
+  it("only accepts menu items the café sells", () => {
+    const cafe = findInteractable(world, "cafe-counter")!;
+    expect(validateObjectAction(world, cafe, actor(), none, "buy", undefined, "panino")).toEqual({ ok: true });
+    expect(validateObjectAction(world, cafe, actor(), none, "buy", undefined, "caviar")).toEqual({ ok: false, reason: "unknown_item" });
+    expect(validateObjectAction(world, cafe, actor(), none, "buy")).toEqual({ ok: false, reason: "unknown_item" });
+    expect(validateObjectAction(world, cafe, actor(), none, "sit")).toEqual({ ok: false, reason: "action_not_available" });
   });
 
   it("offers nothing on a full bench", () => {
@@ -180,5 +200,20 @@ describe("interact message validation", () => {
     expect(parseInteract({ targetKind: "object", targetId: "x".repeat(65), action: "sit" }).ok).toBe(false);
     expect(parseInteract({ targetKind: "player", targetId: 7, action: "greet" }).ok).toBe(false);
     expect(parseInteract("greet").ok).toBe(false);
+  });
+
+  it("validates purchase item ids and request ids", () => {
+    const buy = { targetKind: "object", targetId: "cafe-counter", action: "buy" };
+    expect(parseInteract({ ...buy, itemId: "panino", requestId: "req_12345678" })).toEqual({
+      ok: true,
+      value: { ...buy, itemId: "panino", requestId: "req_12345678" },
+    });
+    expect(parseInteract({ ...buy, itemId: "Panino; DROP TABLE" }).ok).toBe(false);
+    expect(parseInteract({ ...buy, itemId: 7 }).ok).toBe(false);
+    expect(parseInteract({ ...buy, itemId: "panino", requestId: "short" }).ok).toBe(false);
+    expect(parseInteract({ ...buy, itemId: "panino", requestId: "x".repeat(65) }).ok).toBe(false);
+    // A price sent by the client is not part of the request at all.
+    const parsed = parseInteract({ ...buy, itemId: "panino", priceCents: 1 });
+    expect(parsed.ok && "priceCents" in parsed.value).toBe(false);
   });
 });

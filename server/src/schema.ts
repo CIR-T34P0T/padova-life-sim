@@ -21,7 +21,7 @@ export const PlayerState = schema(
     hairColour: t.string(),
     eyeColour: t.string(),
     outfit: t.string(),
-    /** "idle" | "sitting" | "studying" | "greeting" (shared Activity type). */
+    /** Public activity (shared Activity type): idle, sitting, studying, sketching, greeting, ordering, eating, drinking, washing. */
     activity: t.string(),
     /** Seat occupied while sitting or studying; "" when standing. */
     seatId: t.string(),
@@ -34,6 +34,8 @@ export type PlayerState = SchemaType<typeof PlayerState>;
 
 export const PlazaState = schema(
   {
+    /** The world clock (D-021): current game minute, kept by the server. Clients only display it. */
+    gameMinute: t.uint32(),
     players: t.map(PlayerState),
     /**
      * seatId → session id of the player sitting there OR walking to it. Lets

@@ -3,6 +3,8 @@
 // upgraded. Pure functions; the server uses them before every write and after
 // every read, the client uses the catalogue to draw its form.
 
+import type { TraitId } from "./life/config.ts";
+import { parseTraits } from "./life/traits.ts";
 import { sanitizeDisplayName } from "./protocol.ts";
 
 /**
@@ -10,7 +12,7 @@ import { sanitizeDisplayName } from "./protocol.ts";
  * stored profile data changes, and add an upgrade step to PROFILE_UPGRADES.
  * (Database table changes are handled separately by SQL migrations.)
  */
-export const PROFILE_VERSION = 1;
+export const PROFILE_VERSION = 2;
 
 /** Life-stage categories. Only adults may romance; see GAME_DESIGN.md. */
 export const AGE_CATEGORIES = ["child", "teen", "adult"] as const;
@@ -119,6 +121,8 @@ export interface CharacterProfile {
   displayName: string;
   ageCategory: AgeCategory;
   appearance: Appearance;
+  /** Personality traits chosen at creation (since profile version 2). */
+  traits: TraitId[];
   profileVersion: number;
   createdAt: string;
   updatedAt: string;
@@ -128,6 +132,8 @@ export interface NewCharacterInput {
   displayName: string;
   ageCategory: AgeCategory;
   appearance: Appearance;
+  /** Up to MAX_TRAITS distinct traits; optional (none if omitted). */
+  traits: TraitId[];
 }
 
 export type ProfileFailure =
@@ -135,6 +141,7 @@ export type ProfileFailure =
   | "invalid_name"
   | "age_category_not_allowed"
   | "invalid_appearance"
+  | "invalid_traits"
   | "already_has_character"
   | "no_character"
   | "profile_newer_version"
@@ -183,7 +190,12 @@ export function parseNewCharacter(payload: unknown): ProfileParsed<NewCharacterI
   }
   const appearance = parseAppearance(payload.appearance);
   if (!appearance.ok) return appearance;
-  return { ok: true, value: { displayName, ageCategory: ageCategory as AgeCategory, appearance: appearance.value } };
+  const traits = parseTraits(payload.traits);
+  if (!traits.ok) return { ok: false, reason: "invalid_traits", field: "traits" };
+  return {
+    ok: true,
+    value: { displayName, ageCategory: ageCategory as AgeCategory, appearance: appearance.value, traits: traits.value },
+  };
 }
 
 /**
@@ -212,17 +224,20 @@ export interface StoredProfileData {
   displayName: string;
   ageCategory: string;
   appearance: Partial<Record<keyof Appearance, unknown>>;
+  /** Raw stored trait ids (since version 2); clean with sanitizeStoredTraits. */
+  traits?: unknown[];
 }
 
 /** One upgrade step: turns data of version N into version N + 1. */
 export type ProfileUpgrade = (data: StoredProfileData) => StoredProfileData;
 
 /**
- * Upgrade steps keyed by the version they upgrade FROM. Empty today: version 1
- * is the first stored version. Example for a future change:
- *   1: (data) => ({ ...data, profileVersion: 2, appearance: { ...data.appearance, accessory: "none" } })
+ * Upgrade steps keyed by the version they upgrade FROM.
+ *   1 → 2 (M5): personality traits were added; older characters have none.
  */
-export const PROFILE_UPGRADES: Readonly<Record<number, ProfileUpgrade>> = {};
+export const PROFILE_UPGRADES: Readonly<Record<number, ProfileUpgrade>> = {
+  1: (data) => ({ ...data, profileVersion: 2, traits: [] }),
+};
 
 export type UpgradeResult =
   | { ok: true; data: StoredProfileData; upgraded: boolean }

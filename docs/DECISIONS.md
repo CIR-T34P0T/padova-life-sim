@@ -167,3 +167,58 @@ Product owner can revisit; changing it is a rules change in
 Enforced by a unique index on `characters.account_id`. Several characters per
 account later means dropping that index and adding a character picker; the
 tables already separate account and character.
+
+## D-021 — One server-kept world clock derived from real time (2026-10-18, M5)
+
+Game time = 08:00 on Day 1 at 2026-10-01T00:00Z, advancing at 10 game minutes
+per real minute (`GAME_TIME_SCALE`, default 10; one game day = 2 h 24 min).
+Calculated from the server's real clock, so it needs no storage, survives
+restarts and is identical in every room. The server replicates the current
+game minute; clients only display it. Needs change per game hour on the
+server's fixed-rate loop. Action durations stay in real seconds (they are
+about what the player watches), with fixed effects per completed action.
+Trade-offs: changing the scale moves the clock (fine in development, needs a
+migration plan in a live world); a shared clock means no pausing, so needs are
+tuned gently. Product owner can change the scale and rates; they are configuration.
+
+## D-022 — Offline progression is capped and protective (2026-10-18, M5)
+
+On entering the world, time since the last save is applied once, capped at
+8 game hours: hunger, hygiene, social and fun fall at half rate and not below
+35; energy recovers at the resting rate up to 90. Skills and money never change
+offline; no allowance back pay. Chosen so absence never creates a crisis,
+while the world still visibly moves on.
+
+## D-023 — Money is an append-only ledger in whole cents, no debt (2026-10-18, M5)
+
+`character_wallets.balance_cents` (database CHECK ≥ 0) plus
+`wallet_transactions` (income/expense, amount, balance after, category, item,
+game minute, request key). Every change runs in one database transaction that
+locks the wallet row, checks the balance, writes the ledger row and updates
+the balance. `UNIQUE (character_id, request_key)` makes repeated requests
+harmless: the same purchase, allowance or refund is never applied twice.
+Prices come only from the server's catalogue. No debt mechanic exists.
+
+## D-024 — Life data is private to its owner (2026-10-18, M5)
+
+Needs, mood, skills, traits and money are sent only to the character's owner
+(`life` message), never through the shared room state. Others still see the
+public activity (sitting, studying, eating…). Keeps traffic low and avoids
+exposing personal stats; showing selected stats to friends can come with
+relationships.
+
+## D-025 — Food is consumed on purchase; refunds cover abandoned payments (2026-10-18, M5)
+
+There is no inventory yet, so buying at the café pays (database transaction
+on arrival at the counter) and then eats or drinks at the counter, with
+effects applied gradually. If the player cancels or leaves while the payment
+is still being processed, a refund transaction is recorded. An inventory
+(carry food, eat later) can replace this without changing the ledger.
+
+## D-026 — Standing interaction points reuse the seat machinery (2026-10-18, M5)
+
+The café counter and fountain have reservable *standing* points. They use the
+existing seat reservation (`Seat.pose = "stand"`) rather than a second system:
+reserved while walking and acting, released when the action ends, never left
+"occupied" like a seat. The field is still called `seats` in code and data to
+avoid churn; ARCHITECTURE.md explains the naming.

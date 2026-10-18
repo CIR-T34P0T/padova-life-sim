@@ -7,6 +7,13 @@ import { randomUUID } from "node:crypto";
 import type { Appearance, NewCharacterInput } from "@padova/shared";
 import type { Database, Queryable } from "../db/database.ts";
 import { generateGuestToken, hashGuestToken, isWellFormedGuestToken } from "../identity/guestIdentity.ts";
+import { insertInitialLife } from "../life/lifeRepository.ts";
+
+/** Starting life data written with a new character (M5). */
+export interface LifeSeed {
+  startingBalanceCents: number;
+  gameMinute: number;
+}
 
 export interface SavedState {
   area: string;
@@ -25,6 +32,8 @@ export interface StoredCharacter {
   updatedAt: Date;
   /** Raw stored values; validate with sanitizeStoredAppearance before use. */
   appearance: Record<keyof Appearance, unknown>;
+  /** Raw stored trait ids; clean with sanitizeStoredTraits. */
+  traits: unknown[];
   state: SavedState | null;
 }
 
@@ -51,13 +60,15 @@ interface CharacterRow {
   pos_x: number | null;
   pos_z: number | null;
   rotation: number | null;
+  traits: unknown[] | null;
 }
 
 const SELECT_CHARACTER = `
   SELECT c.id AS character_id, c.account_id, c.display_name, c.age_category, c.profile_version,
          c.created_at, c.updated_at,
          a.preset, a.skin_tone, a.hair_style, a.hair_colour, a.eye_colour, a.outfit,
-         s.area, s.pos_x, s.pos_z, s.rotation
+         s.area, s.pos_x, s.pos_z, s.rotation,
+         (SELECT array_agg(t.trait ORDER BY t.trait) FROM character_traits t WHERE t.character_id = c.id) AS traits
     FROM characters c
     JOIN character_appearance a ON a.character_id = c.id
     LEFT JOIN character_state s ON s.character_id = c.id`;
@@ -79,6 +90,7 @@ function toStored(row: CharacterRow): StoredCharacter {
       eyeColour: row.eye_colour,
       outfit: row.outfit,
     },
+    traits: Array.isArray(row.traits) ? row.traits : [],
     state:
       row.pos_x === null || row.pos_z === null
         ? null
@@ -92,6 +104,7 @@ async function insertCharacter(
   input: NewCharacterInput,
   profileVersion: number,
   spawn: SavedState,
+  seed: LifeSeed,
 ): Promise<string> {
   const characterId = randomUUID();
   const { appearance } = input;
@@ -111,6 +124,7 @@ async function insertCharacter(
     spawn.z,
     spawn.rotation,
   ]);
+  await insertInitialLife(tx, characterId, input.traits, seed.startingBalanceCents, seed.gameMinute);
   return characterId;
 }
 
@@ -120,13 +134,14 @@ export async function createGuestWithCharacter(
   input: NewCharacterInput,
   profileVersion: number,
   spawn: SavedState,
+  seed: LifeSeed,
 ): Promise<{ accountId: string; guestToken: string; character: StoredCharacter }> {
   const accountId = randomUUID();
   const guestToken = generateGuestToken();
   const characterId = await db.transaction(async (tx) => {
     await tx.query(`INSERT INTO accounts (id, kind) VALUES ($1, 'guest')`, [accountId]);
     await tx.query(`INSERT INTO guest_credentials (account_id, token_hash) VALUES ($1, $2)`, [accountId, hashGuestToken(guestToken)]);
-    return insertCharacter(tx, accountId, input, profileVersion, spawn);
+    return insertCharacter(tx, accountId, input, profileVersion, spawn, seed);
   });
   const character = await loadCharacterById(db, { accountId, characterId });
   if (!character) throw new Error("Character vanished right after creation");
@@ -140,11 +155,12 @@ export async function createCharacterForAccount(
   input: NewCharacterInput,
   profileVersion: number,
   spawn: SavedState,
+  seed: LifeSeed,
 ): Promise<StoredCharacter | null> {
   const existing = await loadCharacterByAccount(db, accountId);
   if (existing) return null;
   try {
-    const characterId = await db.transaction((tx) => insertCharacter(tx, accountId, input, profileVersion, spawn));
+    const characterId = await db.transaction((tx) => insertCharacter(tx, accountId, input, profileVersion, spawn, seed));
     return loadCharacterById(db, { accountId, characterId });
   } catch (error) {
     if (isUniqueViolation(error)) return null; // created concurrently by another session
@@ -203,7 +219,7 @@ export async function updateAppearance(
 }
 
 /** Saves where the character is. Returns false when the owner does not match. */
-export async function saveState(db: Database, owner: Owner, state: SavedState): Promise<boolean> {
+export async function saveState(db: Queryable, owner: Owner, state: SavedState): Promise<boolean> {
   const { rows } = await db.query(
     `INSERT INTO character_state (character_id, area, pos_x, pos_z, rotation, updated_at)
        SELECT c.id, $3, $4, $5, $6, now() FROM characters c WHERE c.id = $1 AND c.account_id = $2
