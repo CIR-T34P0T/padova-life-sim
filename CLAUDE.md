@@ -40,16 +40,30 @@ or auth model without the product owner's approval.
   `shared/src/protocol.ts`. Unknown message types are ignored.
 - **Ownership comes from the session.** Profile reads/writes are scoped by the
   account id resolved in `onAuth`; never accept an account or character id from
-  a client as proof of ownership. All SQL lives in `server/src/profiles/profileRepository.ts`.
+  a client as proof of ownership. All SQL lives in repository modules:
+  `server/src/profiles/profileRepository.ts` and `server/src/life/lifeRepository.ts`.
+- **Money is a ledger.** Every change goes through `applyMoneyChange`
+  (row-locked, idempotent by request key, never below zero). Prices come from
+  the server's catalogue, never from a client. No debt unless a design
+  decision adds it.
+- **Life data is private.** Needs, mood, skills, traits and money go only to
+  their owner (`life` message), never into the shared Colyseus state.
+- **Game time comes from the server clock** (`shared/src/life/clock.ts`,
+  replicated as `gameMinute`); clients never run their own game timers.
 - **Schema changes are migrations** (`server/migrations/NNNN_name.sql` with up
   and down). Profile data shape changes bump `PROFILE_VERSION` with an upgrade step.
 - **Replicate only what others need to see.** Internal state (paths, rate
   counters) stays in server-only structures, not in the Colyseus schema.
-- **Tuning values go in `shared/src/config.ts`**, not inline.
+- **Tuning values go in `shared/src/config.ts`** (life simulation:
+  `shared/src/life/config.ts`), not inline. Life rules are pure functions in
+  `shared/src/life/`.
 - **Interactions follow one lifecycle** (`server/src/InteractionSystem.ts`):
   validate → reserve → walk to the interaction point → execute on arrival →
   complete. New object types add data to `shared/src/world.ts` and rules to
   `shared/src/interactions.ts`; they don't add special cases to the room.
+  Gameplay effects (needs, skills, money) plug in through `InteractionHooks`,
+  implemented by `server/src/life/LifeSystem.ts`, and are defined as data in
+  `shared/src/life/config.ts` (`ACTION_EFFECTS`, `CAFE_MENU`).
 - **Input is device-agnostic.** `client/src/input` turns mouse/touch/keyboard
   into gestures; gameplay code never checks the device type.
 - Placeholders must be labelled as placeholders in code and docs.

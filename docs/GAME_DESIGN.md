@@ -170,8 +170,8 @@ outcomes stay deterministic and testable.
   amount, balance after, item, reason). Repeating a request never charges twice.
 - Income: **€100 starting allowance**; **€15 daily allowance** once per game
   day while playing (no back pay). Jobs come in M7.
-- Expenses: café purchases. The café (placeholder counter, south-east of the
-  piazza) sells **Espresso €1.50** (+15 energy, +5 fun), **Cornetto €1.80**
+- Expenses: café purchases. The café (a placeholder outdoor bar counter in
+  the open piazza, east of where players arrive) sells **Espresso €1.50** (+15 energy, +5 fun), **Cornetto €1.80**
   (+20 hunger, +5 fun) and **Panino €4.50** (+45 hunger, +5 energy).
 - Food is eaten straight away after paying; there is no inventory yet. If the
   order is abandoned while the payment is still being processed, it is refunded.

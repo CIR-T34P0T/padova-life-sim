@@ -10,13 +10,14 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M2 | Real multiplayer | Tested | Server-authoritative movement, join/leave, interpolation, reconnection, 2 desktop + 1 mobile-emulated browser |
 | M3 | Interaction system | Tested | Select objects and players; contextual menu (desktop radial, mobile sheet); server-validated walk-to-then-act (bench sit/stand, desk study/sit, greet) |
 | M4 | Identity and persistence | Tested (persistence verified) | Temporary guest identity, PostgreSQL with migrations, versioned character profile, appearance and position restored after reload and server restart |
-| M5 | Time and needs | Planned | Server game clock; hunger, energy, social, fun; café and bed as first need sources |
+| M5 | Life simulation | Tested (persistence verified) | Server game clock and offline rules; five needs; mood with reasons; five skills; four traits; money ledger with server-validated café purchases; character panel; the complete café → eat → study → reload loop |
 | M6 | Characters | Planned | VRM avatars, idle/walk/sit animations, presets and colours; pipeline spike first |
-| M7 | Money and a first job | Planned | Café shift pays a wage; server-side purchases |
+| M7 | A first job | Planned | Café shift pays a wage into the M5 ledger; skills start to matter (e.g. pay or eligibility) |
 
-After M7: **playable multiplayer prototype**. Later phases: university
-schedules and exams, relationships and story log, housing and furnishing, NPC
-routines, more districts, moderation tools, deployment.
+After M7: **playable multiplayer prototype**. Later phases: sleep and beds
+(with housing), cooking and an inventory, university schedules and exams,
+relationships and story log, housing and furnishing, NPC routines, more
+districts, moderation tools, deployment.
 
 ## M0–M2 walking skeleton: acceptance criteria
 
@@ -69,45 +70,63 @@ Not yet **verified**: real phone, Windows, and the product owner's sign-off.
 
 Not yet **verified** by the owner: real phone, Windows, sign-off.
 
-## Current state (handoff, 2026-10-17)
+## M5 life simulation: acceptance criteria
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| Needs 0–100 with defined meanings, rates and consequences; not punishing | Implemented, tested | GAME_DESIGN "Life simulation"; unit tests incl. "nothing empties in under 90 real minutes"; consequences are gentle (mood, slower learning, "too tired" below 10 energy, halved greeting gain when grubby) |
+| Mood derived from needs and recent events | Implemented, tested | `shared/src/life/mood.ts`; unit tests; reasons shown in the panel (e2e screenshots: "Good meal +10", "Learned something +8") |
+| Five skills improved by appropriate actions | Implemented, tested (cooking has no source yet) | Academic (study), creativity (sketch), communication (greet), fitness (walking); integration + e2e. Cooking waits for a kitchen |
+| Skills eventually unlock opportunities | Not started | Levels exist (max 10); nothing is unlocked yet. First use planned for M7 (job) |
+| Small deterministic trait system | Implemented, tested | Organised, Sociable, Creative, Ambitious; chosen at creation (up to 2); unit tests; Organised learns 15–25 % more (integration) |
+| Finances: balance, income, expenses, purchase history; no negative balance; server-validated | Implemented, tested, persistence verified | Ledger tables with CHECK constraints; row-locked idempotent `applyMoneyChange`; database tests on PGlite and PostgreSQL 16 incl. simultaneous purchases; prices only from the server menu |
+| The complete loop (enter → inspect → café → buy → eat → study → see changes → reload keeps progress) | Tested | Integration test (fast tuning) and e2e test with the real durations in a real browser |
+| Time model documented before the clock; frame-rate independent; offline rules; no per-client timers | Implemented, tested | D-021/D-022 written first; clock derived from server real time and replicated; offline catch-up capped at 8 game hours; integration test at scale 600 |
+| Compact character panel, desktop and mobile, not covering most of the view | Tested (desktop + phone emulation) | e2e: ≤ 30 % of the width on desktop; bottom sheet < 50 % of the height on a Pixel 7 profile |
+| Tests: needs, skills, purchases, insufficient funds, repeated requests, validation, save/load, time | Tested | 150 unit/integration tests (see TESTING.md); 9 browser tests |
+
+Not yet **verified**: real phone, Windows, play-testing of the balance, and the product owner's sign-off.
+
+## Current state (handoff, 2026-10-18)
 
 Read this first when starting a new session.
 
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
-M0–M4 implemented and covered by automated tests (94 unit/integration tests,
-7 browser tests). Characters are saved in PostgreSQL (embedded PGlite in
+M0–M5 implemented and covered by automated tests (150 unit/integration
+tests, 9 browser tests; see `docs/TESTING.md` for the latest results).
+Characters and their life data are saved in PostgreSQL (embedded PGlite in
 development). Still placeholders: avatars built from primitives, greybox
-world, minimal profile forms. No needs, skills, money or university systems yet.
+world, minimal profile forms, a box for the café counter.
 
-**What a player can do today:** create a character (name, look) on first
-visit; come back later, even after a server restart, to the same character
-at the same spot; change their look; walk, sit on benches, study at desks,
-greet other players; get a clear message when something is refused.
+**What a player can do today:** create a character (name, look, up to two
+personality traits); walk, sit, sketch on benches, study at desks, buy an
+espresso/cornetto/panino at the café, wash up at the fountain, greet other
+players; watch needs, mood (with reasons), skills and money in the character
+panel; come back later, even after a server restart, to the same character
+with the same needs, skills, money and purchase history.
 
 **Genuinely persistent:** account (guest), character profile, appearance,
-last position. **Temporary:** activity, seats, pending actions, cooldowns,
-online status; the guest identity itself lives only in one browser.
+traits, last position, needs, skills, mood events, wallet and every money
+transaction. **Temporary:** activity, seats, pending actions (including a
+meal in progress), cooldowns, online status; the guest identity itself lives
+only in one browser. The world clock is derived from real time, not stored.
 
 **Open items, in priority order:**
 
 | # | Item | Status | Owner |
 | --- | --- | --- | --- |
-| 1 | Run the game on the product owner's Windows PC (`git pull`, `npm install`, `npm run dev`), including creating a character and reloading | In progress — setup steps provided; no report yet | Product owner |
-| 2 | Real-phone test using the manual checklist in `docs/TESTING.md` (now includes saved characters) | Planned | Product owner |
+| 1 | Run the game on the product owner's Windows PC (`git pull`, `npm install`, `npm run dev`), create a character, play the café → study loop, reload | Planned (no report yet since M4) | Product owner |
+| 2 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–18) | Planned | Product owner |
 | 3 | Confirm `npm run dev` and the embedded database work on Windows; fix if not | Planned (untested on Windows) | Next session, from the owner's report |
-| 4 | Decide on a real sign-in method to replace guest accounts, and on account deletion | Open decision (auth model needs approval) | Product owner, with options from Claude |
-| 5 | Decide the shared-world time model (`docs/GAME_DESIGN.md`) | Open question, needed before M5 | Product owner, with a proposal from Claude |
-| 6 | Decide the first real district | Open question, needed before real geometry | Product owner |
+| 4 | Play-test the M5 balance (need rates, prices, allowance, study XP) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
+| 5 | Review the time model decisions D-021 (10 game minutes per real minute) and D-022 (offline cap) | Decided in M5 as instructed; owner may change the numbers | Product owner |
+| 6 | Decide on a real sign-in method to replace guest accounts, and on account deletion | Open decision (auth model needs approval) | Product owner, with options from Claude |
+| 7 | Decide the first real district | Open question, needed before real geometry | Product owner |
+| 8 | Decide the order of M6 (characters) and M7 (first job) | Open; Claude recommends M7 first (below) | Product owner |
 
-**Recommended next task:** items 1–3, a real-device check of M0–M4 on the
-owner's Windows PC and phone. Windows is the main remaining risk: the embedded
-database (PGlite, WebAssembly) and the dev script have only run on Linux.
-Then M5 (time and needs), which needs item 5 decided first.
-
-## Next: M5 time and needs (proposed)
-
-Smallest useful version: a server game clock with a day/night cycle; hunger,
-energy, social and fun that change over time and through existing actions
-(sitting, studying, greeting) plus one new need source (e.g. a café counter);
-needs saved in their own table; a compact needs display. Requires the
-shared-world time model decision first.
+**Recommended next task:** items 1–4, a real-device play-test of M5 on the
+owner's Windows PC and phone. It checks the remaining platform risk (Windows
+has never run the game) and gives the first human feedback on the balance.
+The next engineering milestone after that, recommended: **M7, a first job**
+(a café shift that pays into the M5 ledger and uses a skill), because it
+completes the earn → spend loop; M6 (avatars) changes visuals, not gameplay.

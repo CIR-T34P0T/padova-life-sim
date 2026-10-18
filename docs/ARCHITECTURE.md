@@ -1,7 +1,7 @@
 # Architecture
 
-Status as of M4 (walking skeleton, contextual interactions, identity and persistence). Sections marked *planned* describe
-intent, not code.
+Status as of M5 (walking skeleton, contextual interactions, identity and
+persistence, life simulation). Sections marked *planned* describe intent, not code.
 
 ## Overview
 
@@ -12,12 +12,15 @@ intent, not code.
  │ net/    Colyseus SDK,     │◄────────────┤  validates intents         │
  │         guest token store │ state patches│  runs shared rules @20 Hz │
  │ render/ Three.js scene    │              │  replicates PlazaState    │
- │ ui/     DOM overlay       │              │ ProfileService ── SQL ──► PostgreSQL
+ │ ui/     DOM overlay       │              │  LifeSystem (needs, money)│
+ │                           │              │ ProfileService ┐          │
+ │                           │              │ LifeService ───┴─ SQL ──► PostgreSQL
  └────────────┬─────────────┘              └─────────────┬─────────────┘  (or embedded PGlite)
               │ imports                                  │ imports
               └──────────────► shared/ ◄─────────────────┘
                  world layout + interactables · collision · pathfinding · movement
                  interaction rules · profile model + catalogue · message contract + validators · tuning config
+                 life/: clock · needs · mood · skills · traits · economy · action effects
 ```
 
 ## Packages
@@ -75,7 +78,7 @@ the character stands before sitting and returns to when standing up.
 **Rules (`shared/src/interactions.ts`).** Pure functions:
 `objectActions` / `playerActions` decide menu contents;
 `validateObjectAction` / `validatePlayerAction` are the server checks
-(action offered by this target, straight-line distance ≤ 35 m, free seat,
+(action offered by this target, straight-line distance ≤ 60 m, free seat,
 not yourself, target connected, 5 s greeting cooldown per pair);
 `chooseSeat` and `greetApproachPoint` pick interaction points.
 
@@ -94,20 +97,73 @@ routes messages and runs movement, then `interactions.tick()`.
 **Client (`client/src/interaction/interactionController.ts`).** Raycasts
 taps against the ground, obstacles and avatar bodies (`pick`). Results:
 object, other player, self, ground, or a non-interactive obstacle. Tapping
-yourself while seated opens the seat's menu (Stand up); standing, it opens
-your own menu ("Edit appearance", since M4). Own options are client-side and
+yourself while seated opens the seat's menu (e.g. Sketch, Stand up, plus
+"Character"); standing, it opens your own menu ("Character", "Edit appearance"). Own options are client-side and
 never sent as interactions. Menus are built with the shared rules over replicated state and
 re-rendered only when their contents change. With a menu open, tapping
 elsewhere only dismisses it.
 
 **Presentation (`client/src/ui`).** `actionMenu.ts` has two implementations
 of one interface: a radial fan of options anchored above the target
-(fine pointer) and a bottom sheet with 56 px buttons (coarse pointer; docked
+(fine pointer; it widens for long labels and becomes a column above the
+target when the fan would overlap) and a bottom sheet with 56 px buttons (coarse pointer; docked
 right in landscape, full width in portrait with the joystick hidden while
 open). Override with `?menu=radial|sheet`. `actionProgress.ts` shows the
 current action with a progress bar for timed actions and a Cancel button.
 Highlights (`render/worldScene.ts` outline, `render/avatars.ts` rings),
 the seated pose, activity label and "Ciao!" bubble are presentation only.
+
+## Life simulation (M5)
+
+Rules and meanings: `GAME_DESIGN.md` "Time model" and "Life simulation";
+decisions D-021 to D-026.
+
+**Rules (`shared/src/life`).** Pure, unit-tested functions, no I/O:
+`clock.ts` (game minute from real time, day and hh:mm), `needs.ts` (decay
+per game hour by activity and traits, gains, offline catch-up), `mood.ts`
+(score from needs plus recent mood events, with reasons), `skills.ts` (XP
+curve, levels, trait and mood multipliers), `traits.ts` (validation),
+`economy.ts` (menu lookup, euro formatting, affordability) and `effects.ts`
+(what each timed action or café item does, and how much of it applies after
+a fraction of its duration). All tuning is in `life/config.ts`.
+
+**World clock (D-021).** One clock per server, derived from real time:
+`gameMinuteAt(Date.now(), timeScale)`, default 10 game minutes per real
+minute (`GAME_TIME_SCALE`). The room replicates `state.gameMinute`; clients
+never run their own clock, so frame rate cannot change game time.
+
+**Server (`server/src/life`).**
+- `lifeRepository.ts`: all life SQL, scoped by the owning account like the
+  profile SQL; money changes are row-locked, idempotent ledger transactions.
+- `LifeService.ts`: load (with the capped offline catch-up, D-022), save
+  together with the position in one transaction, purchase/refund with
+  server-side prices, daily allowance.
+- `LifeSystem.ts`: in-memory life of every character in the room. Each tick
+  (after movement, before interactions complete) it steps needs, adds fitness
+  XP for distance actually walked, applies the running action's effect in
+  proportion to elapsed time, expires mood events, grants the daily
+  allowance on a new game day, and sends the owner a throttled `life`
+  message. It also implements the interaction hooks below.
+
+**Interaction hooks.** `InteractionSystem` stays generic and calls an
+`InteractionHooks` object (implemented by `LifeSystem`): `checkStart` (e.g.
+too tired; can't afford), `effectFor`, `purchase` and `refund` (async, on
+arrival at the counter), `onCompleted` and `onGreeting`. A pending action has
+phases: `approach` (walking) → `paying` (café only: the purchase transaction
+runs; the player shows "ordering") → `active` (timed effect). If the action is
+cancelled or replaced while paying, the completed payment is refunded
+(D-025). Standing spots (café counter, fountain) reuse the seat mechanism
+with `pose: "stand"` (D-026).
+
+**Client.** `ui/characterPanel.ts` shows the player's own needs, mood (with
+reasons), skills, money with recent transactions, and current action, from
+the server's `life` message only; nothing is calculated as truth on the
+client. Desktop: a 300 px column on the right; touch: a bottom sheet under
+half the screen in portrait, docked right in landscape. Opened by clicking
+yourself → "Character" or the top-right chip (`ui/hud.ts`: time, money,
+mood colour). Café options show prices and are greyed out when the player
+can't afford them; focus actions show "Too tired". The server re-checks
+everything. `ui/profilePanel.ts` gained a trait picker (up to two, optional).
 
 ## Multiplayer
 
@@ -144,8 +200,8 @@ version upgrades) live in `shared/src/profile.ts`.
 - Join with a valid token → saved character loaded and spawned at its saved
   position (spawn point if that spot is no longer walkable).
 - `updateAppearance` → validated against the catalogue, saved, replicated.
-- Leave, eviction, room disposal → position saved; autosave every 30 s for
-  players who moved.
+- Leave, eviction, room disposal → position and life data saved; autosave
+  every 30 s for every character in the world (since M5).
 - Same account in a second session → the newest wins (D-018,
   `profiles/sessionRegistry.ts`); the older one is saved first and closed with
   code 4100. A new session waits for an in-flight save before loading.
@@ -158,16 +214,18 @@ reached by clicking yourself → "Edit appearance". It is not the character
 creator (no live preview); that comes later. Avatars (`render/avatars.ts`)
 draw every catalogue option with placeholder primitives.
 
-**Services wiring.** `app.ts` builds a `ProfileService` and `SessionRegistry`
-per game server and registers them under a key passed in room options
+**Services wiring.** `app.ts` builds a `ProfileService`, `LifeService` and
+`SessionRegistry` per game server and registers them under a key passed in room options
 (`services.ts`), so rooms never receive live objects through options.
 
 ## Not yet decided or built
 
-- UI framework for larger panels (character info, inventory). Plain DOM was
-  enough for M3 menus; see D-007.
+- UI framework for larger panels (inventory, build mode). Plain DOM was
+  enough for M3 menus and the M5 character panel; see D-007.
 - A real sign-in method to replace guest accounts (needs the product owner's decision).
 - Hosting, managed PostgreSQL and backups.
 - Character pipeline (VRM, M6) — see `ASSET_PIPELINE.md`.
-- Shared-world time model — see `GAME_DESIGN.md` open questions.
+- Camera occlusion: buildings between the camera and the player are not
+  faded or cut away yet, so the south edge of the piazza can hide characters
+  (why the café counter stands in the open piazza).
 - Deployment pipeline.

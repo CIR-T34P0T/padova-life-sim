@@ -5,7 +5,7 @@
 | Command | Scope | Needs |
 | --- | --- | --- |
 | `npm run typecheck` | All packages, strict TypeScript | — |
-| `npm test` | `shared/test` unit tests + `server/test` integration tests | — (starts its own servers on ports 2611–2620, each with an in-memory PGlite database) |
+| `npm test` | `shared/test` unit tests + `server/test` integration tests | — (starts its own servers on ports 2611–2626, each with an in-memory PGlite database) |
 | `TEST_DATABASE_URL=… npm test` | The same, plus every database test repeated on a real PostgreSQL server | A PostgreSQL user allowed to create databases; each test creates and drops a throwaway database |
 | `npm run check` | Both of the above | — |
 | `npm run test:e2e` | Playwright, real server + real client + several browsers | A Chromium (`npx playwright install chromium`, or `CHROMIUM_PATH`). The test server uses an in-memory database (never `.data/`) and a raised guest-creation limit |
@@ -27,14 +27,30 @@ oversized direction capped to walking speed; malformed/out-of-bounds moves
 rejected; leaving removes the player for others; a simulated network drop
 reconnects to the same session and the player can still move.
 
-**Interaction rules (15 tests, `shared/test/interactions.test.ts`):** every
+**Interaction rules (18 tests, `shared/test/interactions.test.ts`):** every
 interactable has a matching obstacle and unique seat ids; every approach point
 is walkable and reachable from spawn; menu contents for free, full and
-occupied benches and desks; players never offer actions to themselves or when
+occupied benches and desks, the café counter and the fountain (standing spots
+taken → `busy`); players never offer actions to themselves or when
 offline; validation of wrong actions, full seats, distance, self/offline/
 unknown targets and greeting cooldown; nearest-free-seat choice; walkable
 greeting spot next to a wall; a walled-in bench is unreachable; `interact`
-payload validation.
+payload validation, including café item ids and purchase request ids.
+
+**Life rules (25 tests, `shared/test/life.test.ts`, M5):** clock — starts at
+08:00 Day 1, 10 game minutes per real minute, depends only on real time and
+scale, rejects bad `GAME_TIME_SCALE` values; needs — documented rates, stay in
+0–100, **nothing empties in under 90 real minutes of ordinary play**, walking
+drains and sitting restores energy, trait effects, offline catch-up capped at
+8 game hours at half rate with a floor of 35, "too tired" below 10 energy,
+corrupt stored values repaired; mood — from needs (lows hurt twice as much as
+highs help), recent events with reasons and expiry, no stacking, thresholds;
+skills — XP curve (100, 300, 600 … 5500, max level 10), trait and mood
+multipliers, cleaning stored XP; traits — at most two distinct known ids;
+money — whole cents, euro formatting, no spending beyond the balance, **the
+daily allowance pays for a day of food**, safe request ids; action effects —
+what each action and café item does, proportional shares when stopped early,
+halved social gain when grubby.
 
 **Interaction integration (14 tests, `server/test/interactions.test.ts`)** —
 real servers with faster tuning (walk 9 m/s, study 1.2 s, greet 0.5 s):
@@ -57,6 +73,34 @@ such as a client-chosen id or owner ignored; non-adult player characters
 refused; malformed input rejected; unknown appearance ids rejected naming the
 field; retired/corrupt stored options replaced with defaults; version upgrades
 run one step at a time; newer, missing-step and invalid versions refused.
+
+**Life simulation through the real room (15 tests, `server/test/life.test.ts`,
+M5)** — real WebSocket clients and servers with faster tuning: entering with
+starting needs, money and empty skills, with the clock from the server; **the
+complete loop** (buy a panino, eat it, study, see every change in `life`
+messages, leave and come back to the same values, with the ledger checked in
+the database; a client-sent price is ignored); a repeated purchase request
+charged and served once (`duplicate_request`); a burst of orders charges only
+the one that reaches the counter; unknown and missing items refused; too tired
+to study until an espresso helps; greeting lifts both players' social need and
+the greeter's communication; sketching (creativity, fun) and washing
+(hygiene); an Organised character learns 15–25 % more from the same session;
+**life data private** (other players never receive it); insufficient funds
+refused before walking with nothing charged; an order abandoned during
+payment is refunded (slowed database); needs follow the server clock (scale
+600), not client frames; offline catch-up capped; daily allowance once per
+game day.
+
+**Life database (11 tests, `server/test/lifeDatabase.test.ts`, M5)** — the
+migration gives pre-M5 characters needs, a wallet and a starting allowance;
+rollback leaves profiles intact; creation writes traits, needs, wallet and
+ledger in one go; save/load only for the owner; need and XP limits enforced by
+the database itself; a purchase is charged once and a repeated request returns
+the same result; insufficient funds writes nothing; the balance can't go
+negative even by a direct UPDATE; another account's money can't be moved;
+**of two simultaneous purchases that the balance covers once, exactly one
+succeeds**; refunds and allowances once per key. Runs on PGlite and, with
+`TEST_DATABASE_URL`, on PostgreSQL too.
 
 **Database (`server/test/database.test.ts`)** — on in-memory PGlite and, with
 `TEST_DATABASE_URL`, on a real PostgreSQL server: migration files numbered
@@ -90,12 +134,26 @@ change, still there after a reload; a second tab takes the character over and
 the first tab shows "Playing in another window", with only one copy in the
 world; an unrecognised saved token is discarded and the create form explains why.
 
+**End to end, life simulation (`e2e/life.spec.ts`, M5)** — desktop, with the
+game's real durations: create a character with a trait; click yourself →
+Character opens a panel (≤ 30 % of the screen width) showing traits, mood,
+current action, all needs, skills and money; with the panel still open, walk
+to the café, buy a panino from the menu (prices shown), see €4.50 charged
+exactly once in the panel and ledger, "Eating a panino", hunger rising; walk
+to a desk and study, academic XP rising (15–31 XP for one session) and shown
+in the panel; reload and get the same skills, money, purchase history and
+needs back. Every click is checked to reach the 3D view, not the panel. Phone
+(Pixel 7 emulation): the HUD chip doesn't overlap the connection pills and is
+≥ 44 px tall; tap yourself → Character opens a bottom sheet under half the
+screen height, hides the joystick, scrolls to the money section; closing
+restores the joystick; the chip toggles the panel.
+
 **End to end, interactions (`e2e/interactions.spec.ts`)** — desktop: dragging
 across an object selects nothing; hover shows a pointer; clicking a bench
-opens a radial menu with only "Sit"; Escape closes it; Sit walks there and
+opens a radial menu with "Sit" and "Sketch"; Escape closes it; Sit walks there and
 the other player sees the seat taken; clicking yourself while seated offers
-Stand up; clicking another player offers Greet, who sees a toast and the
-gesture; clicking yourself while standing selects nothing; a study desk
+Sketch, Stand up and Character; clicking another player offers Greet, who sees a toast and the
+gesture; clicking yourself while standing offers only your own options (Character, Edit appearance); a study desk
 offers Study/Sit and the action can be cancelled while walking (seat
 released). Mobile (Pixel 7 emulation): tapping a bench opens a bottom sheet
 with buttons ≥ 48 px and hides the joystick in portrait; the close button
@@ -105,13 +163,19 @@ restores it; Sit works; a seated touch player greets another player.
 Chromium **mobile emulation** (Pixel 7 profile: touch, 412×839, mobile UA):
 all three see each other; desktop click-to-move replicated; touch tap-to-move
 replicated; WASD movement; virtual joystick movement (real touch events via
-CDP); clicking an obstacle shows feedback and does not move; closing a tab
+CDP); clicking a solid, non-interactive object (a market stall) shows
+feedback and does not move; closing a tab
 removes the player for the others. Screenshots are saved to `test-results/`.
 
 ## Results log
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-18 (M5) | typecheck + build | Pass | shared, server, client; client production build |
+| 2026-10-18 (M5) | unit + integration | 150/150 pass | `npm run check` (70 shared + 80 server). With `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: 170/170 (database and life-database tests on both backends) |
+| 2026-10-18 (M5) | e2e | 9/9 pass | Full suite twice: once on the in-memory database, once with the server on PostgreSQL 16.15 (`E2E_DATABASE_URL`, empty database); the café purchase (one 450-cent "Panino" row, balance 11 500 → 11 050) and 26.4 academic XP confirmed with SQL. The life loop uses the game's real durations (about 70 s) |
+| 2026-10-18 (M5) | manual | Pass | Server started with `GAME_TIME_SCALE=60` (logged and used) and with `GAME_TIME_SCALE=abc` (refuses to start with a clear message) |
+| 2026-10-18 (M5) | bugs found by tests | Fixed | (1) Radial menu options overlapped when labels were long ("Character" under "Edit appearance"; the café's priced options would too); the fan now widens, then becomes a column. (2) The café counter stood in front of the 12 m south building, which hid it and the player from the default camera; moved into the open piazza. (3) `GAME_TIME_SCALE` was documented but never read; now read by the server entry point. (4) Walking-skeleton and desktop-interactions e2e tests exceeded 60 s on this 2-CPU machine, at the M4 commit as well (checked in a separate worktree): timeouts raised to 150 s |
 | 2026-10-17 | typecheck | Pass | shared, server, client |
 | 2026-10-17 | unit + integration | 22/22 pass | Repeated runs, all passing |
 | 2026-10-17 (M4) | typecheck + unit + integration | 93/93 pass | `npm run check` and `npm test`. With `TEST_DATABASE_URL` pointing at a throwaway PostgreSQL 16.15 server: 102/102 (database tests on both backends) |
@@ -129,6 +193,11 @@ Bugs (behaviour that is wrong or unreliable):
 
 - **E2E join intermittently slow**: 1 of 14 runs timed out waiting for a join
   (see results log). Not reproduced since the timeout was raised; watch for it.
+- **Multi-browser e2e tests are slow on 2-CPU machines.** In the M5 session's
+  container the walking-skeleton and desktop-interactions tests needed just
+  over 60 s and timed out, at the M4 commit too (checked), so the cause is
+  machine speed (three software-rendered WebGL pages), not M5. Those tests now
+  allow 150 s.
 
 Untested or limited (behaviour that is unverified, or limited by design for now):
 
@@ -142,6 +211,25 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 - The local player has no client-side prediction, so it responds with about
   100–150 ms of delay (D-006).
 - Display names are not unique or reserved.
+- **M5 life simulation limitations:**
+  - Cooking skill exists but nothing trains it yet (no kitchen). No inventory:
+    café food is eaten at once. No beds or sleep: energy recovers only by
+    sitting, coffee and offline time.
+  - Skill levels don't unlock anything yet; traits can only be chosen when
+    creating a character, so characters created before M5 have none.
+  - A meal or study session interrupted by a disconnect keeps what was applied
+    so far; the rest is lost (the price is not refunded once eating started).
+  - Mood has no visible effect on the avatar (no animations yet).
+  - Balance tuning (rates, prices, allowance) is a first pass from the design
+    doc and unit tests; it has not been play-tested by people.
+  - Changing `GAME_TIME_SCALE` moves the world clock (by design, D-021): mood
+    event times and the allowance day are in game minutes, so switching scales
+    on a database with real players can expire events or allow an extra
+    allowance. Development and testing only.
+  - The character panel's landscape-phone layout (docked right) and the
+    radial menu's stacked layout on narrow desktop windows have no automated
+    test. Camera occlusion is not handled: buildings can hide characters at
+    the south edge of the piazza.
 - **M4 identity and persistence limitations:**
   - Guest identity only (D-017): no sign-in, recovery or cross-device play;
     clearing site data loses the character; a script injected into the page
@@ -159,15 +247,15 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     also run on real PostgreSQL).
 - **M3 interaction limitations:**
   - One action at a time; a new request replaces the current one (D-011). No multi-action queue.
-  - Studying has no effect yet (no skills); it is a timed placeholder that ends with a toast.
   - No animations: sitting lowers the capsule; greeting shows a "Ciao!" bubble.
   - A greeter walks to where the other player was; if they keep moving, it
     re-plans up to 3 times, then fails with `target_moved`.
   - Objects hidden behind others from the camera's angle can't be selected;
     small, distant objects are hard to tap on a phone (no enlarged tap area yet).
-  - No info panel for yourself (needs, skills, inventory) or for other players
-    beyond name and activity; those systems don't exist yet.
-  - Menus have no scrolling or paging; at most two options exist today.
+  - No info panel for other players beyond name and activity (your own
+    character panel exists since M5).
+  - Menus have no scrolling or paging; at most three options exist today
+    (the café). Long labels switch the radial fan to a column.
   - The landscape layout of the action sheet has no automated test.
   - Greetings have no block/mute option yet, only a 5 s cooldown per pair.
 - Firefox and Safari not tested.
@@ -178,7 +266,7 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 - `npm audit` reports 9 low/moderate advisories, all inside `@colyseus/auth`
   (pulled in by the SDK, unused by this project). The suggested `--force` fix
   would downgrade Colyseus to 0.15, so it was not applied. Recheck on Colyseus updates.
-- Client bundle is 727 KB (194 KB gzipped), mostly Three.js; code splitting is a later optimisation.
+- Client bundle is 769 KB (208 KB gzipped), mostly Three.js; code splitting is a later optimisation.
 
 ## Notes for running tests in Claude's cloud workspace
 
@@ -211,3 +299,14 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 13. Stop the server (Ctrl+C), start it again, reload: the character is still there.
 14. Open the game in a second tab of the same browser: the character moves to
     the new tab and the first tab says "Playing in another window".
+15. **Life simulation (M5):** create a new character and pick a personality
+    trait. Tap/click yourself → **Character**: the panel shows mood, needs,
+    skills and €115.00 (€100 start + today's €15). On a phone it is a bottom
+    sheet covering less than half the screen.
+16. Walk east to the café counter, open it and buy a **Panino** (€4.50). The
+    balance drops once, the panel says "Eating a panino" and hunger rises over
+    about 15 seconds.
+17. Study at a desk for 20 seconds: Academic XP rises in the panel; energy and
+    fun dip a little.
+18. Reload the page (and, once, restart the server): money, purchases, skills
+    and needs are as you left them.

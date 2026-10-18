@@ -5,7 +5,7 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters (M0–M4)
+## Current status: walking skeleton, interactions, saved characters, life simulation (M0–M5)
 
 What exists today is a deliberately plain, end-to-end slice that proves the
 architecture. It is **not** the game yet.
@@ -19,13 +19,17 @@ architecture. It is **not** the game yet.
 | Server-authoritative movement and validation | Multiplayer functional, tested |
 | Join / leave / brief-disconnect reconnection | Multiplayer functional, tested |
 | Click/tap objects and players for contextual actions (desktop radial menu, mobile bottom sheet) | Multiplayer functional, tested |
-| Bench: sit / stand · Study desk: sit / study · Other player: greet | Multiplayer functional, tested (studying has no effect yet) |
+| Bench: sit / sketch / stand · Study desk: sit / study · Café counter: buy food · Fountain: wash up · Other player: greet | Multiplayer functional, tested |
 | Action progress, cancel, and explanations when refused | Multiplayer functional, tested |
 | Saved character profile (name, adult age category, appearance, position) in PostgreSQL | Persistence verified (tested on embedded PGlite and PostgreSQL 16) |
 | Temporary guest identity (one browser = one character; no sign-in) | Multiplayer functional, tested; temporary by design (D-017) |
 | Minimal create-character and edit-appearance forms | Locally functional, tested; not the full character creator |
+| Needs (hunger, energy, hygiene, social, fun), mood with reasons, five skills, personality traits | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16) |
+| Money: balance, server-validated purchases and allowances, transaction history, no debt | Multiplayer functional, persistence verified |
+| Shared world clock (10 game minutes per real minute) and capped offline progression | Multiplayer functional, tested |
+| Character panel (your needs, mood, skills, money, current action) and top-right time/money chip | Locally functional, tested (desktop and phone emulation) |
 | Placeholder avatars built from primitives (body, head, eyes, three hair shapes, colours) | Placeholder |
-| Full character creator, needs, skills, jobs, money, university | Not started (see docs/ROADMAP.md) |
+| Full character creator, sleep/beds, cooking, inventory, jobs, university courses | Not started (see docs/ROADMAP.md) |
 
 "Tested" means covered by the automated tests in `docs/TESTING.md`. Mobile is
 tested in Chromium mobile emulation only; a real phone has not been tested yet.
@@ -76,7 +80,18 @@ The client runs on port 5173 and the game server on port 2567.
 
 - **Walk:** click/tap the ground, or use WASD/arrow keys (desktop) or the joystick (touch).
 - **Interact:** click/tap a bench, a study desk (in front of the university hall,
-  north-west) or another player, then pick an action from the menu.
+  north-west), the café counter (east of where you arrive), the fountain or
+  another player, then pick an action from the menu.
+- **Your character:** click/tap yourself → **Character**, or the time/money
+  chip at the top right. The panel shows your needs, mood (and why), skills,
+  money with recent purchases, and what you're doing.
+- **Look after yourself:** buy an espresso, cornetto or panino at the café
+  (hunger, energy), wash up at the fountain (hygiene), greet people (social),
+  sketch on a bench (fun, creativity), study at a desk (academic skill; not
+  when you're exhausted). Needs drop slowly over time and nothing bad happens
+  quickly: low needs make your mood worse, which slows learning.
+- **Money:** you start with €100 and get €15 each game day you play. You can't
+  spend more than you have.
 - **Stand up:** click/tap yourself while seated, or just walk away.
 - **Cancel:** the Cancel button on the action bar, or Escape.
 - **Camera:** drag to turn; mouse wheel or pinch to zoom.
@@ -84,8 +99,10 @@ The client runs on port 5173 and the game server on port 2567.
 
 ### Your saved data
 
-- Your character (name, look, last position) is saved on the **server**, in
+- Your character (name, look, personality, last position, needs, skills,
+  mood events, money and transactions) is saved on the **server**, in
   `.data/pglite` by default. It survives page reloads and server restarts.
+  While you're away, needs change slowly for at most 8 game hours.
 - Your **browser** keeps only a temporary guest key. Clearing the site's data,
   using another browser or device, or deleting `.data/` starts over. There is
   no sign-in, recovery or account deletion yet (docs/DECISIONS.md D-017).
@@ -133,6 +150,7 @@ First-time Playwright setup: `npx playwright install chromium`.
 | `PGLITE_DATA_DIR` | server | `.data/pglite` | Where embedded PGlite stores data; `memory://` = nothing saved |
 | `DB_MIGRATE_ON_START` | server | `true` | Set `false` to apply migrations only with `npm run db:migrate` |
 | `GUEST_CREATIONS_PER_IP_PER_HOUR` | server | `10` | New guest characters allowed per IP address per hour (abuse limit) |
+| `GAME_TIME_SCALE` | server | `10` | Game minutes per real minute (1–1440). Changing it moves the world clock; for development and testing (D-021) |
 | `CHROMIUM_PATH` | e2e | Playwright's browser | Use an existing Chromium for tests |
 | `TEST_DATABASE_URL` | tests | unset | Also run database tests on a real PostgreSQL (creates and drops throwaway databases) |
 | `E2E_DATABASE_URL` | e2e | unset | Run the browser tests' server on a real PostgreSQL instead of in-memory |
@@ -142,9 +160,11 @@ See `.env.example`. The only secret is `DATABASE_URL`, when used.
 ## Repository layout
 
 ```
-shared/   Game rules used by both sides: world layout, collision, pathfinding, message validation
+shared/   Game rules used by both sides: world layout, collision, pathfinding, message validation,
+          life/ (clock, needs, mood, skills, traits, economy and all their tuning)
 server/   Authoritative Colyseus game server; db/ (database + migrations runner),
-          identity/ (guest tokens), profiles/ (character profiles), migrations/ (SQL)
+          identity/ (guest tokens), profiles/ (character profiles),
+          life/ (needs, skills, money, clock), migrations/ (SQL)
 client/   Three.js browser client (rendering, input, networking)
 e2e/      Playwright multi-browser tests
 docs/     Design, architecture, roadmap, decisions, testing

@@ -12,9 +12,12 @@ The server is authoritative over every replicated value.
 | Appearance option ids | Server (validated against the catalogue) | Yes (public) | Yes |
 | Character id, account id, age category, profile version, timestamps | Server | No; the owner receives them in `profile` | Yes |
 | Guest token | Client (`localStorage`); server keeps only its hash | Never replicated; sent by the server once, in `identity` | Hash only |
-| Activity (`idle`/`sitting`/`studying`/`greeting`), seat, greeting target | Server | Yes | No |
-| Seat occupancy and reservations (`state.seats`) | Server | Yes | No |
-| Pending action (phase, goal, timer), greeting cooldowns | Server | No | No |
+| Activity (`idle`/`sitting`/`studying`/`sketching`/`greeting`/`ordering`/`eating`/`drinking`/`washing`), seat or standing spot, greeting target | Server | Yes | No |
+| Seat and standing-spot occupancy and reservations (`state.seats`) | Server | Yes | No |
+| World clock (`state.gameMinute`) | Server (derived from real time, D-021) | Yes | No (recomputed from the real clock) |
+| Needs, mood and mood events, skills, traits | Server | **No**: only the owner receives them, in `life` (D-024) | Yes |
+| Balance and transactions | Server (ledger, D-023) | **No**: only the owner, in `life` | Yes, written immediately |
+| Pending action (phase, goal, timer, café item, request id), greeting cooldowns | Server | No | No |
 | Selection, open menu, hover, progress-bar animation | Client | No | No |
 | Connected flag (reconnection window) | Server | Yes | No |
 | Current path / direction intent | Server | No | No |
@@ -35,9 +38,9 @@ Client → server (intents only):
 | `moveTo` | `{ x, z }` | Validates numbers, bounds and walkability, pathfinds from the server-side position. Rejects with a reason if not possible. |
 | `moveDir` | `{ dx, dz }` | Clamps length to ≤ 1 (no speed hacks). Zero vector = stop. |
 | `stop` | none | Stops walking and interrupts the current action (does not stand up). |
-| `interact` | `{ targetKind: "object" \| "player", targetId, action }` | Validates and runs the interaction lifecycle (see ARCHITECTURE "Interactions"). Malformed → `rejected`; refused → `action` with status `rejected`. Counts toward the 20/s intent limit. |
+| `interact` | `{ targetKind: "object" \| "player", targetId, action, itemId?, requestId? }` | Validates and runs the interaction lifecycle (see ARCHITECTURE "Interactions"). `itemId` (`[a-z0-9-]{1,32}`) names the café item for `buy`; the price always comes from the server's menu. `requestId` (`[A-Za-z0-9_-]{8,64}`) makes a purchase idempotent: the same id never charges or serves twice (a repeat is refused with `duplicate_request`); the server makes one if absent. Any other field (e.g. a price) is ignored. Malformed → `rejected`; refused → `action` with status `rejected`. Counts toward the 20/s intent limit. |
 | `cancelAction` | none | Cancels the current action, if any. |
-| `createCharacter` | `{ displayName, ageCategory, appearance }` | Only for a session without a character. Validated (`parseNewCharacter`); player characters must be `adult`. Unknown fields (e.g. a chosen id or owner) are ignored. Creates a guest account too if the session has none. Answers `identity` (new accounts) and `profile`, or `profileError`. |
+| `createCharacter` | `{ displayName, ageCategory, appearance, traits? }` | Only for a session without a character. Validated (`parseNewCharacter`); player characters must be `adult`; `traits` = up to two distinct known trait ids. Unknown fields (e.g. a chosen id or owner) are ignored. Creates a guest account too if the session has none. Answers `identity` (new accounts) and `profile`, or `profileError`. |
 | `updateAppearance` | `{ appearance }` | Only for your own character (from the session, never the payload). Every field must be a catalogue id. Saved, then replicated. Counts toward the intent rate limit. |
 | anything else | — | Ignored and logged at warn level. |
 
@@ -46,11 +49,12 @@ Server → client:
 | Type | Payload | Meaning |
 | --- | --- | --- |
 | `rejected` | `{ action, reason }` | Movement or malformed `interact`. Reasons: `invalid_payload`, `target_out_of_bounds`, `target_blocked`, `unreachable`, `search_limit`, `rate_limited` |
-| `action` | `{ actionId, status, action, targetKind, targetId, reason?, durationMs? }` | Sent only to the actor. Status flow: `queued` → `started` → `completed`, or `rejected` (never started, `actionId` 0), `failed`, `cancelled`. Refusal reasons: `unknown_target`, `target_is_self`, `target_offline`, `action_not_available`, `no_free_seat`, `too_far`, `unreachable`, `blocked`, `target_left`, `target_moved`, `too_soon`, `rate_limited`. Cancel reasons: `cancelled`, `interrupted`, `replaced`, `disconnected`. |
+| `action` | `{ actionId, status, action, targetKind, targetId, reason?, durationMs?, itemId? }` | Sent only to the actor. Status flow: `queued` → `started` → `completed`, or `rejected` (never started, `actionId` 0), `failed`, `cancelled`. Refusal reasons: `unknown_target`, `target_is_self`, `target_offline`, `action_not_available`, `no_free_seat`, `busy` (standing spot taken), `too_far`, `unreachable`, `blocked`, `target_left`, `target_moved`, `too_soon`, `rate_limited`, and since M5 `too_tired`, `unknown_item`, `insufficient_funds` (checked on request and again when paying). Failures while paying at the counter (status `failed`): `insufficient_funds`, `duplicate_request` (this request id was already charged; nothing is charged or served again), `purchase_failed` (the payment could not be stored; nothing charged). Cancel reasons: `cancelled`, `interrupted`, `replaced`, `disconnected`. |
 | `greeted` | `{ fromId, fromName }` | Sent to the player being greeted. |
+| `life` | `LifePayload`: `{ gameMinute, needs, mood: { score, level, reasons, events }, skills: { xp, level, progress } per skill, traits, money: { balanceCents, recent } }` | Sent to the owner only (D-024): on entering the world, at most every 500 ms while a visible value changed, and at once after a money change, a refusal that affects mood, or a completed action. Other players never receive it. |
 | `profile` | `{ status: "needs_character" \| "ready", profile?, readOnly?, notices? }` | Sent to the owner only: after joining, after creating, after an appearance change. `readOnly` = stored by a newer version, not editable here. `notices` = e.g. a retired option was replaced. |
 | `identity` | `{ guestToken }` | Sent once, when a new guest account is created. The client stores it. |
-| `profileError` | `{ action, reason, field? }` | Reasons: `invalid_payload`, `invalid_name`, `age_category_not_allowed`, `invalid_appearance`, `already_has_character`, `no_character`, `profile_newer_version`, `rate_limited`, `storage_error`. |
+| `profileError` | `{ action, reason, field? }` | Reasons: `invalid_payload`, `invalid_name`, `age_category_not_allowed`, `invalid_appearance`, `invalid_traits`, `already_has_character`, `no_character`, `profile_newer_version`, `rate_limited`, `storage_error`. |
 
 ### Joining and identity
 
@@ -97,6 +101,13 @@ The local player is rendered the same way (no prediction yet, see D-006).
   with exponential backoff and resumes the same session; `onReconnect` restores it.
 - SDK limitation: automatic reconnection is refused if the room was joined
   less than 5 s ago (SDK default `minUptime`).
+
+## Game time (D-021)
+
+The server derives the game minute from its real clock and the time scale
+(`GAME_TIME_SCALE`, default 10 game minutes per real minute) and replicates
+it as `state.gameMinute`, which changes once per game minute (every 6 s by
+default). Clients display it; they never advance time themselves.
 
 ## Not yet implemented
 
