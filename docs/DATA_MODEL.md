@@ -256,7 +256,16 @@ money changes or refusals. Other players see only the public activity
 ## Static content (`shared/src`)
 
 - `world.ts`: world bounds, obstacle boxes, spawn points, interactables with
-  seats (sitting) and standing spots (café counter, fountain; D-026).
+  seats (sitting) and standing spots (café counter, fountain; D-026). Each
+  obstacle has a stable id, a kind (what it looks like: building, arcade,
+  fountain, stall, bench, planter, desk, counter, tree, lamp, chair, table,
+  garden, bike-rack, noticeboard), a label (shown when tapped), its box and
+  height, and optionally `facing` (rendering) and `partOf` (a chair belongs
+  to its table). Each interactable has a stable id equal to its obstacle's,
+  a kind that decides its actions (bench, desk, cafe, fountain), a menu
+  label and its interaction points. Twelve interactables since the world
+  art pass: benches 1–5, study desks 1–2, café tables 1–3 (desk rules),
+  the café counter and the fountain (D-034).
 - `appearance/`: the appearance catalogue (option ids, labels, colours, hair
   textures), the config schema with validation, look strings and look codes,
   skin-tone colour maths (OKLab), presets, the seeded randomiser and the

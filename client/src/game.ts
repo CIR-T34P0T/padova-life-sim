@@ -56,7 +56,8 @@ export class Game {
   private readonly quality = detectQuality();
   private readonly renderer: THREE.WebGLRenderer;
   private readonly labelRenderer = new CSS2DRenderer();
-  private readonly world = buildWorldScene(PLAZA_LAYOUT, this.quality);
+  // The detailed district art is built just after the title screen appears (defer).
+  private readonly world = buildWorldScene(PLAZA_LAYOUT, this.quality, { defer: true });
   private readonly rig = new CameraRig(window.innerWidth / window.innerHeight);
   private readonly entities = new Map<string, RemoteEntity>();
   private readonly connection: GameConnection;
@@ -296,12 +297,14 @@ export class Game {
     const renderTime = now - GAME_CONFIG.interpolationDelayMs;
     const selfId = this.connection.sessionId;
     let selfShown = false;
+    let selfPose: { x: number; z: number } | null = null;
     for (const [id, entity] of this.entities) {
       const pose = entity.buffer.sample(renderTime);
       if (!pose || !entity.view) continue;
       entity.view.setPose(pose.x, pose.z, pose.rotation, pose.moving, now / 1000);
       if (id === selfId) selfShown = true;
       if (id === selfId) {
+        selfPose = { x: pose.x, z: pose.z };
         this.rig.setTarget(pose.x, pose.z);
         if (this.world.targetMarker.visible && !entity.latest.moving) {
           const marker = this.world.targetMarker.position;
@@ -310,19 +313,35 @@ export class Game {
       }
     }
 
+    const t0 = performance.now();
     this.interactions.frame(now);
     this.characterPanel.setCurrentAction(this.interactions.currentActionText());
     this.rig.update(dt);
+    const t1 = performance.now();
+    this.world.update(this.rig.camera, selfPose, dt, this.lastGameMinute);
+    const t2 = performance.now();
     this.renderer.render(this.world.scene, this.rig.camera);
+    const t3 = performance.now();
     this.labelRenderer.render(this.world.scene, this.rig.camera);
-    if (selfShown && this.worldVisibleWaiters.length > 0) for (const resolve of this.worldVisibleWaiters.splice(0)) resolve();
+    const t4 = performance.now();
+    this.perf.parts.avatarsMs += (t0 - now - this.perf.parts.avatarsMs) * 0.05;
+    this.perf.parts.interactionsMs += (t1 - t0 - this.perf.parts.interactionsMs) * 0.05;
+    this.perf.parts.worldMs += (t2 - t1 - this.perf.parts.worldMs) * 0.05;
+    this.perf.parts.renderMs += (t3 - t2 - this.perf.parts.renderMs) * 0.05;
+    this.perf.parts.labelsMs += (t4 - t3 - this.perf.parts.labelsMs) * 0.05;
+    if (selfShown && this.world.isReady() && this.worldVisibleWaiters.length > 0) for (const resolve of this.worldVisibleWaiters.splice(0)) resolve();
     // Rolling averages for the performance readout (debug hook only).
     const cpu = performance.now() - now;
     this.perf.frameCpuMs += (cpu - this.perf.frameCpuMs) * 0.05;
     this.perf.frameIntervalMs += (dt * 1000 - this.perf.frameIntervalMs) * 0.05;
   }
 
-  private readonly perf = { frameCpuMs: 0, frameIntervalMs: 16.7 };
+  private readonly perf = {
+    frameCpuMs: 0,
+    frameIntervalMs: 16.7,
+    /** Where the frame's main-thread time goes (rolling averages, ms). */
+    parts: { avatarsMs: 0, interactionsMs: 0, worldMs: 0, renderMs: 0, labelsMs: 0 },
+  };
 
   /**
    * Keyboard / joystick input is camera-relative; the server needs a world
@@ -467,6 +486,10 @@ export class Game {
       avatarStats(id: string) {
         return game.entities.get(id)?.view?.stats() ?? null;
       },
+      /** World art: build time, meshes, triangles, and what is faded because it hides your character. */
+      worldStats() {
+        return game.world.stats();
+      },
       /** Renderer and frame-time numbers (rolling averages; software rendering is not representative). */
       renderStats() {
         const info = game.renderer.info;
@@ -477,6 +500,7 @@ export class Game {
           textures: info.memory.textures,
           frameCpuMs: game.perf.frameCpuMs,
           frameIntervalMs: game.perf.frameIntervalMs,
+          parts: { ...game.perf.parts },
         };
       },
       /** Selection, open menu, progress text and current action. */

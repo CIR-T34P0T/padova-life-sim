@@ -388,7 +388,7 @@ export class InteractionController {
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.deps.camera());
     const { world, entities } = this.deps;
-    const hit = this.raycaster.intersectObjects([world.ground, ...world.blockers, ...entities.hitMeshes()], false)[0];
+    const hit = this.raycaster.intersectObjects([...world.pickTargets(), ...entities.hitMeshes()], false)[0];
     if (!hit) return null;
     const playerId = hit.object.userData.playerId as string | undefined;
     if (playerId) return playerId === entities.selfId() ? { kind: "self" } : { kind: "player", id: playerId };

@@ -11,8 +11,9 @@ let gradient: THREE.DataTexture | null = null;
 /**
  * Soft cel-shading ramp: a light, flat shadow tone and a short, smooth step
  * into the lit tone (anime look without blotchy bands on rounded faces).
+ * Shared with the world (render/world/), so buildings and people match.
  */
-function gradientMap(): THREE.DataTexture {
+export function gradientMap(): THREE.DataTexture {
   if (!gradient) {
     const size = 32;
     const data = new Uint8Array(size * 4);

@@ -22,7 +22,7 @@ function simpleHeader(title: string, onBack: () => void, backLabel = "Title"): H
 const SETTING_TEXT: Record<keyof Settings, { title: string; hint: string }> = {
   graphics: {
     title: "Graphics",
-    hint: "Performance turns off shadows and smoothing for slower phones and laptops. Automatic picks Performance on touch devices.",
+    hint: "Performance draws a lighter city (no shadows, fewer small details, no smoothing) for slower phones and laptops. Automatic picks Performance on touch devices.",
   },
   cameraSpeed: { title: "Camera turning speed", hint: "How far a drag turns the camera, in the world and in the character preview." },
   motion: { title: "Interface animation", hint: "Reduced keeps menus still and stops the preview turntable." },
@@ -120,7 +120,8 @@ export class CreditsScreen implements Screen {
       ]),
       section("Made by", ["Game direction and design: CIR", "Programming, characters and interface: built with Claude, an AI model by Anthropic"]),
       section("Art", [
-        "Characters are generated in code (no purchased or downloaded models).",
+        "Characters and the city are generated in code (no purchased or downloaded models or textures).",
+        "The university square is fictional, inspired by Padova's historic centre; it is not a model of a real place.",
         "The title screen sky and porticoes are original drawings inspired by Padova's starry fresco ceilings and arcaded streets.",
       ]),
       section("Fonts", [

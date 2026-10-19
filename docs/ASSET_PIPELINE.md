@@ -7,7 +7,8 @@ rigs or animation files. Everything visible is generated in code:
 
 | Content | Where | Status |
 | --- | --- | --- |
-| Box buildings, stalls, fountain, benches, desks, café counter | `client/src/render/worldScene.ts` from `shared/src/world.ts` | Placeholder (greybox). Replaced by a modular environment kit later |
+| The first district: six buildings, street furniture, plants, paving, streets beyond the square, skyline landmarks, sky (world art pass) | `client/src/render/world/` (kit, buildings, props, ground, backdrop, signs) assembled by `client/src/render/worldScene.ts`, inside the collision boxes of `shared/src/world.ts` | **Stage-1 procedural environment art** (D-033): original, generated in code, not artist-authored. See "World" below |
+| Paving slabs and all signs (shop fascias, inscriptions, clock face) | Drawn at runtime on two small canvases (`ground.ts`, `signs.ts`) | Generated in code; no image files |
 | Characters: parametric bodies, faces, hair, clothing and accessories built from code-generated geometry (M6) | `client/src/render/avatar/` from the appearance config in `shared/src/appearance/` | **Stage-1 procedural art** (D-027): real, distinct geometry for every option, but not artist-authored models. See "Characters" below |
 | Clothing patterns (stripes, checks, dots, geometric print) | Small textures drawn at runtime on a canvas (`client/src/render/avatar/patterns.ts`) | Generated in code; no image files |
 | Flat colours and toon shading | — | Shared material palette |
@@ -133,6 +134,93 @@ asset source becomes available:
 - Licence: original work, or a licence that explicitly allows commercial use
   and modification. Record source and licence in `CREDITS.md` before committing.
 
+## World (world art pass, D-033)
+
+The first district is built in code from a small modular kit, like the
+characters. Nothing was downloaded or licensed: every model, texture and
+sign is original and generated at runtime. It is **Stage-1 procedural art**
+(consistent and complete, but not artist-made production assets).
+
+**Where things are**
+
+| Module | What it builds |
+| --- | --- |
+| `render/world/palette.ts` | The one palette: plasters, Istrian stone, trachyte, terracotta, shutters, foliage, accents from the interface (D-032) |
+| `render/world/kit.ts` | Geometry helpers: boxes, cylinders, rods, rings, lumpy blobs (foliage), flat inlays, striped quads, hip and gable roofs, a façade frame (build in u along the wall, v up, w out of it), arch shapes, a fast quad batch for things that come in thousands, two-sided thin surfaces |
+| `render/world/buildings.ts` | The six buildings: windows (frames, sills, shutters, pediments, balconies, flower boxes), doors, shopfronts, awnings, rustication, cornices, roofs, chimneys, the hall's porch and clock tower, the library's pediment and dome, the portico's columns and arches |
+| `render/world/props.ts` | One builder per obstacle kind: benches, chairs, study desks, café tables with parasols, the café kiosk, market stalls (fruit and vegetables, flowers, books), the fountain, lemon-tree planters, street planters, plane trees, gardens, lamps, the bike rack, the notice board |
+| `render/world/ground.ts` | Canvas paving texture, sidewalks, cobbled streets, fountain rings, the café terrace |
+| `render/world/backdrop.ts` | City blocks around the square, the streets beyond the openings (each ending at a building), landmarks, sky dome and clouds |
+| `render/world/signs.ts` | The sign atlas (one canvas, fictional names only) |
+| `render/world/district.ts` | Assembles everything as owned pieces; fade volumes |
+
+**Conventions (dimensions and materials)**
+
+- 1 unit = 1 metre, Y up, X east, Z south; origin at the centre of the square.
+- Walls stand `WALL_INSET` = 0.15 m inside their collision box; details
+  below head height stand out at most 0.15 m, so they stay inside it.
+- **Head height is 2.2 m.** Below it, every solid piece lies inside the box
+  it belongs to (tolerance 0.06 m); above it, balconies, awnings, eaves,
+  parasols, lanterns and canopies may overhang walkable ground.
+- Storeys: ground floors 3.6–5.4 m, upper floors 2.9–4.4 m; windows about
+  0.9–1.5 m wide; doors 1.1–2.1 m; benches and chairs have their seat at
+  0.45 m (the characters' sitting pose sits at 0.5 m, D-030).
+- Every piece has an owner (an obstacle id) or is decoration (owner null),
+  and a draw batch. A Node test (`client/test/world.test.ts`) checks owned
+  pieces against their boxes, decoration against all boxes, and that every
+  box is visibly filled.
+- One material: the characters' soft toon ramp (D-030) with vertex colours,
+  front faces only; thin surfaces (awnings, parasols, valances) carry their
+  own back faces. Separate materials only for water, signs (atlas texture),
+  the paving texture and the sky.
+- Textures: the paving canvas is 512 × 512 px for 4 m (256 px on phones),
+  repeated across the square; the sign atlas is 1024 × 1024 px. Nothing else.
+
+**Performance**
+
+| Measure | High (desktop) | Low (phones) |
+| --- | --- | --- |
+| District triangles (all pieces) | about 107 000–110 000 | about 63 000 |
+| Meshes (draw batches) | 47 (buildings 6 + signs, props 4, clickable objects 12, canopies 9, ground, backdrop, sky, clock hands, water) | 47 |
+| Draw calls, overview of the whole square | 86 (including the shadow pass) | 47 (no shadows) |
+| Draw calls, game camera at the arrival area with one character | 69–88 | 31 |
+| Build time, measured in the browser on the cloud test machine | 0.4–0.7 s | about 0.3 s |
+| Build time in Node, warm (geometry only) | about 0.25 s | about 0.17 s |
+| Main-thread time per frame for the world's own work (fading, sky, clock) | 0.02–0.12 ms | 0.02 ms |
+
+- **Merging:** pieces are merged by draw batch, so 8 000+ small pieces
+  become 47 meshes. Repeated small things (cobbles, terrace tiles, distant
+  windows) are written straight into one geometry by the quad batch.
+- **Culling:** every mesh has a bounding sphere, so off-screen buildings,
+  prop quarters, canopies and clickable objects are skipped by three.js.
+- **Level of detail:** two detail levels chosen by the quality profile
+  (window glazing bars, shutter slats, balusters, cobbles, flower details
+  and foliage density drop on phones). Distance fog hides the far ring
+  and landmarks. There is no per-object distance LOD yet: the square is
+  small enough that everything is close.
+- **Loading:** the district is built just after the title screen appears
+  (`buildWorldScene(..., { defer: true })`), so the title is not delayed;
+  entering the world waits until it is ready. Nothing is downloaded.
+- **Not measured yet:** frame rate on a real graphics card or phone. On the
+  cloud machine (graphics emulated in software) a full-window frame takes
+  hundreds of milliseconds and the time shows up inside `renderer.render`,
+  which says nothing about real hardware.
+
+**World lab (`client/world-lab.html`, developer page)**: the district
+without a server, from preset viewpoints (`?view=overview|game|hall|porch|
+library|portico|cafe|market|fountain|street|south|skyline`), with
+`?collision` (every collision box as a wireframe, orange for clickable
+objects), `?quality=low` (phone detail) and `?people` (a few characters for
+scale). It shows build time, triangles and draw calls on screen.
+
+**Known visual limitations:** flat-shaded, faceted tree canopies; no
+interiors behind windows and doors; no day/night lighting yet (the light is
+always afternoon, while the tower clock follows the game clock); water is
+still (no animation); faded buildings show their nearest surface at 16 %
+opacity, which looks busy when the camera is inside a building; roof tiles
+are colour stripes, not modelled tiles; signs use system serif and sans
+fonts drawn on a canvas (the bundled interface font when it has loaded).
+
 ## Planned conventions for authored assets
 
 **Characters:** see "Characters (M6)" above. Scale: 1 unit = 1 metre;
@@ -143,7 +231,12 @@ licence and compatibility checked before being added.
 **Environment**
 - Format: glTF 2.0 binary (`.glb`), Draco or Meshopt compression evaluated when needed.
 - Modular pieces on a 1 m grid, shared texture atlases, baked lighting where practical.
-- Collision continues to come from simple data volumes, not render meshes.
+- Collision continues to come from simple data volumes, not render meshes
+  (`shared/src/world.ts`). An authored piece replaces one builder in
+  `render/world/` and must pass the same test: inside its box below 2.2 m,
+  filling its box, with an owner per mesh.
+- Dimensions and the palette above apply; texture budgets: 1024 px atlases
+  per building set, 512 px for props, mipmapped.
 
 **Naming:** `kebab-case`, prefixed by category, e.g. `env-arcade-column.glb`,
 `chr-hair-bob-01.glb`, `anim-walk.glb`.

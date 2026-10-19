@@ -13,6 +13,7 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M5 | Life simulation | Tested (persistence verified) | Server game clock and offline rules; five needs; mood with reasons; five skills; four traits; money ledger with server-validated café purchases; character panel; the complete café → eat → study → reload loop |
 | M6 | Characters | Tested (persistence verified); Stage-1 procedural art | Versioned appearance config; procedural anime-inspired characters for every option (skin tones, 17 hair styles, face, body, wardrobe); character creator with live 3D preview; saved, upgraded from M5, replicated. Authored (artist-made) models not available yet (D-027) |
 | M6b | Title screen and character creation flow | Tested (persistence verified on PGlite and PostgreSQL 16); real phone and Windows not yet | Title screen (New life, Continue, Manage characters, Settings, Credits); up to 3 lives per guest profile (D-031); new life in three steps (name and personality → live 3D look in six categories → review and confirm); entering transition; edit a look from the title screen or the world without touching life data; original menu identity (D-032) |
+| M6c | World art pass: the first district | Tested (see acceptance below); Stage-1 procedural art; not yet seen by the product owner, on Windows or on a phone | The greybox becomes a fictional Padua-inspired university square: six detailed buildings (hall with walk-in porch and clock tower, library, portico you can walk through), market, café with tables, gardens, trees, lamps, paving; streets and skyline beyond; collision-first art checked by a test; buildings and trees that hide you fade (D-033, D-034) |
 | M7 | A first job | Planned | Café shift pays a wage into the M5 ledger; skills start to matter (e.g. pay or eligibility) |
 
 After M7: **playable multiplayer prototype**. Later phases: sleep and beds
@@ -125,25 +126,51 @@ phone, and Windows.
 Not yet **verified** by the product owner: the screens on Windows and on a
 real phone, and the art direction of the new menus.
 
+## M6c world art pass: acceptance criteria
+
+| Requirement (from the brief) | Status | Evidence |
+| --- | --- | --- |
+| Replace the box placeholders with a cohesive, detailed, stylised university district inspired by Padua | Implemented; checked by Claude from screenshots | Six buildings with windows, doors, shutters, balconies, cornices, roofs and signs; one palette and one toon material (D-033); world lab screenshots of every viewpoint. Not yet reviewed by the product owner |
+| European university architecture, entrances and recognisable silhouettes | Implemented | University palazzo with a rusticated ground floor, banners, porch and clock tower; neoclassical library with pediment and dome; portico; skyline with a bell tower, keel-roofed hall and domes |
+| Plazas, paths, benches, streetlights, trees, landscaping | Implemented | Paving with sidewalks, cobbled streets, fountain rings; five benches, seven lamps, seven plane trees, two gardens, lemon-tree planters |
+| Café exteriors and outdoor seating | Implemented, tested | Café kiosk with canopy and sign; three café tables with parasols and chairs (interactable: sit, study); tiled terrace; shopfronts with awnings |
+| Start with the piazza and its surroundings, not the whole city | Done | One district; streets beyond the square are scenery that ends at buildings |
+| Keep coordinates, walkable bounds, collision rules, pathfinding and spawn behaviour compatible | Tested | Same 48 × 48 m square, grid A*, spawn points and every interactable's id, position and seats (checked: seat data identical before and after); intentional changes listed in D-034; all existing unit, integration and browser tests run against the new layout (see TESTING.md) |
+| Interactive props with stable ids and explicit interaction metadata | Tested | Twelve interactables (id, kind → actions, label, interaction points); chairs `partOf` their table; shared layout tests check ids, labels and links |
+| Visible geometry matches collision; no blocking decoration, no invisible walls | Tested | `client/test/world.test.ts`: every solid piece below 2.2 m inside its box, every box visibly filled, at both detail levels; `shared/test/world.test.ts`: no overlapping boxes, no cut-off pockets; collision overlay in the world lab |
+| Click/tap-to-move and camera controls preserved | Tested | e2e walking, interaction, life and title tests (results in TESTING.md) |
+| Modular, reusable assets with documented formats, licences, dimensions, material conventions | Implemented | Kit in `render/world/kit.ts`; conventions in ASSET_PIPELINE.md "World"; all original, nothing licensed or downloaded |
+| Level of detail, texture sizes, instancing/merging, culling, loading for mobile | Implemented; measured on the cloud machine only | Two detail levels by quality profile (low: about 63 000 triangles, no shadows, 31–47 draw calls); 2 small canvas textures; 8 000+ pieces merged into 47 meshes, cobbles and distant windows in single batched geometries (merging instead of GPU instancing: everything is static); per-mesh frustum culling; built after the title screen appears. Frame rate on real hardware not measured |
+| No unlicensed assets; placeholders not called production assets | Done | Generated in code; labelled Stage-1 procedural art in code, docs and README |
+| One complete walkable district with plaza, a building entrance, seating, vegetation and interactive props | Tested | Walk-in porch and walkable portico reachable (shared tests); benches, café tables, desks, fountain and counter usable (e2e) |
+| Movement, collision, navigation, object selection and multiplayer sync still work | Tested | Full unit/integration suite (216/216) and all 19 browser tests (TESTING.md). Test browsers use the light detail level, except one full-detail player in the district test; collision, tap boxes and gameplay are the same at both levels |
+| Layout changes documented; asset pipeline docs updated | Done | D-034; ASSET_PIPELINE.md "World"; this table |
+
+Not yet **verified** by the product owner: the look of the district on
+Windows and on a phone, and the frame rate on real hardware.
+
 ## Current state (handoff, 2026-10-19)
 
 Read this first when starting a new session.
 
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
-M0–M6 and M6b (title screen and creation flow) implemented and covered by
-automated tests (198 unit/integration tests, 18 browser tests; see
-`docs/TESTING.md` for the latest results).
+M0–M6, M6b (title screen and creation flow) and M6c (the first district)
+implemented and covered by automated tests (216 unit/integration tests, 19
+browser tests; see `docs/TESTING.md` for the latest results).
 Characters and their life data are saved in PostgreSQL (embedded PGlite in
-development). Characters are procedural Stage-1 art (D-027), not
-artist-made models. Still placeholders: greybox world, a box for the café counter.
+development). Characters (D-027) and the district (D-033) are procedural
+Stage-1 art generated in code, not artist-made models. No greybox remains.
 
 **What a player can do today:** start from a title screen; create up to
 three characters ("lives") per browser in three steps (name and
 personality, a look built from starting looks or from scratch with a live 3D
 preview, a review), continue the last one, switch between them, edit a look
-from the title screen or in the world, delete a life; walk, sit, sketch on
-benches, study at desks, buy an espresso/cornetto/panino at the café, wash
-up at the fountain, greet other players; watch needs, mood (with reasons),
+from the title screen or in the world, delete a life; walk round a
+Padua-inspired university square (into the hall's porch, along the portico
+behind its columns, between market stalls, gardens and trees; buildings
+and trees that hide you fade); sit or sketch on five benches, study at two
+desks or at three café tables, buy an espresso/cornetto/panino at the café
+kiosk, wash up at the fountain, greet other players; watch needs, mood (with reasons),
 skills and money in the character panel; come back later, even after a
 server restart, to the same character with the same look, needs, skills,
 money and purchase history.
@@ -159,19 +186,22 @@ saved in the creator and device settings live only in that browser. The world cl
 
 | # | Item | Status | Owner |
 | --- | --- | --- | --- |
-| 1 | Look at the title screen, the creation flow and the M6 characters on the Windows PC (`git pull`, `npm ci`, `npm run dev`) and a phone, and say what to change in the art direction (menus and characters) | Planned | Product owner |
+| 1 | Look at the new district, the title screen, the creation flow and the characters on the Windows PC (`git pull`, `npm ci`, `npm run dev`) and a phone; say what to change in the art direction (world, menus, characters) and whether the frame rate feels smooth | Planned | Product owner |
 | 1b | Confirm D-031 (three lives per guest profile; set `maxCharactersPerAccount` to 1 to go back) | Implemented as asked by the title screen brief; owner may change the number | Product owner |
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
-| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–27) | Planned | Product owner |
+| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–32) | Planned | Product owner |
 | 4 | Play-test the M5 balance (need rates, prices, allowance, study XP) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
 | 5 | Review the time model decisions D-021 (10 game minutes per real minute) and D-022 (offline cap) | Decided in M5 as instructed; owner may change the numbers | Product owner |
 | 6 | Decide on a real sign-in method to replace guest accounts, and on account deletion | Open decision (auth model needs approval) | Product owner, with options from Claude |
-| 7 | Decide the first real district | Open question, needed before real geometry | Product owner |
+| 7 | The first district is a fictional composite of Padua's university and market squares (D-033). Decide whether later districts follow real streets (needs verified references) | Decided for now; owner may revisit | Product owner |
+| 7b | Day/night lighting that follows the game clock (lamps and windows lit at night) | Planned; the clock already shows night while the light stays afternoon | Claude, when prioritised |
 | 8 | Decide whether to commission or license authored character models (requirements in ASSET_PIPELINE.md) or keep improving the procedural ones | Open; procedural characters are enough to continue | Product owner |
 
-**Recommended next task:** item 1, the product owner's look at the title
-screen, the creation flow and the characters on Windows (and a phone),
-because art direction is the owner's call and changes there are cheapest now. The next engineering milestone
+**Recommended next task:** item 1, the product owner's look at the
+district, the title screen, the creation flow and the characters on
+Windows (and a phone), because art direction is the owner's call and
+changes there are cheapest now; the world lab (`/world-lab.html`) shows
+every corner of the district quickly. The next engineering milestone
 after that, recommended: **M7, a first job** (a café shift that pays into
 the M5 ledger and uses a skill), which completes the earn → spend loop.
 Follow-ups that can wait: spread character builds over frames and add a
@@ -179,4 +209,5 @@ lower-detail version for distant players before rooms get busier; precompile
 the world's shaders while the title screen is open (entering takes about
 4 s with software rendering, 2.4 s of it the first world frame); stop
 sending the shared room state to sessions at the title screen (interest
-management); deleting a whole guest profile.
+management); deleting a whole guest profile; day/night lighting (item 7b);
+per-object level of detail for the district if real phones need it.

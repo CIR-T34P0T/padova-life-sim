@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>World lab · Padova Life SIM</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #e9dfd1; font: 13px/1.35 system-ui, sans-serif; color: #2a2220; }
+      #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      header { position: fixed; left: 8px; top: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; padding: 6px 10px; border-radius: 8px; background: rgb(255 250 242 / 0.88); }
+      header h1 { font-size: 15px; margin: 0; }
+      header a { color: #8a3b25; }
+      #stats { font-variant-numeric: tabular-nums; flex-basis: 100%; color: #5b4a40; }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <header>
+      <h1>World lab</h1>
+      <span>Developer page: the district without a server. Drag to orbit, wheel to zoom. Not part of the game.</span>
+      <a href="?view=overview">Overview</a><a href="?view=game&amp;people">Game view</a><a href="?view=hall">Hall</a><a href="?view=porch&amp;people">Porch</a><a href="?view=library">Library</a><a href="?view=portico&amp;people">Portico</a><a href="?view=cafe&amp;people">Café</a><a href="?view=market">Market</a><a href="?view=fountain&amp;people">Fountain</a><a href="?view=street">North street</a><a href="?view=south">South side</a><a href="?view=skyline">Skyline</a><a href="?view=overview&amp;collision">Collision boxes</a><a href="?view=overview&amp;quality=low">Phone detail</a>
+      <span id="stats"></span>
+    </header>
+    <script type="module" src="/src/worldLab.ts"></script>
+  </body>
+</html>

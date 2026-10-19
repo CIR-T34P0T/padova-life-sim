@@ -18,10 +18,11 @@ export default defineConfig({
     target: "es2022",
     sourcemap: true,
     rolldownOptions: {
-      // The game, plus the character lab developer page (not linked from the game).
+      // The game, plus the character and world lab developer pages (not linked from the game).
       input: {
         main: fileURLToPath(new URL("index.html", import.meta.url)),
         lab: fileURLToPath(new URL("lab.html", import.meta.url)),
+        world: fileURLToPath(new URL("world-lab.html", import.meta.url)),
       },
     },
   },

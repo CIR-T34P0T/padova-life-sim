@@ -40,7 +40,23 @@ the client, `tsx` runs it on the server.
 
 - Three.js r186 with `WebGLRenderer` (WebGL2). WebGPU is a later option.
 - `render/worldScene.ts` builds the scene **from the shared world layout**, so
-  visuals and collision cannot drift apart.
+  visuals and collision cannot drift apart (D-033):
+  - the detailed art comes from `render/world/` (kit, buildings, props,
+    ground, backdrop, signs), drawn inside the obstacle boxes and merged into
+    about 47 meshes;
+  - every obstacle also gets an **invisible box** (`blockers`) that taps and
+    menu anchors use; chairs carry their table's id (`partOf`), the
+    portico's upper floors have an extra tap box, and the ground beyond the
+    edge answers taps with "Beyond the piazza (not open yet)";
+  - `pickTargets()` is what a tap can hit (ground and boxes, minus the
+    overhangs of faded buildings);
+  - `update(camera, you, dt, gameMinute)` runs each frame: buildings and
+    tree canopies that hide your character (or that the camera is inside)
+    fade to 16 % opacity, the sky dome follows the camera, and the hall's
+    clock hands show the shared game time;
+  - the district is built just after the title screen appears
+    (`{ defer: true }`); `ready` / `isReady()` let entering the world wait for it.
+- `client/world-lab.html` shows the district without a server (developer page).
 - `render/quality.ts` picks a profile: phones (coarse pointer) get pixel ratio
   ≤ 1.5, no shadows, no antialiasing. The Graphics setting (title screen →
   Settings) or `?quality=high|low` overrides it; read once at page load.
@@ -94,7 +110,9 @@ device-neutral events: `onTap`, `onHover` (mouse only), `onCancel` (Escape),
 
 ## Movement and collision
 
-- World: a 48 × 48 m greybox piazza of axis-aligned boxes (`shared/src/world.ts`).
+- World: a 48 × 48 m square of axis-aligned boxes (`shared/src/world.ts`, 74
+  obstacles: buildings split around the porch, portico columns, street
+  planters, furniture, trees, lamps). The art is drawn inside them (D-033, D-034).
 - Characters are circles (radius 0.35 m) colliding with boxes; movement slides
   along walls and is sub-stepped so it cannot tunnel (`collision.ts`).
 - Click/tap-to-move uses grid A* (0.5 m cells, 8-directional, no corner
@@ -146,8 +164,9 @@ target when the fan would overlap) and a bottom sheet with 56 px buttons (coarse
 right in landscape, full width in portrait with the joystick hidden while
 open). Override with `?menu=radial|sheet`. `actionProgress.ts` shows the
 current action with a progress bar for timed actions and a Cancel button.
-Highlights (`render/worldScene.ts` outline, `render/avatar/avatar.ts` rings),
-the seated pose, activity label and "Ciao!" bubble are presentation only.
+Highlights (a warm glow on the object's own mesh in `render/worldScene.ts`,
+rings in `render/avatar/avatar.ts`), the seated pose, activity label and
+"Ciao!" bubble are presentation only.
 
 ## Life simulation (M5)
 
@@ -297,7 +316,10 @@ creator tells the player; other parts and other players are unaffected.
   Stage-1 characters — requirements in `ASSET_PIPELINE.md`.
 - Level of detail for characters (far characters still use full geometry)
   and spreading character builds over several frames when many players join at once.
-- Camera occlusion: buildings between the camera and the player are not
-  faded or cut away yet, so the south edge of the piazza can hide characters
-  (why the café counter stands in the open piazza).
+- Day/night lighting: the light is always afternoon; the clock and HUD follow
+  the game clock. Lamps don't light up at night yet.
+- Per-object level of detail for the world (two detail levels by quality
+  profile exist; distance LOD doesn't).
+- Camera collision: the camera can stray into buildings near the edges;
+  they fade (D-033) instead of the camera moving closer.
 - Deployment pipeline.

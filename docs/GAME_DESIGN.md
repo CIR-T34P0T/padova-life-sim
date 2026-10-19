@@ -109,7 +109,29 @@ fresco-like sky over lit porticoes, D-032) with **New life**, **Continue**,
 
 Start with one compact, dense district and expand by connected districts.
 Real places are stylised; fictional places are clearly marked as such in data.
-The current greybox piazza is a placeholder test space, not a real location.
+
+**The first district (world art pass, D-033, D-034)** is a fictional
+university square inspired by Padua's historic centre, not a real location:
+
+- North: the university hall ("Palazzo degli Studi", a fictional name), a
+  Renaissance palazzo with a rusticated ground floor, banners, a clock tower
+  that shows the game time, and a walk-in entrance porch between the two
+  outdoor study desks; next to it, a neoclassical library with a dome.
+- West: narrow houses with a bookshop and a pharmacy; benches under plane
+  trees. East: porticoed houses: you can walk the covered walkway behind
+  the columns, past an osteria, a stationer and a bakery.
+- South: student housing and shops (gelateria, bakery, newsagent), where
+  new characters arrive.
+- Centre: the fountain inside stone rings, a market of three stalls (fruit
+  and vegetables, flowers, books), two gardens with benches, lemon trees,
+  street lamps, and the café kiosk with three tables.
+- Six streets lead out; each is closed by planters where the walkable area
+  ends ("not open yet") and continues as scenery to a building. Old-town
+  roofs, a brick bell tower, a keel-roofed hall and domes form the skyline.
+
+Everything you can use: benches (sit, sketch), study desks and café tables
+(sit, study), the café counter (buy), the fountain (wash up). The porch,
+gardens and portico are places to walk and meet; doors don't open yet.
 
 ## Interaction model (Sims-inspired, original UI)
 
@@ -267,6 +289,8 @@ money and mood events as they were.
 
 1. ~~**Time in a shared world.**~~ Decided above (D-021, D-022); sleep and
    schedules are designed with housing and university timetables.
-2. **First real district** — e.g. around the historic university/market squares,
-   or the Portello area. To decide before building real geometry.
+2. ~~**First real district.**~~ For now a fictional composite of Padua's
+   university and market squares (D-033). A district modelled on real
+   streets (with verified references, e.g. the Portello area) is still
+   possible when the world grows.
 3. **Character customisation depth vs art budget** — decided after the VRM spike in M6.

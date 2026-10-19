@@ -340,3 +340,105 @@ player chooses otherwise in Settings. Settings are stored per browser
 is created at page load), camera turning speed, interface animation and
 the controls reminder. No setting is shown for something the game can't do
 yet (there is no audio, so no volume).
+
+## D-033 — The first district: a fictional Padua-inspired square, built in code from a modular kit (2026-10-19, world art pass)
+
+The greybox piazza becomes the first finished district: a fictional
+university square inspired by Padua's historic centre, not a model of any
+real place. Its buildings are a Renaissance university palazzo with a
+walk-in porch, banners and a clock tower ("Palazzo degli Studi", a generic
+name); a neoclassical library with a pediment and a dome; a row of narrow
+houses with a bookshop and a pharmacy; porticoed houses whose ground floor
+stands back behind a row of columns; student housing; and shops. In the
+middle: the fountain, a market of three stalls, benches, two gardens,
+lemon trees, plane trees, street lamps, a café kiosk with tables, a bike
+rack and a notice board. Every street out of the square carries on between
+façades and ends at a building; old-town roofs fill the ring around the
+square; four distant landmarks (a brick bell tower, a long hall with a
+keel-shaped roof, a basilica with domes, a domed church) give the skyline
+Padua-like silhouettes. All names on signs are fictional. This answers
+GAME_DESIGN's open question 2 for now; a district modelled on real
+streets (with verified references) remains possible later.
+
+How it is built:
+
+- **Collision first.** `shared/src/world.ts` stays the only source of what
+  blocks movement. The art (`client/src/render/world/`) is drawn inside
+  those boxes: walls stand 0.15 m inside their box, so window frames and
+  door surrounds can stand proud without leaving it. Below head height
+  (2.2 m) nothing solid is drawn outside its box; above it, balconies,
+  awnings, eaves, parasols and tree canopies may overhang. Every obstacle
+  also gets an invisible box for taps and menu anchors, so what players
+  see, tap and bump into agree. A Node test builds the whole district and
+  checks this vertex by vertex (`client/test/world.test.ts`), and also
+  that every box is visibly filled (no invisible walls).
+- **Procedural Stage-1 art, like the characters (D-027).** No models,
+  textures or images were downloaded or licensed; everything is generated
+  in code from a small kit (walls, windows, doors, arches, roofs, foliage,
+  inlays) in one palette (`render/world/palette.ts`). Paving and signs are
+  drawn once on small canvases at runtime. Not artist-made production
+  assets; authored glTF assets can replace pieces later (ASSET_PIPELINE.md).
+- **Cheap to draw.** Pieces are merged into a few meshes: one per building
+  (plus its signs), four for the static props (one per quarter, so each
+  can be culled), one per clickable object (so it can glow when selected),
+  one per tree canopy (so it can fade). One shared toon material (the
+  characters' ramp, D-030) with vertex colours; clickable and fadeable
+  meshes get their own copy of it. Phones (the "low" quality profile) get
+  a lighter build: no shadows, fewer window details, simpler cobbles and
+  foliage.
+- **Built after the title screen appears.** The district takes about
+  0.3–0.7 s to build on this machine, so it is built just after the title
+  screen is shown; entering the world waits for it.
+- **What hides you fades.** A building (or tree canopy) between the camera
+  and your character turns see-through, and so does a building the camera
+  has strayed into. This replaces the "camera occlusion" gap in
+  ARCHITECTURE.md and is what makes the walkable portico usable.
+- **Interaction metadata stays explicit.** Each interactable has a stable
+  id, a kind (which decides its actions), a menu label and its interaction
+  points. New furniture reuses existing kinds rather than new rules: more
+  benches are benches, café tables use the desk rules (sit, or study over a
+  coffee). Chairs are separate collision boxes marked `partOf` their table,
+  so tapping a chair selects the table.
+
+Considered: downloading free low-poly model packs (licences vary, styles
+would clash, and the brief forbids unlicensed assets); authoring glTF files
+offline (needs an artist and a pipeline we don't have yet); a navmesh
+instead of the grid (not needed: the layout is still boxes, D-005).
+
+## D-034 — Layout changes in the world art pass (2026-10-19)
+
+Kept as they were: every interactable object (benches 1–2, both study
+desks, the café counter, the fountain) with its id, position and seats;
+the market stalls; the planters; the spawn points; the 48 × 48 m walkable
+square; the portico column positions (arcade-1 to arcade-5). Changed on
+purpose:
+
+- **University hall entrance:** the north-west block is split into three
+  boxes around a walk-in porch 3 m wide and 1.6 m deep (ids
+  `north-west-block`, `north-west-block-porch`, `north-west-block-east`).
+- **Walkable portico:** the east block's ground floor moves back from
+  x = 18 to x = 19.5 and the block now spans z −12.3 to 12.3, with two more
+  columns (`arcade-0`, `arcade-6`); the 2 m walkway behind the columns is
+  walkable end to end, under the upper floors.
+- **No dead-end slivers:** the four corner blocks extend 1 m to the edge
+  of the square (they stopped 1 m short, leaving useless strips).
+- **Visible edges:** every street opening is closed by planters where the
+  walkable area ends (ids `*-street-planter-n`), instead of an invisible
+  line.
+- **New solid props, each with collision and a stable id:** seven plane
+  trees, seven street lamps, two gardens, three café tables with two
+  chairs each, a chair at each study desk, three more benches, a bike rack
+  and a notice board.
+- **New interactables:** `bench-3`, `bench-4`, `bench-5` (benches) and
+  `cafe-table-1` to `cafe-table-3` (desk rules, label "Café table").
+- Obstacles gained two optional fields: `facing` (which side people use;
+  rendering only) and `partOf` (tapping this part selects that
+  interactable). Heights of a few obstacles grew to cover their new art
+  (fountain 2.6 m, benches 0.85 m, café kiosk 2.7 m with its canopy);
+  heights affect tap targets and menu anchors only, never collision.
+
+A character saved in a spot that a new prop now covers is placed at a
+spawn point when it next enters (the existing check in `PlazaRoom.spawn`).
+A shared test now checks that no walkable pocket is cut off, the porch and
+portico are reachable, every street is closed and no two boxes overlap
+(`shared/test/world.test.ts`).

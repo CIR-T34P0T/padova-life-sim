@@ -83,8 +83,14 @@ test("title menu, settings that persist, credits, and a new life through name, l
   await page.click('#screens [data-setting="cameraSpeed"] [data-value="fast"]');
   await page.click('#screens [data-setting="hints"] [data-value="hide"]');
   await expect(page.locator("html")).toHaveAttribute("data-motion", "reduced");
-  await page.click('#screens [data-setting="graphics"] [data-value="performance"]');
+  // Graphics applies after a reload: "Quality" gives full detail, "Performance" the light one.
+  await page.click('#screens [data-setting="graphics"] [data-value="quality"]');
   await expect(page.locator("#screens .settings-status")).toContainText("after reloading");
+  await page.reload();
+  await waitForTitle(page);
+  expect(await page.evaluate(() => (window as any).__padova.quality)).toBe("high");
+  await page.click('#screens [data-action="settings"]');
+  await page.click('#screens [data-setting="graphics"] [data-value="performance"]');
   await page.reload();
   await waitForTitle(page);
   await page.click('#screens [data-action="settings"]');

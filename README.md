@@ -5,14 +5,16 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen (M0–M6, title screen milestone)
+## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district (M0–M6, title screen and world art pass)
 
 What exists today is a deliberately plain, end-to-end slice that proves the
 architecture. It is **not** the game yet.
 
 | Feature | Status |
 | --- | --- |
-| Greybox piazza (placeholder boxes) | Locally functional |
+| The first district: a fictional, Padua-inspired university square (university hall with a walk-in porch and clock tower, library, portico you can walk through, market, café, gardens, trees, lamps; streets and skyline beyond) | Locally functional, tested; **Stage-1 procedural art, not artist-made models** (D-033) |
+| What you see matches what you bump into (art drawn inside the collision boxes, checked by a test) | Tested |
+| Buildings and trees that hide your character fade out | Locally functional, tested |
 | Third-person camera (drag to orbit, wheel/pinch to zoom) | Locally functional |
 | Click/tap-to-move with server pathfinding | Multiplayer functional, tested |
 | Keyboard (WASD/arrows) and on-screen joystick movement | Multiplayer functional, tested |
@@ -135,12 +137,18 @@ The client runs on port 5173 and the game server on port 2567.
 - **Settings** (this device only): graphics (applies after a reload), camera
   turning speed, interface animation, controls reminder.
 
-### Character lab (developer page)
+### Character lab and world lab (developer pages)
 
 With `npm run dev` running, open <http://localhost:5173/lab.html> to see every
 preset and option side by side with its triangle count and build time
 (`?grid`, `?grid&view=face`, `?options=hair|outfit|skin|face|pose`,
-`?random`). It is not linked from the game.
+`?random`).
+
+<http://localhost:5173/world-lab.html> shows the district without a server:
+drag to orbit, wheel to zoom, links for each viewpoint
+(`?view=overview|game|hall|porch|library|portico|cafe|market|fountain|street|south|skyline`),
+`?collision` to see every collision box, `?quality=low` for phone detail and
+`?people` for a few characters for scale. Neither page is linked from the game.
 
 ### Your saved data
 
@@ -199,6 +207,8 @@ First-time Playwright setup: `npx playwright install chromium`.
 | `CHROMIUM_PATH` | e2e | Playwright's browser | Use an existing Chromium for tests |
 | `TEST_DATABASE_URL` | tests | unset | Also run database tests on a real PostgreSQL (creates and drops throwaway databases) |
 | `E2E_DATABASE_URL` | e2e | unset | Run the browser tests' server on a real PostgreSQL instead of in-memory |
+| `E2E_QUALITY` | e2e | `low` | World detail for test browsers (`high` needs a real GPU to be quick; see TESTING.md) |
+| `VITE_DEFAULT_QUALITY` | client build | unset | Replaces the phone/computer guess for the "Automatic" graphics setting (`low` or `high`); the browser tests use it, players don't need it |
 
 See `.env.example`. The only secret is `DATABASE_URL`, when used.
 
@@ -212,7 +222,8 @@ server/   Authoritative Colyseus game server; db/ (database + migrations runner)
           identity/ (guest tokens), profiles/ (character profiles),
           life/ (needs, skills, money, clock), migrations/ (SQL)
 client/   Three.js browser client (rendering, input, networking); render/avatar/ builds
-          the characters, ui/creator.ts is the character creator, lab.html the character lab
+          the characters, render/world/ the district, ui/creator.ts is the character creator,
+          lab.html the character lab, world-lab.html the world lab
 e2e/      Playwright multi-browser tests
 docs/     Design, architecture, roadmap, decisions, testing
 ```

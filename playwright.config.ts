@@ -47,7 +47,10 @@ export default defineConfig({
     },
     {
       command: `npm run dev -w client`,
-      env: { CLIENT_PORT: String(CLIENT_PORT), VITE_SERVER_URL: `ws://localhost:${SERVER_PORT}` },
+      // Lighter world detail by default (software rendering is slow; gameplay is
+      // identical). E2E_QUALITY=high runs every browser at desktop detail;
+      // e2e/world.spec.ts always checks the full-detail world.
+      env: { CLIENT_PORT: String(CLIENT_PORT), VITE_SERVER_URL: `ws://localhost:${SERVER_PORT}`, VITE_DEFAULT_QUALITY: process.env.E2E_QUALITY ?? "low" },
       port: CLIENT_PORT,
       reuseExistingServer: false,
       timeout: 30_000,

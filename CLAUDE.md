@@ -71,6 +71,13 @@ or auth model without the product owner's approval.
   New options are catalogue data plus renderer code in
   `client/src/render/avatar/`; every option must change the drawn character
   (or be reported as covered by `visibleLayers`).
+- **The world is collision first** (D-033). `shared/src/world.ts` decides
+  what blocks movement; the art in `client/src/render/world/` is drawn
+  inside those boxes. Below head height (2.2 m) nothing solid may be drawn
+  outside its obstacle, and every obstacle must be visibly filled;
+  `client/test/world.test.ts` checks both. A new prop is an obstacle (stable
+  id, kind, label) plus a builder; a new clickable object reuses an
+  interactable kind. Look at changes in `client/world-lab.html`.
 - **The title screen is the lobby** (D-031). Joining lists the account's
   characters (up to `PROFILE_CONFIG.maxCharactersPerAccount`); a character
   enters the world only through `enterWorld` (an id the server checks against

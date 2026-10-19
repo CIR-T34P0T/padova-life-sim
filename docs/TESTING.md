@@ -5,7 +5,7 @@
 | Command | Scope | Needs |
 | --- | --- | --- |
 | `npm run typecheck` | All packages, strict TypeScript | — |
-| `npm test` | `shared/test` unit tests + `server/test` integration tests | — (starts its own servers on ports 2611–2629, each with an in-memory PGlite database) |
+| `npm test` | `shared/test` unit tests, `client/test` (the district art against the collision layout, in Node) and `server/test` integration tests | — (starts its own servers on ports 2611–2629, each with an in-memory PGlite database) |
 | `TEST_DATABASE_URL=… npm test` | The same, plus every database test repeated on a real PostgreSQL server | A PostgreSQL user allowed to create databases; each test creates and drops a throwaway database |
 | `npm run check` | Both of the above | — |
 | `npm run test:e2e` | Playwright, real server + real client + several browsers | A Chromium (`npx playwright install chromium`, or `CHROMIUM_PATH`). The test server uses an in-memory database (never `.data/`) and a raised guest-creation limit |
@@ -177,6 +177,28 @@ restores only it; the review summary describes every preset in plain words
 and says when hair is covered; character ids must be UUIDs; deleting needs a
 typed name, compared without case or extra spaces.
 
+**District layout (8 tests, `shared/test/world.test.ts`, world art pass):**
+every obstacle has a unique id, a real size, a label and a place inside the
+square; no two solid boxes overlap (they may touch); the eight chairs belong
+to existing interactables and every sitter sits on a chair; **no walkable
+pocket is cut off** from where players arrive (flood fill over the
+navigation grid); the university hall's porch is walkable and reachable;
+the portico can be walked end to end behind its columns and entered
+between them; every street is walkable up to its planters and blocked
+there; the arrival points see each other and a short route leads to the
+fountain.
+
+**District art against collision (10 tests, `client/test/world.test.ts`,
+world art pass)** — the real district code built in Node at both detail
+levels, checked vertex by vertex: **nothing solid below head height (2.2 m)
+is drawn outside the box it belongs to** (6 cm tolerance; a building split
+around its porch counts as one); decoration below head height is flat,
+inside some box, or outside the square; **every collision box is visibly
+filled** (85 % of its width and depth, 60 % for round lamps and tables), so
+there are no invisible walls; every clickable object and chair has its own
+highlightable mesh and every building has fade volumes; triangle budgets
+(220 000 high, 110 000 low).
+
 **Title screen and several lives through the real room (10 tests,
 `server/test/lobby.test.ts`):** create lives from the title screen up to
 three (same guest token), the fourth refused, any of them can be entered and
@@ -191,6 +213,19 @@ another window, removing its rows; another profile can't see, play, change
 or delete a character (`character_not_found`); malformed title-screen
 requests refused; a window entering the world takes over from a window
 playing another life of the same profile (4100).
+
+**End to end, the district (`e2e/world.spec.ts`, world art pass)** — two
+players, one at full detail (`?quality=high`) and one at the light level:
+the district is built at both levels within its triangle budgets (the
+build time, meshes, triangles and draw calls are logged as `[world perf]`);
+from beside the café kiosk, tapping a plane tree's trunk is refused with
+"Plane tree: you can't walk there."; a café table offers Study and Sit,
+the character walks over and sits on one of its chairs, and the other
+player sees the seat taken; walking into the portico fades the houses above
+(`building:portico`), the walkway is walked end to end behind the columns,
+and stepping out brings them back. Every walk target is checked to be on
+screen and not hidden before it is tapped, and the camera is left to
+settle after each walk.
 
 **End to end, title screen (`e2e/title-flow.spec.ts`)** — the title menu
 (five items, Continue disabled without a life, the not-affiliated notice);
@@ -283,6 +318,10 @@ removes the player for the others. Screenshots are saved to `test-results/`.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-19 (M6c, world art pass) | typecheck + build | Pass | shared, server, client (including `client/test`); production build with three entries (game, character lab, world lab); the district code is its own 63 KB chunk (23 KB gzipped) |
+| 2026-10-19 (M6c) | unit + integration | 216/216 pass | Includes the new layout tests (`shared/test/world.test.ts`) and art-against-collision tests (`client/test/world.test.ts`), and every existing server test on the new layout. One earlier full run had one failure in the life-loop test that did not repeat (4/4 alone, then the full suite passed twice). The database and persistence code did not change in this milestone, so the PostgreSQL runs were not repeated |
+| 2026-10-19 (M6c) | e2e | 19/19 pass (final, by file) | First full run at full detail: the four-browser creator test timed out (a third software-rendered browser waited over 60 s at the welcome screen), so test browsers now default to the light detail level (`VITE_DEFAULT_QUALITY=low`; see notes below). Second full run: all 18 existing tests pass in the new district; the new district test failed on its own test route (the café kiosk, then a portico column, hid the spot it tapped). Fixed in the test (a route checked by probing every point from the arrival area, on-screen checks, waiting for the camera, a choice of spots between the columns); then 3/3 consecutive passes |
+| 2026-10-19 (M6c) | manual visual check (Claude, screenshots) | Pass with known limitations | World lab: every viewpoint (overview, game camera, hall, porch, library, portico, café, market, fountain, north street, south side, skyline), the collision overlay and the light detail level; in the game at 1366×800, 390×844 and 844×390 touch, walking to the café, under the portico (fading) and north. Limitations listed under "Known issues". Not yet seen by the product owner, on Windows or on a phone |
 | 2026-10-19 (M6b, title screen) | typecheck + build | Pass | shared, server, client; production build 925 KB of JavaScript (259 KB gzipped) plus 81 KB of WOFF2 fonts |
 | 2026-10-19 (M6b) | unit + integration | 198/198 pass (final) | With `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: 222/223 on the last full run; the one failure was test timing (a title-screen test read the shared state before the patch removing the player arrived; the test now waits for it), then `lobby.test.ts` 10/10 twice on both backends. An earlier full run had a similar timing failure in "pressing Continue twice enters once" (fixed the same way). Includes migration 0004 up, refused rollback with two characters, rollback with one, and up again, on PGlite and PostgreSQL |
 | 2026-10-19 (M6b) | e2e | 18/18 pass (final, by file) | Three full runs on the in-memory database: 13/18, 15/18, then 17/18. Run 1: two test mistakes (a review line is "Rounded afro", not "Afro"; a layout check measured during the screen's slide-in) and two- to four-browser tests over their time limits. Run 2: three multi-browser tests just over 150 s, so those now allow 300 s and the four-browser test 900 s; starting-look portraits are now drawn as they scroll into view instead of all 17 at once. Run 3: only the desktop life test failed, because the café counter landed a few pixels under the character panel's edge depending on where the walk ended; the test now stops closer to the counter in two steps and waits for the camera to settle: 3/3 re-runs pass. Title-screen spec re-run 4/4 after the last CSS change. Title-screen and persistence specs also on PostgreSQL 16.15 (`E2E_DATABASE_URL`): 8/8; rows checked with SQL (migration 0004 applied, `characters_by_account` index in place of the one-per-account index, every character with its appearance, needs, wallet and position rows, no ledger rows left by deleted characters) |
@@ -423,6 +462,28 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     window can play a character whose saves then fail (logged). Both checks
     run before the delete, so this needs two windows acting within
     milliseconds.
+- **World art pass limitations:**
+  - The district is Stage-1 procedural art (D-033): no interiors behind
+    doors and windows, faceted tree canopies, still water, colour-striped
+    roof tiles. Not yet seen by the product owner.
+  - No day/night lighting: the light is always afternoon while the hall's
+    clock and the HUD follow the game clock (often night). Lamps don't
+    light up.
+  - A faded building shows its nearest surface at 16 % opacity; when the
+    camera is inside a building (near the edges, or under the portico) the
+    view looks busy. No camera collision yet.
+  - On arrival the camera stands in the street south of the square, 3 m
+    from the shops, so their wall fills the right of a computer screen
+    until you walk or turn. Options for the owner: fade buildings very close
+    to the camera, or move the arrival points about 3 m north.
+  - Frame rate on a real graphics card or phone is not measured; on the
+    cloud machine (software rendering) a full-detail full-window frame takes
+    hundreds of milliseconds, which is why the browser tests default to the
+    light detail level (see "Notes for running tests").
+  - Taps pass through tree canopies, awnings and parasols (only the solid
+    parts have tap boxes), so tapping a canopy walks to the ground behind it.
+  - Saved characters standing where a new prop now is are moved to a spawn
+    point on their next visit (by design; not covered by its own test).
 - `npm audit` reports 9 low/moderate advisories, all inside `@colyseus/auth`
   (pulled in by the SDK, unused by this project). The suggested `--force` fix
   would downgrade Colyseus to 0.15, so it was not applied. Recheck on Colyseus updates.
@@ -437,6 +498,15 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 - Use absolute paths (`/home/claude/padova-life-sim`): `~` in the shell resolves
   to `/root`, not the project's parent folder.
 - The Colyseus startup banner appears in test output; it is cosmetic.
+- The browser tests build the client with `VITE_DEFAULT_QUALITY=low`, so
+  every test browser draws the light world (no shadows, fewer details)
+  unless a test asks for `?quality=high` (`e2e/world.spec.ts` does, for one
+  player). Collision, tap boxes and gameplay are identical at both levels.
+  Reason: since the world art pass, three or four software-rendered
+  browsers drawing the full-detail district at once on 2 CPUs could not
+  finish a frame fast enough (a third player waited over 60 s at the
+  welcome screen). `E2E_QUALITY=high npm run test:e2e` runs every browser
+  at desktop detail on a machine with a real GPU.
 - Don't edit files under `client/` or `shared/` while the browser tests run:
   the test client is Vite's dev server, which reloads the page on a change and
   makes the running test fail (seen once during the title screen milestone).
@@ -510,3 +580,19 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     sideways scrolling; in the creator all six categories are visible, one
     finger turns the character and two fingers zoom; Review and Begin are
     reachable without hunting; turning the phone keeps everything usable.
+28. **The district (world art pass):** walk round the square. Nothing you can
+    see should let you walk through it (trees, lamps, chairs, planters,
+    stall poles), and you should never stop at something invisible. Report
+    the spot if either happens (the coordinates are in the browser console
+    with `__padova.players()` on a `?e2e` page).
+29. Walk into the university hall's porch (between the two study desks) and
+    along the portico on the east side behind its columns: the portico
+    houses fade while you are under them, then come back.
+30. Tap a tree, a lamp and a street planter: each says what it is and that
+    you can't walk there. Tap a café table: Sit / Study; sit on a chair;
+    another player sees you seated there.
+31. Walk to the south edge and turn the camera to look south: the building
+    between the camera and you fades. The clock on the hall's tower shows
+    the same time as the clock chip.
+32. On a phone, check the frame rate feels smooth in the square (graphics
+    "Automatic" picks the lighter detail there).
