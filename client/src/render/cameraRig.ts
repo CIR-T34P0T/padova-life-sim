@@ -31,6 +31,11 @@ export class CameraRig {
     }
   }
 
+  /** The next setTarget jumps straight to the target instead of gliding (entering the world). */
+  snapToNextTarget(): void {
+    this.hasFocus = false;
+  }
+
   rotate(deltaYaw: number, deltaPitch: number): void {
     this.yaw += deltaYaw;
     this.pitch = THREE.MathUtils.clamp(this.pitch + deltaPitch, CameraRig.MIN_PITCH, CameraRig.MAX_PITCH);

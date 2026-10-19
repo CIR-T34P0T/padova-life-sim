@@ -56,6 +56,11 @@ export const PROFILE_CONFIG = {
   guestCreationsPerIpPerHour: 10,
   /** How often moved characters' positions are saved while online (ms). */
   autosaveIntervalMs: 30_000,
+  /**
+   * Characters ("lives") one guest profile may hold (D-031). Set to 1 to go
+   * back to one character per profile; existing extra characters stay saved.
+   */
+  maxCharactersPerAccount: 3,
 } as const;
 
 export const ROOM_NAME = "plaza";

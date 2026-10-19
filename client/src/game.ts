@@ -24,6 +24,7 @@ import { createAvatar, type AvatarView } from "./render/avatar/index.ts";
 import { CameraRig } from "./render/cameraRig.ts";
 import { detectQuality } from "./render/quality.ts";
 import { buildWorldScene } from "./render/worldScene.ts";
+import { cameraSpeedFactor } from "./ui/settings.ts";
 import { createActionMenu } from "./ui/actionMenu.ts";
 import { ActionProgress } from "./ui/actionProgress.ts";
 import { CharacterPanel } from "./ui/characterPanel.ts";
@@ -31,7 +32,8 @@ import { Hud } from "./ui/hud.ts";
 import { reasonText } from "./ui/reasons.ts";
 
 interface RemoteEntity {
-  view: AvatarView;
+  /** Built only while this client is in the world (no avatar builds behind the title screen). */
+  view: AvatarView | null;
   buffer: SnapshotBuffer;
   latest: ReplicatedPlayer;
 }
@@ -43,6 +45,8 @@ export interface ProfileHandlers {
   onProfileError(payload: ProfileErrorPayload): void;
   onDisconnected(code: number | undefined): void;
   onEditAppearance(): void;
+  /** The player asked to go back to the title screen (character panel). */
+  onLeaveToTitle(): void;
 }
 
 /** Minimum time between direction updates sent to the server (ms). */
@@ -65,6 +69,12 @@ export class Game {
   private lastSentDirection = { dx: 0, dz: 0 };
   private lastDirectionSentAt = 0;
   private lastFrame = performance.now();
+  /** True between entering the world (server said "ready") and leaving it. */
+  private inWorld = false;
+  private lastGameMinute: number | null = null;
+  /** Every connection status in order (debug hook only). */
+  private readonly statusLog: ConnectionStatus[] = [];
+  private worldVisibleWaiters: (() => void)[] = [];
 
   constructor(
     private readonly container: HTMLElement,
@@ -95,11 +105,23 @@ export class Game {
       onIdentity: (payload) => this.profileHandlers.onIdentity(payload),
       onProfileError: (payload) => this.profileHandlers.onProfileError(payload),
       onLife: (payload) => this.onLife(payload),
-      onClock: (minute) => this.hud.setClock(minute),
+      onClock: (minute) => {
+        this.lastGameMinute = minute;
+        this.hud.setClock(minute);
+      },
     });
 
     const overlay = document.body;
-    this.characterPanel = new CharacterPanel(overlay);
+    this.characterPanel = new CharacterPanel(overlay, {
+      onEditAppearance: () => {
+        this.characterPanel.close();
+        this.profileHandlers.onEditAppearance();
+      },
+      onLeaveToTitle: () => {
+        this.characterPanel.close();
+        this.profileHandlers.onLeaveToTitle();
+      },
+    });
     hud.onMeChip(() => {
       this.interactions.clearSelection(); // never two sheets at once
       this.characterPanel.toggle();
@@ -112,8 +134,11 @@ export class Game {
       canvas: this.renderer.domElement,
       entities: {
         selfId: () => this.connection.sessionId,
-        get: (id) => this.entities.get(id),
-        hitMeshes: () => [...this.entities.values()].flatMap((entity) => entity.view.hitMeshes),
+        get: (id) => {
+          const entity = this.entities.get(id);
+          return entity?.view ? { view: entity.view, latest: entity.latest } : undefined;
+        },
+        hitMeshes: () => [...this.entities.values()].flatMap((entity) => entity.view?.hitMeshes ?? []),
       },
       connection: this.connection,
       hud,
@@ -131,17 +156,24 @@ export class Game {
 
     this.input = new InputController(container, joystick, {
       onTap: (x, y) => {
-        if (this.status === "connected") this.interactions.handleTap(x, y);
+        if (this.status === "connected" && this.playing) this.interactions.handleTap(x, y);
       },
-      onHover: (x, y) => this.interactions.handleHover(x, y),
+      onHover: (x, y) => {
+        if (this.playing) this.interactions.handleHover(x, y);
+      },
       onCancel: () => {
+        if (!this.playing) return;
         if (this.characterPanel.isOpen) this.characterPanel.close();
         else this.interactions.handleCancel();
       },
-      onRotate: (dx, dy) => this.rig.rotate(-dx * 0.006, dy * 0.004),
+      onRotate: (dx, dy) => {
+        const speed = cameraSpeedFactor();
+        this.rig.rotate(-dx * 0.006 * speed, dy * 0.004 * speed);
+      },
       onZoom: (factor) => this.rig.zoom(factor),
       onMoveInput: (forward, right) => {
-        this.moveInput = { forward, right };
+        // Keys held while a screen covers the world are ignored, not queued.
+        this.moveInput = this.playing ? { forward, right } : { forward: 0, right: 0 };
         if (forward !== 0 || right !== 0) this.world.targetMarker.visible = false;
       },
     });
@@ -154,19 +186,84 @@ export class Game {
     this.resize();
   }
 
-  /** Joins the plaza. Rejects if the server refuses the guest token. */
-  async start(options: JoinOptionsWithIdentity): Promise<void> {
+  /**
+   * Joins the plaza room in the lobby (title screen): the server lists this
+   * profile's characters but nobody enters the world yet. Rejects if the
+   * server refuses the guest token.
+   */
+  async connect(options: JoinOptionsWithIdentity): Promise<void> {
     await this.connection.join(options);
-    this.renderer.setAnimationLoop(() => this.frame());
     this.exposeDebugHook();
+  }
+
+  /** In the world and not hidden behind a full-screen panel. */
+  private get playing(): boolean {
+    return this.inWorld && !this.covered;
+  }
+
+  get isInWorld(): boolean {
+    return this.inWorld;
+  }
+
+  /** The latest replicated game minute (null before the first clock update). */
+  get gameMinute(): number | null {
+    return this.lastGameMinute;
   }
 
   createCharacter(input: NewCharacterInput): void {
     this.connection.createCharacter(input);
   }
 
-  updateAppearance(appearance: AppearanceConfig): void {
-    this.connection.updateAppearance(appearance);
+  /** In the world: changes the played character. At the title screen: pass the character id. */
+  updateAppearance(appearance: AppearanceConfig, characterId?: string): void {
+    this.connection.updateAppearance(appearance, characterId);
+  }
+
+  enterCharacter(characterId: string): void {
+    this.connection.enterWorld(characterId);
+  }
+
+  requestLeaveWorld(): void {
+    this.connection.leaveWorld();
+  }
+
+  deleteCharacter(characterId: string, confirmName: string): void {
+    this.connection.deleteCharacter(characterId, confirmName);
+  }
+
+  /**
+   * The server placed our character in the world: build everyone's avatars
+   * and start rendering. Resolves once a frame showing our character has
+   * been drawn, so the entry transition can uncover a ready world.
+   */
+  enterWorld(): Promise<void> {
+    const visible = new Promise<void>((resolve) => this.worldVisibleWaiters.push(resolve));
+    if (this.inWorld) return visible;
+    this.inWorld = true;
+    this.moveInput = { forward: 0, right: 0 };
+    this.lastSentDirection = { dx: 0, dz: 0 };
+    this.rig.snapToNextTarget();
+    for (const [id, entity] of this.entities) if (!entity.view) entity.view = this.buildView(id, entity.latest);
+    document.body.classList.add("in-world");
+    this.lastFrame = performance.now();
+    this.renderer.setAnimationLoop(() => this.frame());
+    return visible;
+  }
+
+  /** Back to the title screen: stop rendering and free the avatars (the server already removed our character). */
+  leaveWorld(): void {
+    if (!this.inWorld) return;
+    this.inWorld = false;
+    this.renderer.setAnimationLoop(null);
+    this.characterPanel.close();
+    this.interactions.clearSelection();
+    this.world.targetMarker.visible = false;
+    for (const entity of this.entities.values()) {
+      entity.view?.dispose();
+      entity.view = null;
+    }
+    this.life = null;
+    document.body.classList.remove("in-world");
   }
 
   /** Name and traits for the character panel, from the saved profile. */
@@ -192,16 +289,18 @@ export class Game {
     const now = performance.now();
     const dt = Math.min((now - this.lastFrame) / 1000, 0.1);
     this.lastFrame = now;
-    if (this.covered) return;
+    if (this.covered || !this.inWorld) return;
 
     this.sendDirectionIfChanged(now);
 
     const renderTime = now - GAME_CONFIG.interpolationDelayMs;
     const selfId = this.connection.sessionId;
+    let selfShown = false;
     for (const [id, entity] of this.entities) {
       const pose = entity.buffer.sample(renderTime);
-      if (!pose) continue;
+      if (!pose || !entity.view) continue;
       entity.view.setPose(pose.x, pose.z, pose.rotation, pose.moving, now / 1000);
+      if (id === selfId) selfShown = true;
       if (id === selfId) {
         this.rig.setTarget(pose.x, pose.z);
         if (this.world.targetMarker.visible && !entity.latest.moving) {
@@ -216,6 +315,7 @@ export class Game {
     this.rig.update(dt);
     this.renderer.render(this.world.scene, this.rig.camera);
     this.labelRenderer.render(this.world.scene, this.rig.camera);
+    if (selfShown && this.worldVisibleWaiters.length > 0) for (const resolve of this.worldVisibleWaiters.splice(0)) resolve();
     // Rolling averages for the performance readout (debug hook only).
     const cpu = performance.now() - now;
     this.perf.frameCpuMs += (cpu - this.perf.frameCpuMs) * 0.05;
@@ -264,18 +364,24 @@ export class Game {
 
   private onStatus(status: ConnectionStatus, detail?: string, code?: number): void {
     this.status = status;
+    this.statusLog.push(status);
     this.hud.setStatus(status, detail, code);
     if (status === "disconnected") this.profileHandlers.onDisconnected(code);
   }
 
-  private addEntity(id: string, player: ReplicatedPlayer): void {
-    if (this.entities.has(id)) return;
+  private buildView(id: string, player: ReplicatedPlayer): AvatarView {
     const isSelf = id === this.connection.sessionId;
     const view = createAvatar(id, appearanceOf(player), isSelf, this.quality);
     view.setName(player.name);
     view.setAway(!player.connected);
     view.setActivity(player.activity, player.seatId !== "");
     this.world.scene.add(view.root);
+    return view;
+  }
+
+  private addEntity(id: string, player: ReplicatedPlayer): void {
+    if (this.entities.has(id)) return;
+    const view = this.inWorld ? this.buildView(id, player) : null;
     const buffer = new SnapshotBuffer();
     const entity: RemoteEntity = { view, buffer, latest: { ...player } };
     this.entities.set(id, entity);
@@ -286,12 +392,14 @@ export class Game {
   private updateEntity(id: string, player: ReplicatedPlayer): void {
     const entity = this.entities.get(id);
     if (!entity) return;
-    if (entity.latest.connected !== player.connected) entity.view.setAway(!player.connected);
-    if (entity.latest.name !== player.name) entity.view.setName(player.name);
-    const before = entity.latest;
-    if (before.look !== player.look) entity.view.setAppearance(appearanceOf(player));
-    if (entity.latest.activity !== player.activity || entity.latest.seatId !== player.seatId) {
-      entity.view.setActivity(player.activity, player.seatId !== "");
+    const view = entity.view;
+    if (view) {
+      if (entity.latest.connected !== player.connected) view.setAway(!player.connected);
+      if (entity.latest.name !== player.name) view.setName(player.name);
+      if (entity.latest.look !== player.look) view.setAppearance(appearanceOf(player));
+      if (entity.latest.activity !== player.activity || entity.latest.seatId !== player.seatId) {
+        view.setActivity(player.activity, player.seatId !== "");
+      }
     }
     entity.latest = { ...player };
     this.pushSnapshot(entity, player);
@@ -302,7 +410,7 @@ export class Game {
     const entity = this.entities.get(id);
     if (!entity) return;
     this.interactions.onPlayerRemoved(id);
-    entity.view.dispose();
+    entity.view?.dispose();
     this.entities.delete(id);
     this.hud.setPlayerCount(this.entities.size);
   }
@@ -336,12 +444,28 @@ export class Game {
       get quality() {
         return game.quality.name;
       },
+      /** True while our character is in the world (not at the title screen). */
+      get inWorld() {
+        return game.inWorld;
+      },
+      /** Every connection status so far, in order. */
+      statusLog() {
+        return [...game.statusLog];
+      },
+      /** Closes the connection like a brief network drop (tests of reconnection). */
+      simulateDrop() {
+        game.connection.simulateDrop();
+      },
+      /** Camera angle around the player (radians), for tests of camera settings. */
+      get cameraYaw() {
+        return game.rig.yaw;
+      },
       players() {
         return [...game.entities].map(([id, e]) => ({ id, ...e.latest }));
       },
       /** Geometry stats of one player's character (triangles, meshes, last build time). */
       avatarStats(id: string) {
-        return game.entities.get(id)?.view.stats() ?? null;
+        return game.entities.get(id)?.view?.stats() ?? null;
       },
       /** Renderer and frame-time numbers (rolling averages; software rendering is not representative). */
       renderStats() {

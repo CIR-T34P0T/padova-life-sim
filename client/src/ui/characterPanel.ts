@@ -44,6 +44,11 @@ const MOOD_LABELS: Record<MoodLevel, string> = {
   great: "Great",
 };
 
+export interface CharacterPanelActions {
+  onEditAppearance(): void;
+  onLeaveToTitle(): void;
+}
+
 export class CharacterPanel {
   readonly mode: "side" | "sheet";
   private readonly element: HTMLElement;
@@ -54,7 +59,7 @@ export class CharacterPanel {
   private currentAction: string | null = null;
   private openState = false;
 
-  constructor(root: HTMLElement) {
+  constructor(root: HTMLElement, actions: CharacterPanelActions) {
     const params = new URLSearchParams(location.search);
     const forced = params.get("menu");
     const coarse = window.matchMedia("(pointer: coarse)").matches;
@@ -84,7 +89,23 @@ export class CharacterPanel {
 
     this.body = document.createElement("div");
     this.body.className = "cp-body";
-    this.element.append(header, this.body);
+    const footer = document.createElement("div");
+    footer.className = "cp-footer";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "cp-action";
+    edit.dataset.action = "edit-appearance";
+    edit.textContent = "Edit look";
+    edit.addEventListener("click", () => actions.onEditAppearance());
+    const leave = document.createElement("button");
+    leave.type = "button";
+    leave.className = "cp-action";
+    leave.dataset.action = "leave-to-title";
+    leave.textContent = "Back to title";
+    leave.title = "Saves and takes your character out of the piazza";
+    leave.addEventListener("click", () => actions.onLeaveToTitle());
+    footer.append(edit, leave);
+    this.element.append(header, this.body, footer);
     // Taps inside the panel never reach the game view.
     this.element.addEventListener("pointerdown", (event) => event.stopPropagation());
     root.appendChild(this.element);

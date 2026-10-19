@@ -5,7 +5,7 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation, character creator (M0–M6)
+## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen (M0–M6, title screen milestone)
 
 What exists today is a deliberately plain, end-to-end slice that proves the
 architecture. It is **not** the game yet.
@@ -22,8 +22,12 @@ architecture. It is **not** the game yet.
 | Bench: sit / sketch / stand · Study desk: sit / study · Café counter: buy food · Fountain: wash up · Other player: greet | Multiplayer functional, tested |
 | Action progress, cancel, and explanations when refused | Multiplayer functional, tested |
 | Saved character profile (name, adult age category, appearance, position) in PostgreSQL | Persistence verified (tested on embedded PGlite and PostgreSQL 16) |
-| Temporary guest identity (one browser = one character; no sign-in) | Multiplayer functional, tested; temporary by design (D-017) |
-| Character creator with live 3D preview: presets, body, skin tone (continuous), face, hair (17 styles, all textures), facial hair, outfits, headwear, glasses; randomise, undo, compare, look codes | Locally functional, tested (desktop and phone emulation) |
+| Temporary guest identity (one browser = one guest profile with up to 3 characters; no sign-in) | Multiplayer functional, tested; temporary by design (D-017, D-031) |
+| Title screen: New life, Continue, Manage characters (play, edit look, delete), Settings, Credits; entering and leaving transitions; back to the title from the character panel | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16; desktop and phone emulation) |
+| New life in three steps (name and personality → look → review and confirm) | Multiplayer functional, tested |
+| Character creator with live 3D preview in six categories (Appearance, Face, Hair, Body, Clothing, Accessories): starting looks, continuous skin tone, 17 hair styles in every texture, face and body sliders, outfits, headwear, glasses; drag/touch to turn, wheel/pinch to zoom; randomise, reset, undo, compare, look codes | Locally functional, tested (desktop and phone emulation, portrait and landscape) |
+| Editing a look later (in the world or from the title screen) with a review step; never changes needs, money or skills | Multiplayer functional, persistence verified |
+| Device settings: graphics, camera speed, interface animation, controls reminder | Locally functional, tested |
 | Procedural anime-inspired characters (every option is real geometry), walk / sit / wave poses | Multiplayer functional, persistence verified; **Stage-1 procedural art, not final artist-made models** (D-027) |
 | Needs (hunger, energy, hygiene, social, fun), mood with reasons, five skills, personality traits | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16) |
 | Money: balance, server-validated purchases and allowances, transaction history, no debt | Multiplayer functional, persistence verified |
@@ -112,8 +116,24 @@ The client runs on port 5173 and the game server on port 2567.
 - **Stand up:** click/tap yourself while seated, or just walk away.
 - **Cancel:** the Cancel button on the action bar, or Escape.
 - **Camera:** drag to turn; mouse wheel or pinch to zoom.
-- **Change your look:** click/tap yourself (while standing) → **Edit appearance**.
-  Drag the preview to turn it; *Hold to compare* shows your saved look.
+- **Change your look:** click/tap yourself (while standing) → **Edit look**,
+  or **Edit look** in the character panel. Drag or swipe the preview to turn
+  it, scroll or pinch to zoom; *Hold for saved look* compares. **Review**
+  shows what will change; **Save look** saves it.
+- **Back to the title screen:** **Back to title** in the character panel
+  saves your character and takes it out of the piazza.
+
+### Title screen
+
+- **New life:** name and personality → look (live 3D creator) → review →
+  **Begin life in Padova**. Going back keeps your choices; nothing is saved
+  until that last button.
+- **Continue:** plays your most recently played character.
+- **Manage characters:** up to 3 lives per browser, each with its own needs,
+  money and skills. *Play*, *Edit look*, or *Delete* (type the name to
+  confirm; it can't be undone).
+- **Settings** (this device only): graphics (applies after a reload), camera
+  turning speed, interface animation, controls reminder.
 
 ### Character lab (developer page)
 

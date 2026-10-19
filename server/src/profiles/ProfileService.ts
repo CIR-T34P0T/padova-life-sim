@@ -5,12 +5,14 @@
 
 import {
   PROFILE_VERSION,
+  encodeLook,
   sanitizeAppearance,
   sanitizeStoredTraits,
   upgradeProfileData,
   type AgeCategory,
   type AppearanceConfig,
   type CharacterProfile,
+  type CharacterSummary,
   type NewCharacterInput,
   type TraitId,
 } from "@padova/shared";
@@ -19,8 +21,10 @@ import { log } from "../log.ts";
 import {
   createCharacterForAccount,
   createGuestWithCharacter,
+  deleteCharacter,
   findAccountIdByGuestToken,
-  loadCharacterByAccount,
+  listCharactersByAccount,
+  loadCharacterById,
   saveState,
   updateAppearance,
   type Owner,
@@ -36,10 +40,13 @@ export interface LoadedCharacter {
   /** True when the stored data is from a newer version: usable, but never overwritten here. */
   readOnly: boolean;
   notices: string[];
+  lastPlayedAt: Date | null;
 }
 
 export interface ProfileServiceOptions {
   guestCreationsPerIpPerHour: number;
+  /** Characters one profile may hold (PROFILE_CONFIG.maxCharactersPerAccount). */
+  maxCharactersPerAccount: number;
   now?: () => number;
 }
 
@@ -59,9 +66,27 @@ export class ProfileService {
     return findAccountIdByGuestToken(this.db, guestToken);
   }
 
-  async load(accountId: string): Promise<LoadedCharacter | null> {
-    const stored = await loadCharacterByAccount(this.db, accountId);
+  get maxCharactersPerAccount(): number {
+    return this.options.maxCharactersPerAccount;
+  }
+
+  /** The account's characters (upgraded and repaired), most recently played first. */
+  async list(accountId: string): Promise<LoadedCharacter[]> {
+    const stored = await listCharactersByAccount(this.db, accountId);
+    const loaded: LoadedCharacter[] = [];
+    for (const character of stored) loaded.push(await this.prepare(character));
+    return loaded;
+  }
+
+  /** One character, only if `owner.accountId` owns it. */
+  async load(owner: Owner): Promise<LoadedCharacter | null> {
+    const stored = await loadCharacterById(this.db, owner);
     return stored ? this.prepare(stored) : null;
+  }
+
+  /** Permanently deletes one of the account's characters. False if it isn't theirs. */
+  delete(owner: Owner): Promise<boolean> {
+    return deleteCharacter(this.db, owner);
   }
 
   /** Simple sliding-window limit on new guest accounts per IP. */
@@ -81,17 +106,18 @@ export class ProfileService {
   /**
    * Creates a character. With `accountId` null, a new guest account is created
    * too and its token returned (shown to the client once). Returns
-   * "already_has_character" if the account already has one.
+   * "too_many_characters" if the account already holds the maximum.
    */
   async create(
     input: NewCharacterInput,
     accountId: string | null,
     spawn: SavedState,
     seed: LifeSeed,
-  ): Promise<{ accountId: string; guestToken: string | null; loaded: LoadedCharacter } | "already_has_character"> {
+  ): Promise<{ accountId: string; guestToken: string | null; loaded: LoadedCharacter } | "too_many_characters"> {
     if (accountId) {
-      const stored = await createCharacterForAccount(this.db, accountId, input, PROFILE_VERSION, spawn, seed);
-      if (!stored) return "already_has_character";
+      const stored = await createCharacterForAccount(this.db, accountId, input, PROFILE_VERSION, spawn, seed, this.options.maxCharactersPerAccount);
+      if (stored === "too_many_characters") return stored;
+      if (stored === "no_account") throw new Error(`account ${accountId} no longer exists`);
       return { accountId, guestToken: null, loaded: await this.prepare(stored) };
     }
     const created = await createGuestWithCharacter(this.db, input, PROFILE_VERSION, spawn, seed);
@@ -132,6 +158,7 @@ export class ProfileService {
         state: stored.state,
         readOnly: true,
         notices,
+        lastPlayedAt: stored.lastPlayedAt,
       };
     }
 
@@ -143,11 +170,25 @@ export class ProfileService {
       const saved = await updateAppearance(this.db, owner, repaired.appearance, PROFILE_VERSION);
       if (saved) {
         log.info("profiles", `character ${stored.characterId} upgraded/repaired (fields: ${repaired.replaced.join(", ") || "none"})`);
-        return { owner, profile: toProfile(saved, repaired.appearance, PROFILE_VERSION, traits), state: stored.state, readOnly: false, notices };
+        return { owner, profile: toProfile(saved, repaired.appearance, PROFILE_VERSION, traits), state: stored.state, readOnly: false, notices, lastPlayedAt: stored.lastPlayedAt };
       }
     }
-    return { owner, profile: toProfile(stored, repaired.appearance, PROFILE_VERSION, traits), state: stored.state, readOnly: false, notices };
+    return { owner, profile: toProfile(stored, repaired.appearance, PROFILE_VERSION, traits), state: stored.state, readOnly: false, notices, lastPlayedAt: stored.lastPlayedAt };
   }
+}
+
+/** What the title screen shows for one character (sent only to its owner). */
+export function toSummary(loaded: LoadedCharacter): CharacterSummary {
+  return {
+    characterId: loaded.profile.characterId,
+    displayName: loaded.profile.displayName,
+    look: encodeLook(loaded.profile.appearance),
+    traits: loaded.profile.traits,
+    createdAt: loaded.profile.createdAt,
+    lastPlayedAt: loaded.lastPlayedAt ? loaded.lastPlayedAt.toISOString() : null,
+    readOnly: loaded.readOnly,
+    notices: loaded.notices,
+  };
 }
 
 const SECTION_NAMES: Record<string, string> = { body: "body", skin: "skin", face: "face", hair: "hair", outfit: "outfit" };

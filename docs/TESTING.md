@@ -5,7 +5,7 @@
 | Command | Scope | Needs |
 | --- | --- | --- |
 | `npm run typecheck` | All packages, strict TypeScript | — |
-| `npm test` | `shared/test` unit tests + `server/test` integration tests | — (starts its own servers on ports 2611–2626, each with an in-memory PGlite database) |
+| `npm test` | `shared/test` unit tests + `server/test` integration tests | — (starts its own servers on ports 2611–2629, each with an in-memory PGlite database) |
 | `TEST_DATABASE_URL=… npm test` | The same, plus every database test repeated on a real PostgreSQL server | A PostgreSQL user allowed to create databases; each test creates and drops a throwaway database |
 | `npm run check` | Both of the above | — |
 | `npm run test:e2e` | Playwright, real server + real client + several browsers | A Chromium (`npx playwright install chromium`, or `CHROMIUM_PATH`). The test server uses an in-memory database (never `.data/`) and a raised guest-creation limit |
@@ -133,7 +133,13 @@ migrates idempotently; rollback and re-apply; guest + character created
 atomically and only the token hash stored; account found only with the exact
 token; appearance and position saved and loaded, **with the M4 columns
 holding the closest old look**; reads/writes refused for a non-owning
-account; one character per account; age-category and version constraints
+account; **several characters per account up to the limit, also when two
+are created at the same time (exactly one of the racing pair fits)**; the
+list comes back most recently played first and never includes another
+account's characters; **deleting a character removes its rows in every
+per-character table, only for its owner, and keeps the account, token and
+other characters**; rolling back migration 0004 works with one character
+per account and fails without changing anything with two; age-category and version constraints
 enforced by the database itself; the appearance document must be a JSON
 object under 4 KB; **rolling back migration 0003 leaves a version-2
 character with the closest old look, and migrating again loads it**; a
@@ -141,15 +147,19 @@ failed creation rolls back completely; configuration chooses the backend and
 resolves folders correctly.
 
 **Profiles through the real room (`server/test/profiles.test.ts`)** — real
-WebSocket clients: a first visit is anonymous and stores nothing; creating a
-character issues a guest token once and others see the appearance; invalid
-characters refused and the visitor stays anonymous; no second character; the
-same character and saved position come back on a later visit; unknown or
+WebSocket clients: a first visit is anonymous (an empty title screen) and
+stores nothing; creating a character issues a guest token once and others
+see the appearance; invalid characters refused and the visitor stays
+anonymous; no creating or entering another character while in the world
+(`in_world`); a later visit shows the character on the title screen (look,
+last played, no life data) without placing it in the world, and entering
+brings back the same character at its saved position; unknown or
 malformed tokens refused (4401); appearance changes saved, replicated (the
 decoded `look` equals the saved config) and kept; invalid appearance refused
 naming the field (`skin.tone`, `body.height`, `v`); one player can never change another's profile
-(forged ids in the payload are ignored); the newest session wins and the older
-one is saved and closed (4100); a network drop keeps the character; a seated
+(forged ids in the payload are ignored); the newest session **in the world**
+wins and the older one is saved and closed (4100), while a second window
+that only opens the title screen disconnects nobody; a network drop keeps the character; a seated
 character is saved where it would stand up; retired appearance options are
 repaired on load (only the broken fields fall back, one readable notice) and
 saved; **an M5 character (version 2, flat columns, no document) is upgraded
@@ -158,6 +168,51 @@ a newer-version profile loads read-only and is
 never overwritten; guest creations are limited per IP; autosave writes online
 players' positions; **leaving and immediately rejoining loads the position the
 old session was still saving** (regression test with deliberately slowed saves).
+
+**Creator categories and title screen requests (6 tests,
+`shared/test/categories.test.ts`):** every appearance field belongs to
+exactly one of the six creator categories; randomising one category never
+touches another (12 seeds each, always valid); resetting one category
+restores only it; the review summary describes every preset in plain words
+and says when hair is covered; character ids must be UUIDs; deleting needs a
+typed name, compared without case or extra spaces.
+
+**Title screen and several lives through the real room (10 tests,
+`server/test/lobby.test.ts`):** create lives from the title screen up to
+three (same guest token), the fourth refused, any of them can be entered and
+others see the right name and look; each life keeps its own needs and money;
+back to the title and in again at the same spot, and the character still
+moves; pressing Continue twice enters once (`busy`/`in_world`); a network
+drop at the title screen keeps the session; **changing the look from the
+title screen and in the world leaves needs, wallet, ledger, skills, traits
+and position untouched** (database rows compared); deleting only from the
+title screen, with the name typed, never while the character is played in
+another window, removing its rows; another profile can't see, play, change
+or delete a character (`character_not_found`); malformed title-screen
+requests refused; a window entering the world takes over from a window
+playing another life of the same profile (4100).
+
+**End to end, title screen (`e2e/title-flow.spec.ts`)** — the title menu
+(five items, Continue disabled without a life, the not-affiliated notice);
+Settings stored in the browser and applied (reduced motion, camera speed,
+hidden controls reminder, graphics "Performance" taking effect after a
+reload); Credits; New life: a name is required, at most two traits, going
+back from the look keeps name and look, the review lists name, traits and
+one line per category, "Change" jumps back to that category, Begin enters
+the world with the chosen look and traits. Returning players: Continue
+names the last played character with a portrait; a second life from the
+character list; most recently played first; editing from the title screen
+with Cancel asking before discarding (nothing saved), then saving through
+the review ("Changes to save: Hair."); deleting with the typed name; another
+player sees the saved look. In the world: Cancel changes nothing; Save
+changes the look but not money, ledger, skills or traits (needs within
+normal drift); **a simulated network drop reconnects into the same
+character with the same look**; a reload returns through Continue. Phone
+(390×844 touch, then 844×390): every menu item, category tab and footer
+button on screen, menu items at least 44 px tall, preview above the
+categories, **one-finger drag turns and a two-finger pinch zooms the
+preview**, creating and editing work by tapping, and the creator sits side
+by side in landscape.
 
 **End to end, character creator (`e2e/creator.spec.ts`, M6)** — in the real
 creator with its live WebGL preview: **every hair style, every top and every
@@ -182,11 +237,14 @@ build, body and face slider extreme, and walk/seated/greeting poses, with
 triangle counts and build times. Used for the visual checks in the results log.
 
 **End to end, persistence (`e2e/persistence.spec.ts`)** — create a character
-with chosen options, walk, reload: no create form, same name, look, position
-and guest token; edit appearance via clicking yourself, another player sees the
-change, still there after a reload; a second tab takes the character over and
-the first tab shows "Playing in another window", with only one copy in the
-world; an unrecognised saved token is discarded and the create form explains why.
+with chosen options, walk, reload: the title screen offers "Continue as
+Giulia", and Continue brings back the same name, look, position and guest
+token; edit the look via clicking yourself (review lists "Hair, Clothing"),
+another player sees the change, still there after a reload; a second tab
+only showing the title screen disconnects nobody, Continue there takes the
+character over and the first tab shows "Playing in another window", with
+only one copy in the world; an unrecognised saved token is discarded and
+the title screen explains why.
 
 **End to end, life simulation (`e2e/life.spec.ts`, M5)** — desktop, with the
 game's real durations: create a character with a trait; click yourself →
@@ -225,6 +283,11 @@ removes the player for the others. Screenshots are saved to `test-results/`.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-19 (M6b, title screen) | typecheck + build | Pass | shared, server, client; production build 925 KB of JavaScript (259 KB gzipped) plus 81 KB of WOFF2 fonts |
+| 2026-10-19 (M6b) | unit + integration | 198/198 pass (final) | With `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: 222/223 on the last full run; the one failure was test timing (a title-screen test read the shared state before the patch removing the player arrived; the test now waits for it), then `lobby.test.ts` 10/10 twice on both backends. An earlier full run had a similar timing failure in "pressing Continue twice enters once" (fixed the same way). Includes migration 0004 up, refused rollback with two characters, rollback with one, and up again, on PGlite and PostgreSQL |
+| 2026-10-19 (M6b) | e2e | 18/18 pass (final, by file) | Three full runs on the in-memory database: 13/18, 15/18, then 17/18. Run 1: two test mistakes (a review line is "Rounded afro", not "Afro"; a layout check measured during the screen's slide-in) and two- to four-browser tests over their time limits. Run 2: three multi-browser tests just over 150 s, so those now allow 300 s and the four-browser test 900 s; starting-look portraits are now drawn as they scroll into view instead of all 17 at once. Run 3: only the desktop life test failed, because the café counter landed a few pixels under the character panel's edge depending on where the walk ended; the test now stops closer to the counter in two steps and waits for the camera to settle: 3/3 re-runs pass. Title-screen spec re-run 4/4 after the last CSS change. Title-screen and persistence specs also on PostgreSQL 16.15 (`E2E_DATABASE_URL`): 8/8; rows checked with SQL (migration 0004 applied, `characters_by_account` index in place of the one-per-account index, every character with its appearance, needs, wallet and position rows, no ledger rows left by deleted characters) |
+| 2026-10-19 (M6b) | manual visual check (Claude, screenshots) | Pass | Every screen at 1366×800, 390×844 touch and 844×390 touch: title (first visit and returning), name and personality, creator (each category), review, welcome transition, world, character panel, character list, edit look and its review, delete confirmation, Settings, Credits. Not yet checked by the product owner, on Windows or on a real phone |
+| 2026-10-19 (M6b) | problems found while testing | Fixed | (1) Phone: six category tabs truncated their names; now two rows of three. (2) Title: stars behind the logo and menu hurt legibility (now faded there), keyboard focus jumped when the menu re-rendered, and the footer notice was hard to read. (3) Animated stars cost about 1.9 CPU cores with software rendering (measured), so the sky is now still; the loading bar no longer repaints the sky. (4) The review turntable is capped at 30 fps. (5) Phone landscape: the "SIM" badge touched the logo |
 | 2026-10-19 (M6) | typecheck + build | Pass | shared, server, client; production build with the game and the character lab as two entries (880 KB, 245 KB gzipped) |
 | 2026-10-19 (M6) | unit + integration | 179/179 pass | `npm run check` (shared 94 incl. 25 new appearance tests; server 85 incl. new upgrade, migration-rollback and boundary tests). Database tests with `TEST_DATABASE_URL` on a throwaway PostgreSQL 16: 48/48 (both backends, incl. migration 0003 up, down with the closest old look, and up again) |
 | 2026-10-19 (M6) | e2e | 14/14 pass (after fixes) | Full suite on the in-memory database: 13/14 on the first full run; the appearance-edit test then hit the 60 s default timeout (two software-rendered browsers plus the creator) and got 150 s like the other multi-browser tests; re-run 4/4. Persistence spec also on PostgreSQL 16 (`E2E_DATABASE_URL`): 4/4, rows checked with SQL (profile version 3, `config` v1, M4 columns holding the closest old look) |
@@ -256,7 +319,11 @@ Bugs (behaviour that is wrong or unreliable):
   container the walking-skeleton and desktop-interactions tests needed just
   over 60 s and timed out, at the M4 commit too (checked), so the cause is
   machine speed (three software-rendered WebGL pages), not M5. Those tests now
-  allow 150 s.
+  allow 150 s. Since the title screen milestone every browser joins through
+  the title screen first, and the two- and three-browser tests needed just
+  over 150 s on this machine: they now allow 300 s (the four-browser diverse
+  characters test 900 s). On a normal PC with a graphics card they take a
+  fraction of that.
 
 Untested or limited (behaviour that is unverified, or limited by design for now):
 
@@ -293,15 +360,16 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   - Guest identity only (D-017): no sign-in, recovery or cross-device play;
     clearing site data loses the character; a script injected into the page
     could read the token from `localStorage`. Needs HTTPS/WSS in production.
-  - No account or character deletion workflow yet, and no cleanup of
-    abandoned guest accounts.
+  - Characters can be deleted (since M6b); deleting a whole guest account,
+    and cleanup of abandoned guest accounts, don't exist yet.
   - Guest-creation limit and session registry are in memory, per server process.
   - Activity, seats and pending actions are not saved; after a reload the
     character stands at the spot it would stand up to.
-  - One character per account (D-020); name and age can't be changed after creation.
+  - Up to three characters per guest profile (D-031); name and age can't be
+    changed after creation.
   - Not tested: a real phone, Windows, Firefox, Safari; profile room tests run
-    on PGlite only (the database layer and the persistence browser tests were
-    also run on real PostgreSQL).
+    on PGlite only (the database layer and the persistence and title-screen
+    browser tests were also run on real PostgreSQL).
 - **M3 interaction limitations:**
   - One action at a time; a new request replaces the current one (D-011). No multi-action queue.
   - Poses are simple procedural limb rotations (since M6): walk, sit, study,
@@ -332,10 +400,34 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   message in the creator has no automated test; opening the creator takes
   several seconds in software-rendered test browsers (shader compilation),
   not measured on real devices.
+- **M6b title screen limitations:**
+  - Sessions at the title screen still receive the shared room state (other
+    players' positions) and count toward the room's player limit; the client
+    builds no avatars for them until it enters. Interest management later.
+  - Entering the world takes about 4 s on this machine with software
+    rendering (0.9 s server, 2.4 s first world frame, 1.25 s welcome
+    screen); not measured on a real GPU. Shaders are not precompiled yet.
+  - The fallback that draws a default body part when a part can't be built,
+    the portrait fallback without WebGL and the creator's no-WebGL message
+    have no automated test.
+  - Device settings and saved looks live in one browser only. The Graphics
+    setting applies after a reload.
+  - The review turntable renders continuously (capped at 30 fps) while the
+    review step is open; menus are otherwise still (the star sky is not
+    animated: it cost 1.9 cores in software rendering, see results log).
+  - Two windows of the same profile at the title screen can show slightly
+    stale lists (e.g. after a deletion in the other window); every action is
+    checked by the server, which refreshes the list on a stale request.
+  - A rare race: if one window deletes a character at the exact moment
+    another window of the same profile enters the world with it, the second
+    window can play a character whose saves then fail (logged). Both checks
+    run before the delete, so this needs two windows acting within
+    milliseconds.
 - `npm audit` reports 9 low/moderate advisories, all inside `@colyseus/auth`
   (pulled in by the SDK, unused by this project). The suggested `--force` fix
   would downgrade Colyseus to 0.15, so it was not applied. Recheck on Colyseus updates.
-- Client bundle is 769 KB (208 KB gzipped), mostly Three.js; code splitting is a later optimisation.
+- Client bundle is about 930 KB (259 KB gzipped), mostly Three.js, plus about
+  80 KB of fonts loaded once; code splitting is a later optimisation.
 
 ## Notes for running tests in Claude's cloud workspace
 
@@ -345,6 +437,9 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 - Use absolute paths (`/home/claude/padova-life-sim`): `~` in the shell resolves
   to `/root`, not the project's parent folder.
 - The Colyseus startup banner appears in test output; it is cosmetic.
+- Don't edit files under `client/` or `shared/` while the browser tests run:
+  the test client is Vite's dev server, which reloads the page on a change and
+  makes the running test fail (seen once during the title screen milestone).
 
 ## Manual test checklist (real devices)
 
@@ -362,12 +457,14 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
    the phone shows `<name> says "Ciao!"` and the computer player shows a bubble.
 10. Turn the phone sideways: the sheet docks to the right and the joystick stays usable.
 11. **Saved characters:** on first visit, create a character and pick a look.
-    Walk somewhere, then reload the page: no create form, same look, same spot.
-12. Tap yourself (standing) → **Edit appearance**, change the hair colour, save.
-    The other device sees the change; reload and it is still there.
+    Walk somewhere, then reload the page: the title screen says *Continue as
+    <name>*; Continue brings back the same look at the same spot.
+12. Tap yourself (standing) → **Edit look**, change the hair colour, Review,
+    Save look. The other device sees the change; reload and it is still there.
 13. Stop the server (Ctrl+C), start it again, reload: the character is still there.
-14. Open the game in a second tab of the same browser: the character moves to
-    the new tab and the first tab says "Playing in another window".
+14. Open the game in a second tab of the same browser and press Continue: the
+    character moves to the new tab and the first tab says "Playing in another
+    window".
 15. **Life simulation (M5):** create a new character and pick a personality
     trait. Tap/click yourself → **Character**: the panel shows mood, needs,
     skills and €115.00 (€100 start + today's €15). On a phone it is a bottom
@@ -379,14 +476,37 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     fun dip a little.
 18. Reload the page (and, once, restart the server): money, purchases, skills
     and needs are as you left them.
-19. **Characters (M6):** in a private window, the character creator opens with
-    a 3D preview. Drag the preview to turn it; try Body / Upper / Face. Pick a
+19. **Characters (M6):** in a private window, New life → name → the character
+    creator opens with a 3D preview. Drag the preview to turn it; try Body / Upper / Face. Pick a
     few presets, then change the skin-tone slider end to end, the hair style
     (every style must look different), a face shape and an outfit. Undo and
     Redo work; *Hold to compare* shows the starting look.
-20. Choose **Headscarf** under Outfit → Headwear, then change the hair style:
+20. Choose **Headscarf** under Accessories → Headwear, then change the hair style:
     the hair stays covered and the creator says "Covered by the headscarf".
 21. Create the character, walk, sit on a bench and greet someone: the new
     character walks, sits and waves. The other device sees exactly the same
     look; reload and it is still the same. On the phone the preview is on top
     and the controls scroll below.
+22. **Title screen:** the title shows New life, Continue, Manage characters,
+    Settings and Credits over the starry sky and porticoes; Continue names
+    your last character with its portrait. Keyboard: Tab / Enter work and
+    Escape goes back on every screen.
+23. In New life, try **Next** without a name (an error asks for one), pick
+    two traits (a third is disabled), go to the look, then **Back** and
+    **Next** again: name, traits and look are kept. On **Review**, press
+    *Change* on Hair: it opens the Hair category. **Begin life in Padova**:
+    a "Welcome to Padova" screen, then the piazza.
+24. Character panel → **Back to title** → **Manage characters**: create a
+    second life, then edit the first one's look and press **Cancel**: you
+    are asked before changes are thrown away, and the look is unchanged.
+    Edit again, Review lists the changes, **Save look**.
+25. **Delete** the second life: the button stays disabled until its name is
+    typed. Afterwards one life is left.
+26. **Settings:** choose Reduced animation (menus stop moving, the review
+    turntable stops), Fast camera speed (dragging turns further), hide the
+    controls reminder (gone in the piazza); Graphics: Performance, then
+    Reload now: shadows are gone.
+27. **Phone, portrait and landscape:** every title screen fits without
+    sideways scrolling; in the creator all six categories are visible, one
+    finger turns the character and two fingers zoom; Review and Begin are
+    reachable without hunting; turning the phone keeps everything usable.

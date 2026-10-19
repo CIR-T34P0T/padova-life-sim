@@ -40,8 +40,11 @@ Client → server (intents only):
 | `stop` | none | Stops walking and interrupts the current action (does not stand up). |
 | `interact` | `{ targetKind: "object" \| "player", targetId, action, itemId?, requestId? }` | Validates and runs the interaction lifecycle (see ARCHITECTURE "Interactions"). `itemId` (`[a-z0-9-]{1,32}`) names the café item for `buy`; the price always comes from the server's menu. `requestId` (`[A-Za-z0-9_-]{8,64}`) makes a purchase idempotent: the same id never charges or serves twice (a repeat is refused with `duplicate_request`); the server makes one if absent. Any other field (e.g. a price) is ignored. Malformed → `rejected`; refused → `action` with status `rejected`. Counts toward the 20/s intent limit. |
 | `cancelAction` | none | Cancels the current action, if any. |
-| `createCharacter` | `{ displayName, ageCategory, appearance, traits? }` | Only for a session without a character. Validated (`parseNewCharacter`); player characters must be `adult`; `traits` = up to two distinct known trait ids. Unknown fields (e.g. a chosen id or owner) are ignored. Creates a guest account too if the session has none. Answers `identity` (new accounts) and `profile`, or `profileError`. |
-| `updateAppearance` | `{ appearance }` | Only for your own character (from the session, never the payload). `appearance` is a complete appearance config (version 1): every option a catalogue id, every slider a number 0–1, or the request is refused naming the field (`hair.style`, `skin.tone`…). Saved, then replicated as the new `look`. Counts toward the intent rate limit. |
+| `createCharacter` | `{ displayName, ageCategory, appearance, traits? }` | Only at the title screen (not while in the world: `in_world`). Validated (`parseNewCharacter`); player characters must be `adult`; `traits` = up to two distinct known trait ids. Unknown fields (e.g. a chosen id or owner) are ignored. Creates a guest account too if the session has none; otherwise adds a character to the session's account, up to `maxCharactersPerAccount` (`too_many_characters`). Enters the world with it. Answers `identity` (new accounts) and `profile` (`ready`), or `profileError`. |
+| `enterWorld` | `{ characterId }` | Title screen only. `characterId` must be a UUID **of the session's own account** (checked in the database query; anything else is `character_not_found`). Claims the account (another window playing it is saved and closed with 4100), loads the character and places it in the world. Answers `profile` (`ready`). |
+| `leaveWorld` | none | Saves the character, removes it from the world for everyone and answers a fresh `profile` (`lobby`). At the title screen it just answers the lobby again. |
+| `deleteCharacter` | `{ characterId, confirmName }` | Title screen only. Permanently deletes one of the session's own characters and everything that belongs to it, if `confirmName` matches its name (ignoring case and extra spaces: `confirm_name_mismatch`) and nobody is playing it in any window (`character_in_use`). Answers the updated lobby. |
+| `updateAppearance` | `{ appearance, characterId? }` | In the world: always the character being played (from the session; any id in the payload is ignored). At the title screen: `characterId` names one of the session's own characters that isn't being played (`character_in_use`). `appearance` is a complete appearance config (version 1): every option a catalogue id, every slider a number 0–1, or the request is refused naming the field (`hair.style`, `skin.tone`…). Changes the look only, never needs, money, skills or traits. Saved, then replicated as the new `look` (in the world) or answered with the updated lobby (title screen). In the world it counts toward the intent rate limit. |
 | anything else | — | Ignored and logged at warn level. |
 
 Server → client:
@@ -52,23 +55,30 @@ Server → client:
 | `action` | `{ actionId, status, action, targetKind, targetId, reason?, durationMs?, itemId? }` | Sent only to the actor. Status flow: `queued` → `started` → `completed`, or `rejected` (never started, `actionId` 0), `failed`, `cancelled`. Refusal reasons: `unknown_target`, `target_is_self`, `target_offline`, `action_not_available`, `no_free_seat`, `busy` (standing spot taken), `too_far`, `unreachable`, `blocked`, `target_left`, `target_moved`, `too_soon`, `rate_limited`, and since M5 `too_tired`, `unknown_item`, `insufficient_funds` (checked on request and again when paying). Failures while paying at the counter (status `failed`): `insufficient_funds`, `duplicate_request` (this request id was already charged; nothing is charged or served again), `purchase_failed` (the payment could not be stored; nothing charged). Cancel reasons: `cancelled`, `interrupted`, `replaced`, `disconnected`. |
 | `greeted` | `{ fromId, fromName }` | Sent to the player being greeted. |
 | `life` | `LifePayload`: `{ gameMinute, needs, mood: { score, level, reasons, events }, skills: { xp, level, progress } per skill, traits, money: { balanceCents, recent } }` | Sent to the owner only (D-024): on entering the world, at most every 500 ms while a visible value changed, and at once after a money change, a refusal that affects mood, or a completed action. Other players never receive it. |
-| `profile` | `{ status: "needs_character" \| "ready", profile?, readOnly?, notices? }` | Sent to the owner only: after joining, after creating, after an appearance change. `readOnly` = stored by a newer version, not editable here. `notices` = e.g. a retired option was replaced. |
+| `profile` | `{ status: "lobby" \| "ready", characters?, maxCharacters?, profile?, readOnly?, notices? }` | Sent to the owner only. `lobby` (after joining, leaving the world, deleting, or a title-screen look change): `characters` = this account's characters, most recently played first, each `{ characterId, displayName, look, traits, createdAt, lastPlayedAt, readOnly, notices }` (no life data); empty for a new visitor. `ready` (after entering, creating, or an in-world look change): `profile` = the character in the world. `readOnly` = stored by a newer version, not editable here. `notices` = e.g. a retired option was replaced. |
 | `identity` | `{ guestToken }` | Sent once, when a new guest account is created. The client stores it. |
-| `profileError` | `{ action, reason, field? }` | Reasons: `invalid_payload`, `invalid_name`, `age_category_not_allowed`, `invalid_appearance`, `invalid_traits`, `already_has_character`, `no_character`, `profile_newer_version`, `rate_limited`, `storage_error`. |
+| `profileError` | `{ action, reason, field? }` | `action`: `createCharacter`, `updateAppearance`, `enterWorld`, `deleteCharacter`, `listCharacters`. Reasons: `invalid_payload`, `invalid_name`, `age_category_not_allowed`, `invalid_appearance`, `invalid_traits`, `too_many_characters`, `character_not_found`, `character_in_use`, `confirm_name_mismatch`, `in_world`, `busy` (another profile request from this window is still running), `profile_newer_version`, `rate_limited`, `storage_error`. |
 
 ### Joining and identity
 
 `joinOrCreate("plaza", { guestToken? })`. The token travels in the matchmaking
 HTTP request body, never in a URL, and is checked in `onAuth` before the
 player joins:
-- No token → anonymous visitor: receives `profile {status: "needs_character"}`,
+- No token → anonymous visitor: receives `profile {status: "lobby", characters: []}`,
   is not placed in the world, may send `createCharacter`.
-- Valid token → the saved character is loaded and placed in the world.
+- Valid token → the title screen (lobby): `profile {status: "lobby"}` lists the
+  account's characters; nothing enters the world until `enterWorld` or
+  `createCharacter` (D-031).
 - Unknown or malformed token → join refused with error code **4401**
   (`ERROR_INVALID_GUEST_TOKEN`); the client discards it and offers a new character.
 
-Close code **4100** (`CLOSE_SIGNED_IN_ELSEWHERE`): this account started a newer
-session elsewhere; the older connection is closed after saving (D-018).
+Close code **4100** (`CLOSE_SIGNED_IN_ELSEWHERE`): this account entered the
+world from a newer session elsewhere; the older connection is closed after
+saving (D-018). Opening the title screen in another window does not do this.
+
+Sessions at the title screen still receive the shared room state (the other
+players in the piazza); the client keeps it but builds no avatars until it
+enters the world. Interest management will cut this traffic later.
 
 In production the server must be behind HTTPS/WSS, or the token can be read
 on the network.

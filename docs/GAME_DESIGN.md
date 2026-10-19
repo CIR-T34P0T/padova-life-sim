@@ -66,6 +66,45 @@ light shadows, simple shapes, original designs. Characters are built from
 code for now ("Stage-1 procedural art", D-027); authored models can replace
 them later without changing saved characters.
 
+## Title screen and character creation
+
+The game opens on a title screen (an original key visual: a starry blue
+fresco-like sky over lit porticoes, D-032) with **New life**, **Continue**,
+**Manage characters**, **Settings** and **Credits**.
+
+- **Lives.** One guest profile (this browser) holds up to three characters,
+  each with its own look, personality, needs, skills and money (D-031).
+  Continue enters the most recently played one. Manage characters lists
+  them with Play, Edit look and Delete (the name must be typed; deleting
+  can't be undone) and offers New life while there is room.
+- **New life** has three steps: (1) name and up to two personality traits
+  (optional; personality affects needs and skills, appearance never does;
+  every player character is an adult); (2) the look, in the live 3D
+  creator; (3) review: the character turning slowly, name, traits and one
+  plain line per category with a "Change" link, then **Begin life in
+  Padova**. Going back a step keeps every choice. Nothing is saved until
+  that last button.
+- **The creator** groups the options as players think of them:
+  *Appearance* (starting looks and skin), *Face*, *Hair*, *Body*,
+  *Clothing* and *Accessories* (headwear and glasses). Drag or swipe to
+  turn the character, scroll or pinch to zoom (or the Body / Upper / Face
+  and +/− buttons); randomise everything or one category, reset a category,
+  undo / redo, hold to compare with the starting (or saved) look. Starting
+  looks are optional conveniences named by their look; every feature can be
+  changed independently afterwards.
+- **Entering the world** shows a short "Welcome to Padova" transition with
+  the time of day while the piazza draws, then uncovers it.
+- **Editing later**, in the world (click yourself or the character panel →
+  Edit look) or from Manage characters: the same creator with a review step
+  that lists what will change; Save look changes the appearance only, never
+  needs, money, skills or relationships. Cancelling with unsaved changes
+  asks before discarding them.
+- **Back to title** (character panel) saves and takes the character out of
+  the piazza.
+- **Settings** (this device): graphics, camera turning speed, interface
+  animation (follows the device's reduced-motion setting by default),
+  controls reminder.
+
 ## World
 
 Start with one compact, dense district and expand by connected districts.

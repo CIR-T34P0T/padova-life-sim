@@ -152,8 +152,32 @@ export class GameConnection {
     this.room?.send(ClientMessage.CreateCharacter, input);
   }
 
-  updateAppearance(appearance: AppearanceConfig): void {
-    this.room?.send(ClientMessage.UpdateAppearance, { appearance });
+  /** In the world: the character being played. At the title screen: `characterId`. */
+  updateAppearance(appearance: AppearanceConfig, characterId?: string): void {
+    this.room?.send(ClientMessage.UpdateAppearance, characterId ? { appearance, characterId } : { appearance });
+  }
+
+  enterWorld(characterId: string): void {
+    this.room?.send(ClientMessage.EnterWorld, { characterId });
+  }
+
+  leaveWorld(): void {
+    this.room?.send(ClientMessage.LeaveWorld);
+  }
+
+  deleteCharacter(characterId: string, confirmName: string): void {
+    this.room?.send(ClientMessage.DeleteCharacter, { characterId, confirmName });
+  }
+
+  get joined(): boolean {
+    return this.room !== null;
+  }
+
+  /** Test hook only (debug builds / ?e2e): closes the socket as a network drop would. */
+  simulateDrop(): void {
+    if (!this.room) return;
+    this.room.reconnection.minUptime = 0;
+    this.room.connection.close(4010, "simulated drop");
   }
 
   /** Consented leave: removes the character for everyone immediately. */

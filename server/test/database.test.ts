@@ -10,8 +10,9 @@ import { hashGuestToken, isWellFormedGuestToken } from "../src/identity/guestIde
 import {
   createCharacterForAccount,
   createGuestWithCharacter,
+  deleteCharacter,
   findAccountIdByGuestToken,
-  loadCharacterByAccount,
+  listCharactersByAccount,
   loadCharacterById,
   saveState,
   updateAppearance,
@@ -21,6 +22,8 @@ import { testBackends } from "./helpers/testDatabase.ts";
 const input: NewCharacterInput = { displayName: "Giulia", ageCategory: "adult", appearance: cloneAppearance(DEFAULT_APPEARANCE), traits: [] };
 const spawn = { area: "plaza", x: 0, z: 13, rotation: Math.PI };
 const seed = { startingBalanceCents: 10_000, gameMinute: 480 };
+
+const firstCharacter = async (db: Database, accountId: string) => (await listCharactersByAccount(db, accountId))[0] ?? null;
 
 const tableNames = async (db: Database) =>
   (await db.query<{ table_name: string }>(
@@ -110,7 +113,7 @@ for (const backend of testBackends) {
         expect(updated?.appearance).toEqual(changed);
         expect(updated!.updatedAt.getTime()).toBeGreaterThanOrEqual(character.updatedAt.getTime());
         expect(await saveState(db, owner, { area: "plaza", x: -4.5, z: 2.25, rotation: 1 })).toBe(true);
-        const loaded = await loadCharacterByAccount(db, accountId);
+        const loaded = await firstCharacter(db, accountId);
         expect(loaded?.appearance).toEqual(changed);
         // The M4 columns hold the closest old look, for rollback (migration 0003).
         const legacy = await db.query("SELECT preset, skin_tone, hair_style, hair_colour, eye_colour, outfit FROM character_appearance WHERE character_id = $1", [character.characterId]);
@@ -131,14 +134,72 @@ for (const backend of testBackends) {
         expect(await updateAppearance(db, brunoAttack, APPEARANCE_PRESETS[3]!.appearance, PROFILE_VERSION)).toBeNull();
         expect(await saveState(db, brunoAttack, { area: "plaza", x: 20, z: 20, rotation: 0 })).toBe(false);
         expect(await loadCharacterById(db, brunoAttack)).toBeNull();
-        const aliceNow = await loadCharacterByAccount(db, alice.accountId);
+        const aliceNow = await firstCharacter(db, alice.accountId);
         expect(aliceNow?.appearance).toEqual(DEFAULT_APPEARANCE);
         expect(aliceNow?.state).toMatchObject({ x: 0, z: 13 });
       });
 
-      it("allows one character per account", async () => {
+      it("allows several characters per account up to the limit, also when created at the same time", async () => {
         const { accountId } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
-        expect(await createCharacterForAccount(db, accountId, { ...input, displayName: "Second" }, PROFILE_VERSION, spawn, seed)).toBeNull();
+        const second = await createCharacterForAccount(db, accountId, { ...input, displayName: "Second" }, PROFILE_VERSION, spawn, seed, 3);
+        expect(second).toMatchObject({ displayName: "Second", accountId });
+        // Two windows creating the third and fourth at once: exactly one fits.
+        const racing = await Promise.all([
+          createCharacterForAccount(db, accountId, { ...input, displayName: "Third" }, PROFILE_VERSION, spawn, seed, 3),
+          createCharacterForAccount(db, accountId, { ...input, displayName: "Fourth" }, PROFILE_VERSION, spawn, seed, 3),
+        ]);
+        expect(racing.filter((r) => r === "too_many_characters")).toHaveLength(1);
+        const names = (await listCharactersByAccount(db, accountId)).map((c) => c.displayName);
+        expect(names).toHaveLength(3);
+        expect(names).toContain("Giulia");
+        expect(await createCharacterForAccount(db, crypto.randomUUID(), input, PROFILE_VERSION, spawn, seed, 3)).toBe("no_account");
+      });
+
+      it("lists an account's characters most recently played first, and only its own", async () => {
+        const { accountId, character } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
+        const other = await createGuestWithCharacter(db, { ...input, displayName: "Other" }, PROFILE_VERSION, spawn, seed);
+        const second = await createCharacterForAccount(db, accountId, { ...input, displayName: "Second" }, PROFILE_VERSION, spawn, seed, 3);
+        if (typeof second === "string") throw new Error(second);
+        await db.query("UPDATE character_state SET updated_at = now() - interval '1 hour' WHERE character_id = $1", [second.characterId]);
+        expect((await listCharactersByAccount(db, accountId)).map((c) => c.displayName)).toEqual(["Giulia", "Second"]);
+        await saveState(db, { accountId, characterId: second.characterId }, { area: "plaza", x: 1, z: 1, rotation: 0 });
+        const list = await listCharactersByAccount(db, accountId);
+        expect(list.map((c) => c.displayName)).toEqual(["Second", "Giulia"]);
+        expect(list[0]!.lastPlayedAt!.getTime()).toBeGreaterThanOrEqual(list[1]!.lastPlayedAt!.getTime());
+        expect(list.map((c) => c.characterId)).not.toContain(other.character.characterId);
+        expect(character.lastPlayedAt).toBeInstanceOf(Date);
+      });
+
+      it("deletes a character with all its data, only for its owner", async () => {
+        const alice = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
+        const bruno = await createGuestWithCharacter(db, { ...input, displayName: "Bruno" }, PROFILE_VERSION, spawn, seed);
+        const kept = await createCharacterForAccount(db, alice.accountId, { ...input, displayName: "Kept" }, PROFILE_VERSION, spawn, seed, 3);
+        if (typeof kept === "string") throw new Error(kept);
+        const id = alice.character.characterId;
+        expect(await deleteCharacter(db, { accountId: bruno.accountId, characterId: id })).toBe(false);
+        expect(await loadCharacterById(db, { accountId: alice.accountId, characterId: id })).not.toBeNull();
+        expect(await deleteCharacter(db, { accountId: alice.accountId, characterId: id })).toBe(true);
+        expect(await deleteCharacter(db, { accountId: alice.accountId, characterId: id })).toBe(false);
+        for (const table of ["character_appearance", "character_state", "character_needs", "character_wallets", "wallet_transactions", "character_traits", "character_skills"]) {
+          const left = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table} WHERE character_id = $1`, [id]);
+          expect(left.rows[0]!.n, table).toBe(0);
+        }
+        // The account, its token and its other character stay.
+        expect((await listCharactersByAccount(db, alice.accountId)).map((c) => c.displayName)).toEqual(["Kept"]);
+        expect(await findAccountIdByGuestToken(db, alice.guestToken)).toBe(alice.accountId);
+      });
+
+      it("rolls back migration 0004 only when no profile holds more than one character", async () => {
+        const { accountId } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
+        expect(await rollback(db)).toEqual([4]);
+        await expect(createCharacterForAccount(db, accountId, { ...input, displayName: "Blocked" }, PROFILE_VERSION, spawn, seed, 3)).rejects.toThrow();
+        await migrate(db);
+        const second = await createCharacterForAccount(db, accountId, { ...input, displayName: "Second" }, PROFILE_VERSION, spawn, seed, 3);
+        expect(typeof second).toBe("object");
+        await expect(rollback(db)).rejects.toThrow();
+        // Nothing changed: both characters are still there and 0004 is still applied.
+        expect(await listCharactersByAccount(db, accountId)).toHaveLength(2);
+        expect(await appliedVersions(db)).toContain(4);
       });
 
       it("enforces age category and version constraints in the database itself", async () => {
@@ -161,15 +222,15 @@ for (const backend of testBackends) {
 
       it("rolls back the appearance document to the M5 shape with the closest old look, and upgrades again", async () => {
         const { accountId, character } = await createGuestWithCharacter(db, { ...input, appearance: APPEARANCE_PRESETS[0]!.appearance }, PROFILE_VERSION, spawn, seed);
-        expect(loadMigrations().at(-1)!.version).toBe(3); // this test is about migration 0003
-        expect(await rollback(db)).toEqual([3]);
+        expect(loadMigrations().at(-1)!.version).toBe(4); // rolls back 0004 (no data change), then 0003
+        expect(await rollback(db, 2)).toEqual([4, 3]);
         const old = await db.query<{ profile_version: number; preset: string; skin_tone: string }>(
           "SELECT c.profile_version, a.preset, a.skin_tone FROM characters c JOIN character_appearance a ON a.character_id = c.id WHERE c.id = $1",
           [character.characterId],
         );
         expect(old.rows[0]).toEqual({ profile_version: 2, preset: "female", skin_tone: "skin-7" });
         await migrate(db);
-        const reloaded = await loadCharacterByAccount(db, accountId);
+        const reloaded = await firstCharacter(db, accountId);
         expect(reloaded?.profileVersion).toBe(2);
         expect(reloaded?.appearance).toMatchObject({ preset: "female", skinTone: "skin-7", hairStyle: "short" });
       });

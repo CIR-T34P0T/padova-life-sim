@@ -11,9 +11,42 @@ rigs or animation files. Everything visible is generated in code:
 | Characters: parametric bodies, faces, hair, clothing and accessories built from code-generated geometry (M6) | `client/src/render/avatar/` from the appearance config in `shared/src/appearance/` | **Stage-1 procedural art** (D-027): real, distinct geometry for every option, but not artist-authored models. See "Characters" below |
 | Clothing patterns (stripes, checks, dots, geometric print) | Small textures drawn at runtime on a canvas (`client/src/render/avatar/patterns.ts`) | Generated in code; no image files |
 | Flat colours and toon shading | — | Shared material palette |
+| Title screen key visual (starry sky, porticoes, bell tower, domes) | SVG drawn in code, `client/src/ui/screens/backdrop.ts` | Original, generated in code; no image files |
+| Interface icons (categories, camera, undo…) | Inline SVG, `client/src/ui/screens/icons.ts` | Original line icons drawn for this game |
+| Character portraits in menus | Rendered at runtime from the real 3D characters (`client/src/ui/screens/portraits.ts`) | Generated; nothing stored |
 
-No third-party models, textures, fonts, sounds or icons are bundled, so there
-are no licence obligations yet. The UI font falls back to system fonts.
+**Third-party assets bundled (since the title screen milestone):** two fonts,
+installed from npm and served by the game itself (no requests to Google):
+
+| Asset | Package | Licence | Used for |
+| --- | --- | --- | --- |
+| Dela Gothic One (© 2020 The Dela Gothic Project Authors) | `@fontsource/dela-gothic-one` 5.3.0, Latin subset, weight 400 | SIL Open Font License 1.1 (the package wrapper is MIT) | Logo, screen titles, character names |
+| M PLUS Rounded 1c (© 2016 The Rounded M+ Project Authors) | `@fontsource/m-plus-rounded-1c` 5.3.0, Latin subset, weights 500/700/800 | SIL Open Font License 1.1 | All other interface text |
+
+The OFL allows bundling and redistribution with the game; the fonts must
+not be sold on their own and their licence text ships inside the npm
+packages. Both are credited in the in-game Credits screen. Only the Latin
+subset is loaded (about 20 KB per weight as woff2); other scripts fall back
+to system fonts glyph by glyph. No other third-party models, textures,
+sounds or icons are bundled.
+
+## Interface (title screen milestone, D-032)
+
+Palette tokens live at the top of `client/src/styles.css`:
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--lapis` | `#1d2f7a` | Night-blue headers, selected options, in-world buttons |
+| `--lapis-night` / `--lapis-deep` | `#0d1540` / `#121c4f` | Title sky, hard shadows |
+| `--gold` | `#f2c14e` | Stars, focus rings, selection accents, trait chips |
+| `--spritz` | `#ff7438` | The one main action per screen (always with dark text: 5.8:1) |
+| `--intonaco` | `#f3f4fb` | Panels and menu ribbons (plaster white) |
+| `--ink` / `--ink-soft` | `#17204a` / `#4a5280` | Text on light surfaces (14:1 / 7.5:1) |
+
+Rules: one main action per screen in Spritz; gold only for selection and
+focus; text on the blue sky is white or `#c8cff5`; new screens reuse the
+`flow-header`, `ui-button` and `screen` classes instead of new styles.
+Every interactive element is at least 44 px tall on touch screens.
 
 ## Characters (M6)
 

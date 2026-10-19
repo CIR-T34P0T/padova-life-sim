@@ -24,7 +24,10 @@ export function createGameServer({ db, tuning }: GameServerOptions): Server {
     gracefullyShutdown: false,
   });
   const servicesKey = registerServices({
-    profiles: new ProfileService(db, { guestCreationsPerIpPerHour: resolved.guestCreationsPerIpPerHour }),
+    profiles: new ProfileService(db, {
+      guestCreationsPerIpPerHour: resolved.guestCreationsPerIpPerHour,
+      maxCharactersPerAccount: resolved.maxCharactersPerAccount,
+    }),
     life: new LifeService(db, { timeScale: resolved.timeScale, dailyAllowanceCents: resolved.dailyAllowanceCents }),
     sessions: new SessionRegistry(),
   });

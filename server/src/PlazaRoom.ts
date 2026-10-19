@@ -6,10 +6,14 @@ import {
   GAME_CONFIG,
   NavGrid,
   ServerMessage,
+  confirmNameMatches,
   encodeLook,
   gameMinuteAt,
   isPositionWalkable,
   parseAppearance,
+  parseCharacterId,
+  parseDeleteCharacter,
+  parseEnterWorld,
   parseMoveDirection,
   parseMoveTo,
   parseNewCharacter,
@@ -25,7 +29,7 @@ import { InteractionSystem } from "./InteractionSystem.ts";
 import type { LifeService, LoadedLife } from "./life/LifeService.ts";
 import { LifeSystem, type GameClock } from "./life/LifeSystem.ts";
 import { log } from "./log.ts";
-import type { LoadedCharacter, ProfileService } from "./profiles/ProfileService.ts";
+import { toSummary, type LoadedCharacter, type ProfileService } from "./profiles/ProfileService.ts";
 import type { Owner } from "./profiles/profileRepository.ts";
 import type { SessionRegistry } from "./profiles/sessionRegistry.ts";
 import type { PlayerRuntime } from "./runtime.ts";
@@ -42,7 +46,8 @@ interface Session {
   ip: string | undefined;
   readOnly: boolean;
   evicted: boolean;
-  creating: boolean;
+  /** A profile request (create, enter, leave, delete, lobby appearance change) is in flight. */
+  busy: boolean;
   lastSaved: { x: number; z: number } | null;
   /**
    * Set once removal starts: resolves when the final save is written. A new
@@ -125,6 +130,9 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     this.onMessage(ClientMessage.CancelAction, (client) => this.interactions.cancelRequest(client.sessionId));
     this.onMessage(ClientMessage.CreateCharacter, (client, payload) => void this.handleCreateCharacter(client, payload));
     this.onMessage(ClientMessage.UpdateAppearance, (client, payload) => void this.handleUpdateAppearance(client, payload));
+    this.onMessage(ClientMessage.EnterWorld, (client, payload) => void this.handleEnterWorld(client, payload));
+    this.onMessage(ClientMessage.LeaveWorld, (client) => void this.handleLeaveWorld(client));
+    this.onMessage(ClientMessage.DeleteCharacter, (client, payload) => void this.handleDeleteCharacter(client, payload));
     this.onMessage("*", (client, type) => {
       // Unknown message types (including any attempt to send a position) are ignored.
       log.warn("plaza", `ignored unknown message "${String(type)}" from ${client.sessionId}`);
@@ -148,6 +156,11 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     return { accountId, ip: context.ip };
   }
 
+  /**
+   * Joining puts the session in the lobby (the title screen): it receives its
+   * account's characters, but no character enters the world until the
+   * player picks one (EnterWorld) or creates one (CreateCharacter).
+   */
   override async onJoin(client: Client, _options?: unknown, auth?: AuthResult): Promise<void> {
     const session: Session = {
       accountId: auth?.accountId ?? null,
@@ -155,29 +168,13 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       ip: auth?.ip,
       readOnly: false,
       evicted: false,
-      creating: false,
+      busy: false,
       lastSaved: null,
       removal: null,
     };
     this.sessions.set(client.sessionId, session);
-
-    if (!session.accountId) {
-      this.sendProfile(client, { status: "needs_character" });
-      log.info("plaza", `anonymous visitor ${client.sessionId} joined; ${this.clients.length} connected`);
-      return;
-    }
-
-    await this.claimAccount(client.sessionId, session.accountId);
-    const loaded = await this.profiles.load(session.accountId);
-    if (!this.isStillHere(client.sessionId)) return;
-    if (!loaded) {
-      this.sendProfile(client, { status: "needs_character" });
-      return;
-    }
-    const life = await this.lifeService.load(loaded.owner, this.gameClock.minute());
-    if (!this.isStillHere(client.sessionId)) return;
-    this.spawn(client, session, loaded, life);
-    this.sendProfile(client, { status: "ready", profile: loaded.profile, readOnly: loaded.readOnly, notices: loaded.notices });
+    await this.sendLobby(client, session);
+    log.info("plaza", `${session.accountId ? "guest" : "anonymous visitor"} ${client.sessionId} joined the lobby; ${this.clients.length} connected`);
   }
 
   override onDrop(client: Client, code?: number): void {
@@ -217,9 +214,13 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     log.info("plaza", `room ${this.roomId} disposed`);
   }
 
-  /** Newest session wins: any other session of this account is saved and disconnected first. */
-  private claimAccount(sessionId: string, accountId: string): Promise<void> {
-    return this.registry.claim(accountId, sessionId, () => this.evict(sessionId));
+  /**
+   * Newest session wins: any other session of this account that is in the
+   * world is saved and disconnected first. Sessions that are only at the
+   * title screen don't claim the account.
+   */
+  private claimAccount(sessionId: string, accountId: string, characterId: string): Promise<void> {
+    return this.registry.claim(accountId, sessionId, () => this.evict(sessionId), characterId);
   }
 
   private async evict(sessionId: string): Promise<void> {
@@ -242,19 +243,46 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
 
   // ── Profiles ────────────────────────────────────────────────────────────
 
+  /** Sends this session's lobby: its account's characters, most recently played first. */
+  private async sendLobby(client: Client, session: Session): Promise<void> {
+    const maxCharacters = this.profiles.maxCharactersPerAccount;
+    if (!session.accountId) return this.sendProfile(client, { status: "lobby", characters: [], maxCharacters });
+    try {
+      const characters = await this.profiles.list(session.accountId);
+      if (!this.isStillHere(client.sessionId)) return;
+      this.sendProfile(client, { status: "lobby", characters: characters.map(toSummary), maxCharacters });
+    } catch (error) {
+      log.error("plaza", `could not list characters for ${client.sessionId}: ${(error as Error).message}`);
+      this.profileError(client, { action: "listCharacters", reason: "storage_error" });
+    }
+  }
+
+  /** Runs one profile request at a time per session; refuses with "busy" otherwise. */
+  private async exclusive(client: Client, session: Session, action: ProfileErrorPayload["action"], work: () => Promise<void>): Promise<void> {
+    if (session.busy) return this.profileError(client, { action, reason: "busy" });
+    session.busy = true;
+    try {
+      await work();
+    } catch (error) {
+      log.error("plaza", `${action} failed for ${client.sessionId}: ${(error as Error).message}`);
+      if (this.isStillHere(client.sessionId)) this.profileError(client, { action, reason: "storage_error" });
+    } finally {
+      session.busy = false;
+    }
+  }
+
   private async handleCreateCharacter(client: Client, payload: unknown): Promise<void> {
     const session = this.sessions.get(client.sessionId);
     if (!session || session.evicted) return;
-    if (session.owner) return this.profileError(client, { action: "createCharacter", reason: "already_has_character" });
-    if (session.creating) return; // a creation for this session is already in flight
+    if (session.owner) return this.profileError(client, { action: "createCharacter", reason: "in_world" });
     const parsed = parseNewCharacter(payload);
     if (!parsed.ok) return this.profileError(client, { action: "createCharacter", reason: parsed.reason, field: parsed.field });
+    if (session.busy) return this.profileError(client, { action: "createCharacter", reason: "busy" });
     if (!session.accountId && !this.profiles.allowGuestCreation(session.ip)) {
       return this.profileError(client, { action: "createCharacter", reason: "rate_limited" });
     }
 
-    session.creating = true;
-    try {
+    await this.exclusive(client, session, "createCharacter", async () => {
       const spawnPoint = this.nextSpawnPoint();
       const result = await this.profiles.create(
         parsed.value,
@@ -262,7 +290,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
         { area: AREA, x: spawnPoint.x, z: spawnPoint.z, rotation: Math.PI },
         { startingBalanceCents: this.tuning.startingBalanceCents, gameMinute: this.gameClock.minute() },
       );
-      if (result === "already_has_character") return this.profileError(client, { action: "createCharacter", reason: "already_has_character" });
+      if (result === "too_many_characters") return this.profileError(client, { action: "createCharacter", reason: "too_many_characters" });
       const life = await this.lifeService.load(result.loaded.owner, this.gameClock.minute());
       if (!this.isStillHere(client.sessionId)) return;
       if (result.guestToken) {
@@ -270,31 +298,136 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
         client.send(ServerMessage.Identity, identity);
       }
       session.accountId = result.accountId;
-      await this.claimAccount(client.sessionId, result.accountId);
+      await this.claimAccount(client.sessionId, result.accountId, result.loaded.owner.characterId);
       if (!this.isStillHere(client.sessionId)) return;
       this.spawn(client, session, result.loaded, life);
       this.sendProfile(client, { status: "ready", profile: result.loaded.profile, notices: result.loaded.notices });
       log.info("plaza", `${client.sessionId} created character ${result.loaded.profile.characterId}`);
-    } catch (error) {
-      log.error("plaza", `character creation failed for ${client.sessionId}: ${(error as Error).message}`);
-      this.profileError(client, { action: "createCharacter", reason: "storage_error" });
-    } finally {
-      session.creating = false;
-    }
+    });
   }
 
+  /** Enters the world with one of this account's characters (picked at the title screen). */
+  private async handleEnterWorld(client: Client, payload: unknown): Promise<void> {
+    const session = this.sessions.get(client.sessionId);
+    if (!session || session.evicted) return;
+    if (session.owner) return this.profileError(client, { action: "enterWorld", reason: "in_world" });
+    const parsed = parseEnterWorld(payload);
+    if (!parsed) return this.profileError(client, { action: "enterWorld", reason: "invalid_payload" });
+    const accountId = session.accountId;
+    if (!accountId) return this.profileError(client, { action: "enterWorld", reason: "character_not_found" });
+
+    await this.exclusive(client, session, "enterWorld", async () => {
+      const owner: Owner = { accountId, characterId: parsed.characterId };
+      // Claim first: another window playing this account saves and leaves before we read the profile.
+      await this.claimAccount(client.sessionId, accountId, owner.characterId);
+      if (!this.isStillHere(client.sessionId)) return;
+      let loaded: LoadedCharacter | null;
+      let life: LoadedLife | null = null;
+      try {
+        loaded = await this.profiles.load(owner);
+        if (loaded) life = await this.lifeService.load(owner, this.gameClock.minute());
+      } catch (error) {
+        this.registry.release(accountId, client.sessionId);
+        throw error;
+      }
+      if (!this.isStillHere(client.sessionId)) return;
+      if (!loaded) {
+        this.registry.release(accountId, client.sessionId);
+        this.profileError(client, { action: "enterWorld", reason: "character_not_found" });
+        return this.sendLobby(client, session);
+      }
+      this.spawn(client, session, loaded, life);
+      this.sendProfile(client, { status: "ready", profile: loaded.profile, readOnly: loaded.readOnly, notices: loaded.notices });
+    });
+  }
+
+  /** Saves the character, takes it out of the world and returns this session to the lobby. */
+  private async handleLeaveWorld(client: Client): Promise<void> {
+    const session = this.sessions.get(client.sessionId);
+    if (!session || session.evicted) return;
+    if (session.busy) return; // a create / enter in flight: the client gets its result first
+    if (!session.owner) return this.sendLobby(client, session);
+    session.busy = true;
+    try {
+      await this.saveAndRemove(client.sessionId);
+      if (session.evicted) return;
+      session.owner = null;
+      session.readOnly = false;
+      session.lastSaved = null;
+      session.removal = null;
+      if (session.accountId) this.registry.release(session.accountId, client.sessionId);
+      log.info("plaza", `${client.sessionId} went back to the title screen; ${this.state.players.size} in the world`);
+    } finally {
+      session.busy = false;
+    }
+    if (this.isStillHere(client.sessionId)) await this.sendLobby(client, session);
+  }
+
+  /** Permanently deletes one of this account's characters. Title screen only, with the name typed to confirm. */
+  private async handleDeleteCharacter(client: Client, payload: unknown): Promise<void> {
+    const session = this.sessions.get(client.sessionId);
+    if (!session || session.evicted) return;
+    if (session.owner) return this.profileError(client, { action: "deleteCharacter", reason: "in_world" });
+    const parsed = parseDeleteCharacter(payload);
+    if (!parsed) return this.profileError(client, { action: "deleteCharacter", reason: "invalid_payload" });
+    const accountId = session.accountId;
+    if (!accountId) return this.profileError(client, { action: "deleteCharacter", reason: "character_not_found" });
+
+    await this.exclusive(client, session, "deleteCharacter", async () => {
+      const owner: Owner = { accountId, characterId: parsed.characterId };
+      const inUse = () => this.registry.characterOf(accountId) === owner.characterId;
+      if (inUse()) return this.profileError(client, { action: "deleteCharacter", reason: "character_in_use" });
+      const loaded = await this.profiles.load(owner);
+      if (!loaded) return this.profileError(client, { action: "deleteCharacter", reason: "character_not_found" });
+      if (!confirmNameMatches(parsed.confirmName, loaded.profile.displayName)) {
+        return this.profileError(client, { action: "deleteCharacter", reason: "confirm_name_mismatch" });
+      }
+      if (inUse()) return this.profileError(client, { action: "deleteCharacter", reason: "character_in_use" });
+      if (!(await this.profiles.delete(owner))) return this.profileError(client, { action: "deleteCharacter", reason: "character_not_found" });
+      log.info("plaza", `${client.sessionId} deleted character ${owner.characterId}`);
+      if (this.isStillHere(client.sessionId)) await this.sendLobby(client, session);
+    });
+  }
+
+  /**
+   * Changes appearance only: needs, money, skills, traits and position are
+   * never touched. In the world: the character being played (any id in the
+   * payload is ignored). At the title screen: the character named by
+   * `characterId`, if this account owns it and it isn't being played.
+   */
   private async handleUpdateAppearance(client: Client, payload: unknown): Promise<void> {
     const session = this.sessions.get(client.sessionId);
-    if (!session?.owner) return this.profileError(client, { action: "updateAppearance", reason: "no_character" });
+    if (!session || session.evicted) return;
+    const record = typeof payload === "object" && payload !== null ? (payload as { appearance?: unknown; characterId?: unknown }) : {};
+    if (session.owner) return this.updateAppearanceInWorld(client, session, session.owner, record.appearance);
+
+    const accountId = session.accountId;
+    const characterId = parseCharacterId(record.characterId);
+    if (!accountId || !characterId) return this.profileError(client, { action: "updateAppearance", reason: "character_not_found" });
+    const parsed = parseAppearance(record.appearance);
+    if (!parsed.ok) return this.profileError(client, { action: "updateAppearance", reason: parsed.reason, field: parsed.field });
+    await this.exclusive(client, session, "updateAppearance", async () => {
+      const owner: Owner = { accountId, characterId };
+      if (this.registry.characterOf(accountId) === characterId) {
+        return this.profileError(client, { action: "updateAppearance", reason: "character_in_use" });
+      }
+      const loaded = await this.profiles.load(owner);
+      if (!loaded) return this.profileError(client, { action: "updateAppearance", reason: "character_not_found" });
+      if (loaded.readOnly) return this.profileError(client, { action: "updateAppearance", reason: "profile_newer_version" });
+      const profile = await this.profiles.updateAppearance(owner, parsed.value);
+      if (!profile) return this.profileError(client, { action: "updateAppearance", reason: "character_not_found" });
+      if (this.isStillHere(client.sessionId)) await this.sendLobby(client, session);
+    });
+  }
+
+  private async updateAppearanceInWorld(client: Client, session: Session, owner: Owner, appearance: unknown): Promise<void> {
     if (!this.acceptIntent(client, ClientMessage.UpdateAppearance)) return;
     if (session.readOnly) return this.profileError(client, { action: "updateAppearance", reason: "profile_newer_version" });
-    // Only `appearance` is read; any id or owner in the payload is ignored.
-    const appearancePayload = typeof payload === "object" && payload !== null ? (payload as { appearance?: unknown }).appearance : undefined;
-    const parsed = parseAppearance(appearancePayload);
+    const parsed = parseAppearance(appearance);
     if (!parsed.ok) return this.profileError(client, { action: "updateAppearance", reason: parsed.reason, field: parsed.field });
     try {
-      const profile = await this.profiles.updateAppearance(session.owner, parsed.value);
-      if (!profile) return this.profileError(client, { action: "updateAppearance", reason: "no_character" });
+      const profile = await this.profiles.updateAppearance(owner, parsed.value);
+      if (!profile) return this.profileError(client, { action: "updateAppearance", reason: "character_not_found" });
       const player = this.state.players.get(client.sessionId);
       if (player) applyAppearance(player, profile.appearance);
       this.sendProfile(client, { status: "ready", profile });

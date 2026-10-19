@@ -10,8 +10,10 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@padova/shared": "0.1.0",
     "@colyseus/sdk": "^0.18.5",
+    "@fontsource/dela-gothic-one": "5.3.0",
+    "@fontsource/m-plus-rounded-1c": "5.3.0",
+    "@padova/shared": "0.1.0",
     "three": "^0.186.1"
   },
   "devDependencies": {

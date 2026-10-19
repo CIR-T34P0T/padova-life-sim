@@ -26,7 +26,7 @@ guest_credentials       proof of ownership for a guest account
 
 characters              the character profile
   id               uuid PK          stable character id
-  account_id       uuid → accounts  owner (cascade delete); UNIQUE: one character per account for now
+  account_id       uuid → accounts  owner (cascade delete); up to PROFILE_CONFIG.maxCharactersPerAccount (3) per account (D-031, checked in code)
   display_name     text             2–20 chars enforced in code; 1–40 checked by the database
   age_category     text             'child' | 'teen' | 'adult' (database CHECK); players: 'adult' only (D-019)
   profile_version  integer ≥ 1      version of the profile data shape (PROFILE_VERSION)
@@ -122,6 +122,26 @@ and the outfit split into top / outer / full outfit) and saves it. Its
 column; the M4 columns already hold the closest old look, so nothing is lost
 that the M5 server could show.
 
+**Migration 0004 (title screen, D-031).** Drops the unique index
+`characters_one_per_account` and adds `characters_by_account (account_id,
+created_at)`, so one guest profile can hold several characters. The limit
+(3) lives in `PROFILE_CONFIG.maxCharactersPerAccount` and is enforced in
+`createCharacterForAccount` inside one transaction that first locks the
+account row. Its `down` section recreates the unique index; it fails, and
+changes nothing, while any account has more than one character (delete the
+extra characters deliberately first; nothing is deleted automatically).
+
+**Deleting a character** (`deleteCharacter`, title screen only, after the
+player typed its name): one `DELETE FROM characters` scoped by the owning
+account; appearance, position, traits, needs, skills, mood events, wallet
+and every ledger row cascade. The account, its credential and its other
+characters stay. Deleting the whole guest account is not offered yet.
+
+**The title screen list** (`listCharactersByAccount`): the account's
+characters, most recently played first (`character_state.updated_at`, which
+every save touches), each upgraded and repaired like any load. Sent to the
+owner without life data.
+
 **Appearance config** (`shared/src/appearance/schema.ts`, version
 `APPEARANCE_SCHEMA_VERSION` = 1). One JSON object:
 
@@ -170,11 +190,12 @@ verified guest token), never from client input
 
 **What is saved when:** created atomically with the account on first visit
 (account + credential + character + appearance + spawn position + traits +
-starting needs + wallet + starting-allowance ledger row, in one transaction).
+starting needs + wallet + starting-allowance ledger row, in one transaction);
+later characters of the same profile the same way, without a new account.
 Appearance on every accepted change. **Money immediately**, in its own
 transaction, whenever it changes. Position, needs, skills and mood events
 together, in one transaction (`LifeService.saveAll`), when the player leaves,
-is evicted by a newer session or the room closes; every 30 s for every
+goes back to the title screen, is evicted by a newer session or the room closes; every 30 s for every
 character in the world (`PROFILE_CONFIG.autosaveIntervalMs`; needs change all
 the time); and right after a completed action that gave skill XP. A seated
 character is saved at the spot it stands up to.
@@ -257,7 +278,8 @@ money changes or refusals. Other players see only the public activity
 - Currency changes are recorded as ledger transactions with an idempotency
   key, never as a client-set balance. The balance never goes below zero.
 - Store the minimum personal data. Guest accounts hold no personal data beyond
-  a chosen display name. Deletion and moderation workflows are still to be
-  built (see TESTING.md known gaps).
+  a chosen display name. A player can delete a character with all its data;
+  deleting a whole account and moderation workflows are still to be built
+  (see TESTING.md known gaps).
 - Migrations are numbered, run in a transaction each, and have a `down`
   section. Back up before destructive migrations.

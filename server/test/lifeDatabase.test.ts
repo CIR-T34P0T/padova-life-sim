@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "../src/db/database.ts";
 import { loadMigrations, migrate, rollback } from "../src/db/migrate.ts";
 import { applyMoneyChange, loadLife, saveLife, type MoneyChange } from "../src/life/lifeRepository.ts";
-import { createGuestWithCharacter, loadCharacterByAccount } from "../src/profiles/profileRepository.ts";
+import { createGuestWithCharacter, listCharactersByAccount } from "../src/profiles/profileRepository.ts";
 import { testBackends } from "./helpers/testDatabase.ts";
 
 const input: NewCharacterInput = {
@@ -57,20 +57,20 @@ for (const backend of testBackends) {
         [characterId],
       );
 
-      expect(await migrate(db)).toEqual([2, 3]);
+      expect(await migrate(db)).toEqual([2, 3, 4]);
       const life = await loadLife(db, { accountId, characterId }, 5);
       expect(life?.needs).toEqual(NEEDS_CONFIG.initial);
       expect(life?.traits).toEqual([]);
       expect(life?.balanceCents).toBe(10_000);
       expect(life?.recent).toMatchObject([{ direction: "income", category: "allowance", amountCents: 10_000, balanceAfterCents: 10_000 }]);
       // The profile itself is untouched; it is upgraded in code on its next load.
-      expect((await loadCharacterByAccount(db, accountId))?.profileVersion).toBe(1);
+      expect((await listCharactersByAccount(db, accountId))[0]?.profileVersion).toBe(1);
     });
 
     it("rolls back the life migration without touching profiles", async () => {
       await migrate(db);
       const { accountId } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
-      expect(await rollback(db, 2)).toEqual([3, 2]);
+      expect(await rollback(db, 3)).toEqual([4, 3, 2]);
       const tables = (await db.query<{ table_name: string }>(
         `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
       )).rows.map((r) => r.table_name);

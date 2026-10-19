@@ -10,3 +10,4 @@ export * from "./schema.ts";
 export * from "./presets.ts";
 export * from "./random.ts";
 export * from "./layers.ts";
+export * from "./categories.ts";

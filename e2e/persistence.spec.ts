@@ -1,10 +1,11 @@
 // M4 persistence flows in real browsers: create a character once, get it back
-// after a reload (look and position), edit appearance, a second tab taking
-// over, and an unrecognised saved identity. The browser keeps only the
-// temporary guest token; everything else comes from the server's database.
+// after a reload (title screen → Continue: look and position), edit the look,
+// a second tab taking over, and an unrecognised saved identity. The browser
+// keeps only the temporary guest token; everything else comes from the
+// server's database.
 
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { chooseAppearance, createCharacter, lookOf, waitUntilPlaying } from "./helpers.ts";
+import { chooseAppearance, continueFromTitle, createCharacter, lookOf, waitForTitle } from "./helpers.ts";
 
 interface DebugPlayer {
   id: string;
@@ -57,9 +58,10 @@ test("a character is created once and comes back after a reload with its look an
   }, { timeout: 15_000 }).toBeLessThan(0.3);
 
   await page.reload();
-  // A returning player never sees the create form.
-  await waitUntilPlaying(page, "Giulia after reload");
-  expect(await page.locator('#profile-panel[data-mode="create"]').count()).toBe(0);
+  // A returning player gets the title screen with Continue for their character.
+  await waitForTitle(page);
+  await expect(page.locator('#screens [data-action="continue"]')).toContainText("as Giulia");
+  await continueFromTitle(page, "Giulia after reload");
   const back = await self(page);
   expect(back).toMatchObject({ name: "Giulia" });
   expect(lookOf(back)).toMatchObject(expected);
@@ -68,7 +70,7 @@ test("a character is created once and comes back after a reload with its look an
 });
 
 test("appearance changes are saved, seen by other players, and kept after a reload", async ({ browser }) => {
-  test.setTimeout(150_000); // two software-rendered browsers, the creator twice and a reload; slow on 2-CPU machines
+  test.setTimeout(300_000); // two software-rendered browsers, the creator twice, a reload and the title screen; slow on 2-CPU machines
   const aliceContext = await newContext(browser);
   const alice = await aliceContext.newPage();
   await alice.goto("/");
@@ -79,22 +81,24 @@ test("appearance changes are saved, seen by other players, and kept after a relo
   await createCharacter(bruno, "Bruno");
   await expect.poll(async () => lookOf(await seenBy(bruno, "Alice"))?.hair.colour).toBe("black");
 
-  // Open your own menu by clicking yourself, then "Edit appearance".
+  // Open your own menu by clicking yourself, then "Edit look" → change → review → save.
   await alice.waitForTimeout(500);
   const me = await alice.evaluate(() => (window as any).__padova.targetScreenPoint("player", (window as any).__padova.selfId));
   await alice.mouse.click(me.x, me.y);
   await alice.click('#action-menu [data-action="edit-appearance"]');
-  await expect(alice.locator('#profile-panel[data-mode="edit"]')).toBeVisible();
+  await expect(alice.locator('#screens .creator[data-mode="edit"]')).toBeVisible();
   await chooseAppearance(alice, { "hair.colour": "silver", "outfit.full": "dress", "outfit.topColour": "plum" });
-  await alice.click("#profile-panel button.primary");
-  await expect(alice.locator("#profile-panel")).toBeHidden();
+  await alice.click('#screens [data-action="creator-review"]');
+  await expect(alice.locator("#screens .review-changes")).toContainText("Hair, Clothing");
+  await alice.click('#screens [data-action="save-look"]');
+  await expect(alice.locator("#screens")).toBeHidden();
 
   await expect.poll(async () => lookOf(await seenBy(bruno, "Alice"))?.hair.colour).toBe("silver");
   expect(lookOf(await seenBy(bruno, "Alice"))?.outfit).toMatchObject({ full: "dress", topColour: "plum" });
   await alice.screenshot({ path: "test-results/m4-after-edit.png" });
 
   await alice.reload();
-  await waitUntilPlaying(alice, "Alice after reload");
+  await continueFromTitle(alice, "Alice after reload");
   expect(lookOf(await self(alice))).toMatchObject({ hair: { colour: "silver" }, outfit: { full: "dress", topColour: "plum" } });
 });
 
@@ -106,10 +110,14 @@ test("opening the game in a second tab moves the character there; the first tab 
 
   const second = await context.newPage();
   await second.goto("/");
-  await waitUntilPlaying(second, "Chiara in the second tab");
+  // Only opening the title screen in the second tab doesn't disconnect the first.
+  await waitForTitle(second);
+  await second.waitForTimeout(500);
+  expect(await first.evaluate(() => (window as any).__padova.inWorld)).toBe(true);
+  await continueFromTitle(second, "Chiara in the second tab");
   expect((await self(second)).name).toBe("Chiara");
 
-  await expect(first.locator('#profile-panel[data-mode="message"]')).toContainText("Playing in another window");
+  await expect(first.locator('#screens [data-screen="message"]')).toContainText("Playing in another window");
   // Only one Chiara exists in the world.
   await expect.poll(async () => (await second.evaluate(() => (window as any).__padova.players() as DebugPlayer[])).filter((p) => p.name === "Chiara").length).toBe(1);
   await first.screenshot({ path: "test-results/m4-signed-in-elsewhere.png" });
@@ -126,7 +134,8 @@ test("an unrecognised saved identity starts over and says so", async ({ browser 
   }, TOKEN_KEY);
   const page = await context.newPage();
   await page.goto("/");
-  await expect(page.locator('#profile-panel[data-mode="create"]')).toContainText("couldn't find your saved guest profile", { timeout: 15_000 });
+  await waitForTitle(page);
+  await expect(page.locator("#screens .title-status")).toContainText("couldn't find your saved guest profile");
   expect(await token(page)).toBeNull(); // the stale token was discarded
   await createCharacter(page, "Dario");
   expect(await token(page)).toMatch(/^plsg1_/);

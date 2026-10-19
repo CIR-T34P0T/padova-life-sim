@@ -5,6 +5,7 @@
 
 import * as THREE from "three";
 import {
+  DEFAULT_APPEARANCE,
   colourOf,
   skinColour,
   visibleLayers,
@@ -36,6 +37,12 @@ export interface CharacterStats {
   /** Milliseconds spent in the last (re)build, and which parts were rebuilt. */
   buildMs: number;
   rebuilt: PartName[];
+  /**
+   * Parts that could not be built from this look and were drawn from the
+   * default look instead (a renderer bug or an option without renderer code).
+   * Empty normally; the creator tells the player when it isn't.
+   */
+  fallback: PartName[];
 }
 
 interface PartState {
@@ -56,6 +63,59 @@ function signatures(config: AppearanceConfig, layers: VisibleLayers): Record<Par
   return { head, torso, armL: arm, armR: arm, thighL: thigh, thighR: thigh, shinL: shin, shinR: shin };
 }
 
+interface BuildContext {
+  metrics: BodyMetrics;
+  skin: string;
+  hairHex: string;
+  outfit: Outfit;
+  layers: VisibleLayers;
+}
+
+function buildPart(name: PartName, config: AppearanceConfig, ctx: BuildContext): Piece[] {
+  const { metrics, skin, hairHex, outfit, layers } = ctx;
+  switch (name) {
+    case "head": {
+      const built = buildHead(config, metrics, skin, hairHex);
+      const hair = buildHair(config, built.head, built.layout, metrics, hairHex, skin, layers.hair);
+      const geometry = [
+        ...built.pieces,
+        ...hair.pieces,
+        ...buildFacialHair(config, built.head, hairHex),
+        ...buildHeadwear(config, built.head, metrics, hair.thicknessAt, colourOf("clothingColours", config.outfit.headwearColour, "#d4a12e"), layers.hair),
+        ...buildGlasses(config, built.head, built.layout),
+      ];
+      return geometry.map((g) => ({ geometry: g, material: "colour" as const, pose: "always" as const }));
+    }
+    case "torso":
+      return buildTorso(metrics, outfit);
+    case "armL":
+      return buildArm(metrics, outfit, 1);
+    case "armR":
+      return buildArm(metrics, outfit, -1);
+    case "thighL":
+    case "thighR":
+      return buildThigh(metrics, outfit);
+    case "shinL":
+    case "shinR":
+      return buildShin(metrics, outfit, config);
+  }
+}
+
+/** The default look's version of a part; empty if even that fails. */
+function safeDefaultPart(name: PartName): Piece[] {
+  try {
+    const config = DEFAULT_APPEARANCE;
+    const layers = visibleLayers(config);
+    const metrics = bodyMetrics(config);
+    const skin = skinColour(config.skin.tone, config.skin.undertone);
+    const outfit = resolveOutfit(config, layers, skin, (id) => colourOf("clothingColours", id, "#888888"), metrics);
+    return buildPart(name, config, { metrics, skin, hairHex: colourOf("hairColours", config.hair.colour, "#3b2a22"), outfit, layers });
+  } catch (error) {
+    console.error(`Could not build the default ${name} either`, error);
+    return [];
+  }
+}
+
 export class CharacterModel {
   readonly root = new THREE.Group();
   /** Lowered and shifted when seated. */
@@ -71,7 +131,7 @@ export class CharacterModel {
   private outfit: Outfit | null = null;
   private away = false;
   private seated = false;
-  stats: CharacterStats = { triangles: 0, meshes: 0, buildMs: 0, rebuilt: [] };
+  stats: CharacterStats = { triangles: 0, meshes: 0, buildMs: 0, rebuilt: [], fallback: [] };
 
   constructor(
     config: AppearanceConfig,
@@ -120,48 +180,30 @@ export class CharacterModel {
 
     const next = signatures(config, layers);
     const rebuilt: PartName[] = [];
+    const fallback: PartName[] = [];
     for (const name of PARTS) {
       const part = this.parts.get(name)!;
       if (part.signature === next[name]) continue;
       let pieces: Piece[];
-      switch (name) {
-        case "head": {
-          const built = buildHead(config, metrics, skin, hairHex);
-          const hair = buildHair(config, built.head, built.layout, metrics, hairHex, skin, layers.hair);
-          const geometry = [
-            ...built.pieces,
-            ...hair.pieces,
-            ...buildFacialHair(config, built.head, hairHex),
-            ...buildHeadwear(config, built.head, metrics, hair.thicknessAt, colourOf("clothingColours", config.outfit.headwearColour, "#d4a12e"), layers.hair),
-            ...buildGlasses(config, built.head, built.layout),
-          ];
-          pieces = geometry.map((g) => ({ geometry: g, material: "colour" as const, pose: "always" as const }));
-          break;
-        }
-        case "torso":
-          pieces = buildTorso(metrics, outfit);
-          break;
-        case "armL":
-          pieces = buildArm(metrics, outfit, 1);
-          break;
-        case "armR":
-          pieces = buildArm(metrics, outfit, -1);
-          break;
-        case "thighL":
-        case "thighR":
-          pieces = buildThigh(metrics, outfit);
-          break;
-        case "shinL":
-        case "shinR":
-          pieces = buildShin(metrics, outfit, config);
-          break;
+      let materialConfig = config;
+      try {
+        pieces = buildPart(name, config, { metrics, skin, hairHex, outfit, layers });
+      } catch (error) {
+        // Fail safe: draw this part from the default look rather than leaving
+        // a hole or breaking the whole character (and every other player's view).
+        console.error(`Could not build the ${name} of this look; drawing the default instead`, error);
+        materialConfig = DEFAULT_APPEARANCE;
+        pieces = safeDefaultPart(name);
+        fallback.push(name);
       }
-      this.replaceMeshes(part, pieces, config);
-      part.signature = next[name];
+      this.replaceMeshes(part, pieces, materialConfig);
+      // A failed part keeps an impossible signature, so the next change tries again.
+      part.signature = fallback.includes(name) ? `fallback:${next[name]}` : next[name];
       rebuilt.push(name);
     }
     this.applyPoseVisibility();
-    this.stats = { ...this.countStats(), buildMs: performance.now() - started, rebuilt };
+    const stillFallback = PARTS.filter((name) => this.parts.get(name)!.signature.startsWith("fallback:"));
+    this.stats = { ...this.countStats(), buildMs: performance.now() - started, rebuilt, fallback: stillFallback };
     return this.stats;
   }
 

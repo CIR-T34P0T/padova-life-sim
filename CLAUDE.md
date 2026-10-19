@@ -71,6 +71,15 @@ or auth model without the product owner's approval.
   New options are catalogue data plus renderer code in
   `client/src/render/avatar/`; every option must change the drawn character
   (or be reported as covered by `visibleLayers`).
+- **The title screen is the lobby** (D-031). Joining lists the account's
+  characters (up to `PROFILE_CONFIG.maxCharactersPerAccount`); a character
+  enters the world only through `enterWorld` (an id the server checks against
+  the session's account) or `createCharacter`. Client screens live in
+  `client/src/ui/screens/`, driven by `client/src/ui/flow.ts`; nothing is
+  saved before the player confirms on a review step.
+- **Menus follow D-032**: palette tokens at the top of `styles.css`, Spritz
+  orange only for the one main action of a screen, at least 44 px touch
+  targets, and no option or setting without a working effect.
 - **Input is device-agnostic.** `client/src/input` turns mouse/touch/keyboard
   into gestures; gameplay code never checks the device type.
 - Placeholders must be labelled as placeholders in code and docs.
@@ -80,7 +89,8 @@ or auth model without the product owner's approval.
 1. `git status` and `git pull` (repo: `CIR-T34P0T/padova-life-sim`, branch `main`).
 2. Read `docs/ROADMAP.md` → "Current state": open items and the next task.
 3. Read `docs/TESTING.md` → known issues, and how to run tests in Claude's cloud
-   workspace (Playwright needs `CHROMIUM_PATH` there).
+   workspace (Playwright needs `CHROMIUM_PATH` there). Don't edit files under
+   `client/` or `shared/` while browser tests run: Vite reloads the page.
 4. Run `npm install` and `npm run check` to confirm a green baseline before editing.
 
 ## Workflow

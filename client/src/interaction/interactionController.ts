@@ -99,7 +99,7 @@ export class InteractionController {
       progress: ActionProgress;
       /** Called for a tap on open ground when no menu is open. */
       onGroundTap: (point: { x: number; z: number }) => void;
-      /** Called when the player picks "Edit appearance" on themselves. */
+      /** Called when the player picks "Edit look" on themselves. */
       onEditAppearance: () => void;
       /** Called when the player picks "Character" on themselves. */
       onOpenCharacter: () => void;
@@ -292,7 +292,7 @@ export class InteractionController {
         subtitle: "You",
         options: [
           { id: "character", label: "Character" },
-          { id: "edit-appearance", label: "Edit appearance" },
+          { id: "edit-appearance", label: "Edit look" },
         ],
       };
     }

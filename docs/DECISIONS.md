@@ -281,3 +281,62 @@ mesh. Only patterned garments (a shared canvas texture per pattern and
 colour) and seated-only skirt pieces add meshes. All characters share the
 same materials. Changing anything rebuilds only the body parts whose inputs
 changed (per-part signatures in `character.ts`).
+
+## D-031 — Up to three characters per guest profile, chosen at a title screen (2026-10-19, title screen milestone)
+
+The product owner asked for a title screen with New life, Continue and
+Character management. A guest profile (the one guest account in a browser,
+D-017) may now hold up to `PROFILE_CONFIG.maxCharactersPerAccount` = 3
+characters ("lives"); each has its own appearance, traits, position, needs,
+skills, mood events, wallet and ledger. Migration 0004 drops the
+one-per-account index that M4 left for exactly this; the limit is enforced
+in code inside the creating transaction (the account row is locked, so two
+windows can't both slip under it). Setting the value to 1 restores the old
+behaviour for new characters without touching existing ones. Rolling 0004
+back fails safely (and deletes nothing) while any profile holds more than
+one character.
+
+Joining the room now puts a session in the **lobby** (the title screen): it
+receives a `lobby` profile payload listing its characters (name, look,
+traits, last played; never life data) and nobody enters the world until the
+player sends `enterWorld` (one of their character ids, checked against the
+session's account) or creates a character. The "newest session wins" rule
+(D-018) now applies when a session **enters the world**, not when it only
+opens the title screen. `leaveWorld` saves the character, takes it out of
+the piazza and returns the session to the lobby. `deleteCharacter` works
+only at the title screen, needs the character's name typed (compared
+without case or extra spaces) and is refused while that character is being
+played in any window; deleting cascades to every per-character table and
+leaves the account, its token and its other characters. A look can be
+changed from the title screen for a character that isn't being played.
+
+Considered: separate browser-side guest tokens per character (no server
+change, but every life would be its own account, making a later real
+sign-in harder); an HTTP endpoint for the character list (a second
+transport alongside Colyseus). Both rejected for the lobby state, which
+reuses the anonymous "create a character" state that already existed.
+
+## D-032 — Title screen visual identity, bundled OFL fonts (2026-10-19, title screen milestone)
+
+The menus (title, new life, creator, character list, settings, credits)
+get their own original identity, drawn from Padova rather than from other
+games: a Giotto-blue night sky with gold eight-pointed stars (after the
+city's starry fresco ceilings, not a copy of any painting) over an
+evening row of lit porticoes with a bell tower, domes and a keel roof
+(generic shapes, drawn in code in `client/src/ui/screens/backdrop.ts`);
+"ribbon" buttons skewed like anime game menus; Spritz orange for the one
+main action on each screen; cool plaster white panels with night-blue
+headers; gold for selection and focus. The in-world HUD keeps its layout
+and takes the same colour tokens. Two fonts are bundled through npm
+(Fontsource packages, OFL 1.1, Latin subset only, served from the game
+itself, so no request goes to Google): Dela Gothic One for the logo and
+screen titles, M PLUS Rounded 1c for everything else. Names in other
+scripts fall back to system fonts per glyph.
+
+Interface motion follows the device's reduced-motion setting unless the
+player chooses otherwise in Settings. Settings are stored per browser
+(`padova.settings.v1`) because they describe the device: graphics
+(automatic / performance / quality, applied on reload because the 3D view
+is created at page load), camera turning speed, interface animation and
+the controls reminder. No setting is shown for something the game can't do
+yet (there is no audio, so no volume).

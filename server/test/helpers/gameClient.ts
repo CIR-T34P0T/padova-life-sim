@@ -102,3 +102,25 @@ export async function joinWithNewCharacter(
   await waitFor(() => client.room.state.players.get(client.room.sessionId) !== undefined, 4000, "own player replicated");
   return Object.assign(client, { guestToken: client.identities[0]!.guestToken });
 }
+
+/** Sends EnterWorld for one of the account's characters; resolves once it is in the world. */
+export async function enterWorld(client: ProfileClient, characterId?: string): Promise<ProfileClient> {
+  const id = characterId ?? client.lastProfile()?.characters?.[0]?.characterId;
+  if (!id) throw new Error(`no character to enter the world with: ${JSON.stringify(client.lastProfile())}`);
+  const profilesBefore = client.profiles.length;
+  const errorsBefore = client.errors.length;
+  client.room.send(ClientMessage.EnterWorld, { characterId: id });
+  await waitFor(
+    () => client.profiles.slice(profilesBefore).some((p) => p.status === "ready") || client.errors.length > errorsBefore,
+    8000,
+    "entered the world",
+  );
+  if (client.errors.length > errorsBefore) throw new Error(`enterWorld failed: ${JSON.stringify(client.errors.slice(errorsBefore))}`);
+  await waitFor(() => client.room.state.players.get(client.room.sessionId) !== undefined, 4000, "own player replicated");
+  return client;
+}
+
+/** Joins with a guest token (the title screen) and enters the world with its most recently played character. */
+export async function connectAndPlay(url: string, guestToken: string, characterId?: string): Promise<ProfileClient> {
+  return enterWorld(await connect(url, { guestToken }), characterId);
+}

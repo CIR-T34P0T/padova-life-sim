@@ -14,7 +14,7 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Database } from "../src/db/database.ts";
 import type { TuningOverrides } from "../src/tuning.ts";
-import { connect, joinWithNewCharacter, sleep, startTestServer, waitFor, type ProfileClient, type TestServer } from "./helpers/gameClient.ts";
+import { connectAndPlay, joinWithNewCharacter, sleep, startTestServer, waitFor, type ProfileClient, type TestServer } from "./helpers/gameClient.ts";
 import { migratedTestDatabase } from "./helpers/testDatabase.ts";
 
 const FAST: TuningOverrides = {
@@ -107,7 +107,7 @@ describe("the first life loop", () => {
     const first = track(await joinWithNewCharacter(context.server.url, "Giulia"));
     const characterId = characterIdOf(first);
     const token = await leaveWithNeeds(context.server, first, { hunger: 30, energy: 60 });
-    const alice = track(await connect(context.server.url, { guestToken: token }));
+    const alice = track(await connectAndPlay(context.server.url, token));
     const start = await lifeAfter(alice, (l) => l.needs.hunger < 31, "hungry on entry");
     expect(start.money.balanceCents).toBe(11_500);
 
@@ -136,7 +136,7 @@ describe("the first life loop", () => {
     const before = alice.lastLife()!;
     await alice.room.leave(true);
     await sleep(300);
-    const again = track(await connect(context.server.url, { guestToken: token }));
+    const again = track(await connectAndPlay(context.server.url, token));
     const restored = await lifeAfter(again, () => true, "life after rejoining");
     expect(restored.money.balanceCents).toBe(11_050);
     expect(restored.skills.academic.xp).toBeCloseTo(before.skills.academic.xp, 1);
@@ -178,7 +178,7 @@ describe("the first life loop", () => {
   it("refuses to study when too tired, until an espresso helps", async () => {
     const first = track(await joinWithNewCharacter(context.server.url, "Sleepy"));
     const token = await leaveWithNeeds(context.server, first, { energy: 5 });
-    const alice = track(await connect(context.server.url, { guestToken: token }));
+    const alice = track(await connectAndPlay(context.server.url, token));
     await lifeAfter(alice, (l) => l.needs.energy < 6, "tired on entry");
     expect(await act(alice, "object", "desk-1", "study")).toMatchObject({ status: "rejected", reason: "too_tired" });
     await act(alice, "object", "cafe-counter", "buy", { itemId: "espresso" });
@@ -202,7 +202,7 @@ describe("the first life loop", () => {
   it("sketching improves creativity and fun; washing at the fountain freshens up", async () => {
     const first = track(await joinWithNewCharacter(context.server.url, "Artist"));
     const token = await leaveWithNeeds(context.server, first, { hygiene: 20, fun: 30 });
-    const alice = track(await connect(context.server.url, { guestToken: token }));
+    const alice = track(await connectAndPlay(context.server.url, token));
     await lifeAfter(alice, (l) => l.needs.hygiene < 21, "grubby on entry");
     await act(alice, "object", "bench-2", "sketch");
     expect(await finished(alice, "sketch")).toMatchObject({ status: "completed" });
@@ -317,7 +317,7 @@ describe("offline", () => {
     const first = track(await joinWithNewCharacter(context.server.url, "Traveller"));
     // Saved 30 real hours ago: far beyond the 8 game hour cap.
     const token = await leaveWithNeeds(context.server, first, { hunger: 80, energy: 20, hygiene: 36, social: 30, fun: 70 }, 30 * 3_600_000);
-    const back = track(await connect(context.server.url, { guestToken: token }));
+    const back = track(await connectAndPlay(context.server.url, token));
     const life = await lifeAfter(back, () => true, "life after a long absence");
     expect(life.needs.hunger).toBeCloseTo(56, 0); // 80 − 6 × 0.5 × 8
     expect(life.needs.energy).toBeCloseTo(90, 0); // rested, capped at 90
@@ -344,7 +344,7 @@ describe("daily allowance", () => {
     expect(await allowances()).toBe(1 + days);
     await alice.room.leave(true);
     await sleep(200);
-    const again = track(await connect(context.server.url, { guestToken: alice.guestToken }));
+    const again = track(await connectAndPlay(context.server.url, alice.guestToken));
     await lifeAfter(again, () => true, "life after rejoining");
     await sleep(300);
     const sameDay = gameDayOf(again.room.state.gameMinute) === gameDayOf(alice.room.state.gameMinute);

@@ -20,7 +20,7 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { isWellFormedGuestToken } from "../src/identity/guestIdentity.ts";
 import type { Database } from "../src/db/database.ts";
-import { connect, joinWithNewCharacter, sleep, startTestServer, waitFor, type ProfileClient, type TestServer } from "./helpers/gameClient.ts";
+import { connect, connectAndPlay, enterWorld, joinWithNewCharacter, sleep, startTestServer, waitFor, type ProfileClient, type TestServer } from "./helpers/gameClient.ts";
 import { migratedTestDatabase } from "./helpers/testDatabase.ts";
 
 const count = async (server: TestServer, table: string) =>
@@ -67,7 +67,7 @@ describe("character profiles", () => {
   it("treats a first visit as anonymous: nothing is stored and nobody is placed in the world", async () => {
     const accountsBefore = await count(context.server, "accounts");
     const visitor = track(await connect(context.server.url));
-    expect(visitor.lastProfile()).toEqual({ status: "needs_character" });
+    expect(visitor.lastProfile()).toEqual({ status: "lobby", characters: [], maxCharacters: 3 });
     await sleep(200);
     expect(visitor.room.state.players.size).toBe(0);
     expect(await count(context.server, "accounts")).toBe(accountsBefore);
@@ -103,11 +103,13 @@ describe("character profiles", () => {
     expect(visitor.room.state.players.get(visitor.room.sessionId)).toBeUndefined();
   });
 
-  it("does not let a player create a second character", async () => {
+  it("does not create or enter another character while one is in the world", async () => {
     const alice = track(await joinWithNewCharacter(context.server.url, "Alice"));
-    alice.room.send(ClientMessage.CreateCharacter, { displayName: "Second", ageCategory: "adult", appearance: DEFAULT_APPEARANCE });
-    await waitFor(() => alice.errors.length === 1, 3000, "rejection");
-    expect(alice.errors[0]).toMatchObject({ reason: "already_has_character" });
+    alice.room.send(ClientMessage.CreateCharacter, { displayName: "Second", ageCategory: "adult", appearance: DEFAULT_APPEARANCE, traits: [] });
+    alice.room.send(ClientMessage.EnterWorld, { characterId: alice.lastProfile()!.profile!.characterId });
+    await waitFor(() => alice.errors.length === 2, 3000, "rejections");
+    expect(alice.errors.map((e) => [e.action, e.reason])).toEqual([["createCharacter", "in_world"], ["enterWorld", "in_world"]]);
+    expect(await count(context.server, "characters WHERE display_name = 'Second'")).toBe(0);
   });
 
   it("loads the same character on a later visit, at the saved position", async () => {
@@ -122,9 +124,17 @@ describe("character profiles", () => {
     await sleep(300);
 
     const again = track(await connect(context.server.url, { guestToken: first.guestToken }));
+    // The title screen first: the character is listed but not in the world yet.
+    const lobby = again.lastProfile()!;
+    expect(lobby).toMatchObject({ status: "lobby", maxCharacters: 3, characters: [{ characterId, displayName: "Bruno", readOnly: false, notices: [] }] });
+    expect(decodeLook(lobby.characters![0]!.look).appearance).toEqual(DEFAULT_APPEARANCE);
+    expect(Date.parse(lobby.characters![0]!.lastPlayedAt!)).not.toBeNaN();
+    expect(JSON.stringify(lobby)).not.toContain("balance"); // life data is not part of the title screen
+    await sleep(200);
+    expect(playerIn(again, again.room.sessionId)).toBeUndefined();
+    await enterWorld(again, characterId);
     expect(again.lastProfile()).toMatchObject({ status: "ready", profile: { characterId, displayName: "Bruno" } });
     expect(again.identities).toHaveLength(0); // no new account
-    await waitFor(() => playerIn(again, again.room.sessionId) !== undefined, 3000, "spawned");
     const me = playerIn(again, again.room.sessionId);
     expect(me.x).toBeCloseTo(-7, 1);
     expect(me.z).toBeCloseTo(11, 1);
@@ -152,6 +162,8 @@ describe("character profiles", () => {
     await dario.room.leave(true);
     await sleep(300);
     const again = track(await connect(context.server.url, { guestToken: dario.guestToken }));
+    expect(decodeLook(again.lastProfile()!.characters![0]!.look).appearance).toEqual(changed);
+    await enterWorld(again);
     expect(again.lastProfile()!.profile!.appearance).toEqual(changed);
   });
 
@@ -171,7 +183,7 @@ describe("character profiles", () => {
     const visitor = track(await connect(context.server.url));
     visitor.room.send(ClientMessage.UpdateAppearance, { appearance: DEFAULT_APPEARANCE });
     await waitFor(() => visitor.errors.length === 1, 3000, "visitor rejection");
-    expect(visitor.errors[0]).toMatchObject({ reason: "no_character" });
+    expect(visitor.errors[0]).toMatchObject({ reason: "character_not_found" });
   });
 
   it("never lets one player change another player's profile", async () => {
@@ -194,9 +206,15 @@ describe("character profiles", () => {
 
   it("lets only the newest session play an account: the older window is saved and disconnected", async () => {
     const first = await joinWithNewCharacter(context.server.url, "Fabio");
-    const firstLeft = new Promise<number>((resolve) => first.room.onLeave((code) => resolve(code)));
+    let firstClosed: number | null = null;
+    const firstLeft = new Promise<number>((resolve) => first.room.onLeave((code) => resolve((firstClosed = code))));
     const watcher = track(await joinWithNewCharacter(context.server.url, "Watcher"));
     const second = track(await connect(context.server.url, { guestToken: first.guestToken }));
+    // Only looking at the title screen in a second window doesn't disconnect the first one.
+    await sleep(300);
+    expect(firstClosed).toBeNull();
+    expect(playerIn(watcher, first.room.sessionId)).toBeDefined();
+    await enterWorld(second);
     expect(await firstLeft).toBe(CLOSE_SIGNED_IN_ELSEWHERE);
     expect(second.lastProfile()).toMatchObject({ status: "ready", profile: { displayName: "Fabio" } });
     await waitFor(() => !watcher.room.state.players.has(first.room.sessionId), 3000, "old session removed");
@@ -250,13 +268,16 @@ describe("outdated and unexpected stored data", () => {
     );
 
     const again = track(await connect(context.server.url, { guestToken: ivo.guestToken }));
-    const payload = again.lastProfile()!;
+    const summary = again.lastProfile()!.characters![0]!;
     const expected = cloneAppearance(preset("rounded-afro"));
     expected.hair.style = DEFAULT_APPEARANCE.hair.style;
     expected.outfit.shoes = DEFAULT_APPEARANCE.outfit.shoes;
-    expect(payload.profile!.appearance).toEqual(expected); // only the broken fields fall back
-    expect(payload.notices).toEqual(["Some hair and outfit options you chose are no longer available, so defaults were chosen. You can change them any time."]);
-    expect(payload.readOnly).toBe(false);
+    expect(decodeLook(summary.look).appearance).toEqual(expected); // only the broken fields fall back
+    // The title screen tells the player what changed.
+    expect(summary.notices).toEqual(["Some hair and outfit options you chose are no longer available, so defaults were chosen. You can change them any time."]);
+    expect(summary.readOnly).toBe(false);
+    await enterWorld(again);
+    expect(again.lastProfile()!.profile!.appearance).toEqual(expected);
     const stored = await context.server.db.query<{ config: unknown }>("SELECT config FROM character_appearance WHERE character_id = $1", [characterId]);
     expect(stored.rows[0]!.config).toEqual(expected);
   });
@@ -274,7 +295,7 @@ describe("outdated and unexpected stored data", () => {
       [characterId],
     );
     const watcher = track(await joinWithNewCharacter(context.server.url, "Watcher"));
-    const again = track(await connect(context.server.url, { guestToken: kim.guestToken }));
+    const again = track(await connectAndPlay(context.server.url, kim.guestToken));
     const profile = again.lastProfile()!.profile!;
     expect(profile.profileVersion).toBe(PROFILE_VERSION);
     expect(profile.appearance).toMatchObject({
@@ -303,6 +324,13 @@ describe("outdated and unexpected stored data", () => {
     await context.server.db.query(`UPDATE character_appearance SET config = jsonb_set(config, '{face,eyeColour}', '"starlight"') WHERE character_id = $1`, [characterId]);
 
     const again = track(await connect(context.server.url, { guestToken: jun.guestToken }));
+    expect(again.lastProfile()!.characters![0]).toMatchObject({ displayName: "Jun", readOnly: true });
+    // Its look can't be changed from the title screen either.
+    again.room.send(ClientMessage.UpdateAppearance, { characterId, appearance: DEFAULT_APPEARANCE });
+    await waitFor(() => again.errors.length === 1, 3000, "title screen rejection");
+    expect(again.errors[0]).toMatchObject({ reason: "profile_newer_version" });
+    again.errors.length = 0;
+    await enterWorld(again);
     expect(again.lastProfile()).toMatchObject({ status: "ready", readOnly: true, profile: { displayName: "Jun" } });
     expect(again.lastProfile()!.profile!.appearance.face.eyeColour).toBe(DEFAULT_APPEARANCE.face.eyeColour); // safe copy in memory
     again.room.send(ClientMessage.UpdateAppearance, { appearance: DEFAULT_APPEARANCE });
@@ -390,7 +418,7 @@ describe("leaving and coming straight back", () => {
     }, 6000, "walked");
     // Leave and immediately come back, like a page reload: no waiting for the save.
     void first.room.leave(true);
-    const again = await connect(context.server.url, { guestToken: first.guestToken });
+    const again = await connectAndPlay(context.server.url, first.guestToken);
     rooms.push(again.room);
     await waitFor(() => playerIn(again, again.room.sessionId) !== undefined, 4000, "spawned");
     const me = playerIn(again, again.room.sessionId);
@@ -405,7 +433,7 @@ describe("leaving and coming straight back", () => {
       const me = playerIn(first, first.room.sessionId);
       return Math.hypot(me.x - 5, me.z - 10) < 0.1 && !me.moving;
     }, 6000, "walked");
-    const again = await connect(context.server.url, { guestToken: first.guestToken });
+    const again = await connectAndPlay(context.server.url, first.guestToken);
     rooms.push(again.room);
     await waitFor(() => playerIn(again, again.room.sessionId) !== undefined, 4000, "spawned");
     const me = playerIn(again, again.room.sessionId);

@@ -39,6 +39,8 @@ export interface StoredCharacter {
   /** Raw stored trait ids; clean with sanitizeStoredTraits. */
   traits: unknown[];
   state: SavedState | null;
+  /** When the position was last saved (i.e. last played); null without a saved position. */
+  lastPlayedAt: Date | null;
 }
 
 export interface Owner {
@@ -65,6 +67,7 @@ interface CharacterRow {
   pos_x: number | null;
   pos_z: number | null;
   rotation: number | null;
+  state_updated_at: Date | null;
   traits: unknown[] | null;
 }
 
@@ -72,7 +75,7 @@ const SELECT_CHARACTER = `
   SELECT c.id AS character_id, c.account_id, c.display_name, c.age_category, c.profile_version,
          c.created_at, c.updated_at,
          a.preset, a.skin_tone, a.hair_style, a.hair_colour, a.eye_colour, a.outfit, a.config,
-         s.area, s.pos_x, s.pos_z, s.rotation,
+         s.area, s.pos_x, s.pos_z, s.rotation, s.updated_at AS state_updated_at,
          (SELECT array_agg(t.trait ORDER BY t.trait) FROM character_traits t WHERE t.character_id = c.id) AS traits
     FROM characters c
     JOIN character_appearance a ON a.character_id = c.id
@@ -103,6 +106,7 @@ function toStored(row: CharacterRow): StoredCharacter {
       row.pos_x === null || row.pos_z === null
         ? null
         : { area: row.area ?? "plaza", x: Number(row.pos_x), z: Number(row.pos_z), rotation: Number(row.rotation ?? 0) },
+    lastPlayedAt: row.state_updated_at ? new Date(row.state_updated_at) : null,
   };
 }
 
@@ -171,7 +175,11 @@ export async function createGuestWithCharacter(
   return { accountId, guestToken, character };
 }
 
-/** Adds a character to an existing account. Null if the account already has one. */
+/**
+ * Adds a character to an existing account, unless the account already holds
+ * `maxCharacters`. The account row is locked first, so two windows creating
+ * at the same time cannot both slip under the limit.
+ */
 export async function createCharacterForAccount(
   db: Database,
   accountId: string,
@@ -179,16 +187,19 @@ export async function createCharacterForAccount(
   profileVersion: number,
   spawn: SavedState,
   seed: LifeSeed,
-): Promise<StoredCharacter | null> {
-  const existing = await loadCharacterByAccount(db, accountId);
-  if (existing) return null;
-  try {
-    const characterId = await db.transaction((tx) => insertCharacter(tx, accountId, input, profileVersion, spawn, seed));
-    return loadCharacterById(db, { accountId, characterId });
-  } catch (error) {
-    if (isUniqueViolation(error)) return null; // created concurrently by another session
-    throw error;
-  }
+  maxCharacters: number,
+): Promise<StoredCharacter | "too_many_characters" | "no_account"> {
+  const result = await db.transaction(async (tx) => {
+    const account = await tx.query(`SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, [accountId]);
+    if (account.rows.length === 0) return "no_account" as const;
+    const { rows } = await tx.query<{ count: string | number }>(`SELECT count(*) AS count FROM characters WHERE account_id = $1`, [accountId]);
+    if (Number(rows[0]?.count ?? 0) >= maxCharacters) return "too_many_characters" as const;
+    return insertCharacter(tx, accountId, input, profileVersion, spawn, seed);
+  });
+  if (result === "too_many_characters" || result === "no_account") return result;
+  const character = await loadCharacterById(db, { accountId, characterId: result });
+  if (!character) throw new Error("Character vanished right after creation");
+  return character;
 }
 
 /** Resolves a guest token to its account id, or null. Updates last_seen_at. */
@@ -203,9 +214,24 @@ export async function findAccountIdByGuestToken(db: Database, token: string): Pr
   return rows[0]?.account_id ?? null;
 }
 
-export async function loadCharacterByAccount(db: Queryable, accountId: string): Promise<StoredCharacter | null> {
-  const { rows } = await db.query<CharacterRow>(`${SELECT_CHARACTER} WHERE c.account_id = $1 ORDER BY c.created_at LIMIT 1`, [accountId]);
-  return rows[0] ? toStored(rows[0]) : null;
+/** All characters of an account, most recently played first. */
+export async function listCharactersByAccount(db: Queryable, accountId: string): Promise<StoredCharacter[]> {
+  const { rows } = await db.query<CharacterRow>(
+    `${SELECT_CHARACTER} WHERE c.account_id = $1 ORDER BY s.updated_at DESC NULLS LAST, c.created_at, c.id`,
+    [accountId],
+  );
+  return rows.map(toStored);
+}
+
+/**
+ * Permanently deletes a character owned by `owner.accountId`, with everything
+ * that belongs to it (appearance, position, traits, needs, skills, mood
+ * events, wallet and ledger cascade). Returns false when that account does
+ * not own that character.
+ */
+export async function deleteCharacter(db: Queryable, owner: Owner): Promise<boolean> {
+  const { rows } = await db.query(`DELETE FROM characters WHERE id = $1 AND account_id = $2 RETURNING id`, [owner.characterId, owner.accountId]);
+  return rows.length > 0;
 }
 
 export async function loadCharacterById(db: Queryable, owner: Owner): Promise<StoredCharacter | null> {
@@ -256,6 +282,3 @@ export async function saveState(db: Queryable, owner: Owner, state: SavedState):
   return rows.length > 0;
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { code?: string }).code === "23505";
-}

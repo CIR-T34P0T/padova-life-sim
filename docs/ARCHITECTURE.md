@@ -42,11 +42,15 @@ the client, `tsx` runs it on the server.
 - `render/worldScene.ts` builds the scene **from the shared world layout**, so
   visuals and collision cannot drift apart.
 - `render/quality.ts` picks a profile: phones (coarse pointer) get pixel ratio
-  ≤ 1.5, no shadows, no antialiasing. Override with `?quality=high|low`.
+  ≤ 1.5, no shadows, no antialiasing. The Graphics setting (title screen →
+  Settings) or `?quality=high|low` overrides it; read once at page load.
 - Name tags use `CSS2DRenderer` (DOM elements positioned over the canvas).
 - Portrait screens get a wider vertical field of view (`render/cameraRig.ts`).
-- While the full-screen character creator is open, the world is not rendered
-  (`Game.setCovered`), so only the creator's preview uses the GPU.
+- The world renders only while the player is in it (`Game.enterWorld` /
+  `leaveWorld`) and not while a full-screen panel such as the creator covers
+  it (`Game.setCovered`), so menus and the creator's preview have the GPU to
+  themselves. Avatars of other players are built only once this client
+  enters the world.
 
 ## Characters (M6, D-027 to D-030)
 
@@ -130,7 +134,7 @@ routes messages and runs movement, then `interactions.tick()`.
 taps against the ground, obstacles and avatar bodies (`pick`). Results:
 object, other player, self, ground, or a non-interactive obstacle. Tapping
 yourself while seated opens the seat's menu (e.g. Sketch, Stand up, plus
-"Character"); standing, it opens your own menu ("Character", "Edit appearance"). Own options are client-side and
+"Character"); standing, it opens your own menu ("Character", "Edit look"). Own options are client-side and
 never sent as interactions. Menus are built with the shared rules over replicated state and
 re-rendered only when their contents change. With a menu open, tapping
 elsewhere only dismisses it.
@@ -222,35 +226,62 @@ create a character. Account and character ids from clients are never trusted.
 **Profiles (`server/src/profiles`).** `profileRepository.ts` holds all SQL,
 every query scoped by the owning account id. `ProfileService.ts` loads with
 upgrade/repair (newer versions read-only), creates (guest account + character
-in one transaction, rate-limited per IP), updates appearance and saves
-position. Validation rules live in `shared/src/profile.ts` (names, age
+in one transaction, rate-limited per IP; more characters for an existing
+account up to the limit, D-031), lists and deletes an account's characters,
+updates appearance and saves position. Validation rules live in `shared/src/profile.ts` (names, age
 categories, version upgrades) and `shared/src/appearance/` (appearance).
 
 **Room lifecycle (`server/src/PlazaRoom.ts`).**
-- Anonymous join → `profile {status: "needs_character"}`; nobody is placed in the world.
-- `createCharacter` → validated, stored, `identity {guestToken}` sent once, character spawned.
-- Join with a valid token → saved character loaded and spawned at its saved
+- Any join → the lobby (title screen); nobody is placed in the world until
+  `enterWorld` or `createCharacter` (see "Room lifecycle, title screen" below).
+- `createCharacter` → validated, stored (`identity {guestToken}` sent once for a new guest account), character spawned.
+- `enterWorld` → the saved character is loaded and spawned at its saved
   position (spawn point if that spot is no longer walkable).
 - `updateAppearance` → validated as a complete appearance config, saved (document plus the M4 projection), replicated as one `look` string.
 - Leave, eviction, room disposal → position and life data saved; autosave
   every 30 s for every character in the world (since M5).
-- Same account in a second session → the newest wins (D-018,
-  `profiles/sessionRegistry.ts`); the older one is saved first and closed with
-  code 4100. A new session waits for an in-flight save before loading.
+- Same account entering the world from a second session → the newest wins
+  (D-018, `profiles/sessionRegistry.ts`); the older one is saved first and
+  closed with code 4100. A new session waits for an in-flight save before
+  loading. Only looking at the title screen claims nothing.
 - Brief network drop → same session resumes within 20 s; nothing reloads.
 
-**Client.** `main.ts` drives the page: connect with the stored token →
-character creator or straight into the game. `ui/profilePanel.ts` shows
-"connecting", messages, and the character creator (`ui/creator.ts`) for
-creating (name, look, personality) and for editing (clicking yourself →
-"Edit appearance"). The creator has a live 3D preview (drag to turn, body /
-upper / face camera), presets with thumbnails (hover or focus to compare),
-tabs for body, skin, face, hair and outfit, randomise (all or one tab),
-reset a tab, undo/redo, hold-to-compare with the starting look, look codes
-and up to six looks saved in the browser (`localStorage`, convenience only).
+**Room lifecycle, title screen (D-031).** Joining puts a session in the
+lobby: `profile {status: "lobby"}` lists its account's characters and no
+character is in the world. `enterWorld` (an id of the session's own account)
+or `createCharacter` claims the account (newest session in the world wins),
+loads or creates the character and spawns it; `leaveWorld` saves it, removes
+it and returns the lobby; `deleteCharacter` (title screen only, name typed,
+not while played anywhere) deletes it with all its data. One profile request
+runs at a time per session (`busy` otherwise).
+
+**Client.** `main.ts` applies device settings, builds the game view and
+starts `ui/flow.ts`, which drives the screens around the world:
+
+| Module | Role |
+| --- | --- |
+| `ui/flow.ts` | The page flow: title → new life (setup → creator → review) or Continue → entering transition → world; Manage characters, Settings, Credits; editing a look (title screen or world); back to the title; errors and timeouts of pending requests |
+| `ui/screens/screenHost.ts` | Shows one full-screen screen at a time in `#screens` (Escape = back), hides them all while playing |
+| `ui/screens/titleScreen.ts`, `backdrop.ts` | Title menu and the key visual (starry sky, porticoes) drawn in SVG by code |
+| `ui/screens/setupScreen.ts` | Name and personality |
+| `ui/screens/creatorScreen.ts`, `ui/creator.ts` | The creator (live 3D preview: drag/touch to turn, wheel/pinch/buttons to zoom; six categories: Appearance, Face, Hair, Body, Clothing, Accessories; starting looks; randomise all or one category; reset a category; undo/redo; hold to compare; look codes) and the review step with the final confirmation |
+| `ui/screens/manageScreen.ts` | Character list: Play, Edit look, Delete (with typed confirmation), New life |
+| `ui/screens/infoScreens.ts` | Settings, Credits, the entering/leaving transition, plain messages |
+| `ui/screens/portraits.ts` | Portraits of the real 3D characters for menus, drawn by one short-lived offscreen renderer and cached |
+| `ui/settings.ts` | Device settings in `localStorage` (graphics, camera speed, interface motion, controls reminder) |
+
+The creator groups the config into player-facing categories with the pure
+helpers in `shared/src/appearance/categories.ts` (which field belongs where,
+per-category randomise and reset, the plain-language review summary).
 Choices that are covered by another (hair under a headscarf, top under a
-full outfit) are labelled "saved, but not visible right now". It renders only
-when something visible changes.
+full outfit) are labelled "saved, but not visible right now". The preview
+renders only when something visible changes, except for the review
+turntable. Nothing is sent to the server before the player confirms on the
+review step; cancelling with changes asks first.
+
+If a body part can't be built from a look (a renderer bug), `CharacterModel`
+draws that part from the default look, reports it in its stats, and the
+creator tells the player; other parts and other players are unaffected.
 
 **Services wiring.** `app.ts` builds a `ProfileService`, `LifeService` and
 `SessionRegistry` per game server and registers them under a key passed in room options

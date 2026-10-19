@@ -48,7 +48,7 @@ async function waitForAllPlayers(pages: Page[], count: number) {
 }
 
 test("desktop: select a bench, sit, stand up from yourself, greet another player", async ({ browser }) => {
-  test.setTimeout(150_000); // many steps with two software-rendered browsers; slow on 2-CPU machines
+  test.setTimeout(300_000); // many steps with two software-rendered browsers sharing one software GPU on 2 CPUs; joining has more steps since the title screen
   const alice = await joinAs(browser, "Alice");
   const bruno = await joinAs(browser, "Bruno");
   await waitForAllPlayers([alice.page, bruno.page], 2);
@@ -141,7 +141,7 @@ test("desktop: select a bench, sit, stand up from yourself, greet another player
     await alice.page.waitForTimeout(400);
     const self = await targetPoint(alice.page, "player", alice.id);
     await alice.page.mouse.click(self.x, self.y);
-    expect(await interaction(alice.page)).toMatchObject({ menu: { title: "Alice", subtitle: "You", options: ["Character", "Edit appearance"] } });
+    expect(await interaction(alice.page)).toMatchObject({ menu: { title: "Alice", subtitle: "You", options: ["Character", "Edit look"] } });
     await alice.page.keyboard.press("Escape");
     await expect(alice.page.locator("#action-menu")).toBeHidden();
   });

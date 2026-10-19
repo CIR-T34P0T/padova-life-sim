@@ -6,7 +6,7 @@
 // The phone is Chromium mobile emulation (Pixel 7), not a physical device.
 
 import { devices, expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { createCharacter, waitUntilPlaying } from "./helpers.ts";
+import { continueFromTitle, createCharacter } from "./helpers.ts";
 
 interface LifeView {
   gameMinute: number;
@@ -59,9 +59,21 @@ async function walkTo(page: Page, x: number, z: number) {
   await page.waitForTimeout(400); // camera follows
 }
 
-/** Screen point for an object, checked to be on screen and to pick that object. */
+/**
+ * Screen point for an object, checked to be on screen and to pick that object.
+ * Waits until the point stops moving: the camera glides after the character,
+ * and on a slow, software-rendered machine 400 ms is not always enough (the
+ * café counter was once measured mid-glide, under the panel's edge).
+ */
 async function objectPoint(page: Page, id: string) {
-  const point = await page.evaluate((i) => (window as any).__padova.targetScreenPoint("object", i), id);
+  const read = () => page.evaluate((i) => (window as any).__padova.targetScreenPoint("object", i), id);
+  let point = await read();
+  await expect.poll(async () => {
+    const next = await read();
+    const still = Math.hypot(next.x - point.x, next.y - point.y) < 1;
+    point = next;
+    return still;
+  }, { timeout: 10_000, intervals: [250] }).toBe(true);
   expect(point?.visible, `${id} should be on screen`).toBe(true);
   const aim = { x: point.x, y: point.y + 4 };
   expect(await page.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [aim.x, aim.y] as const)).toMatchObject({ kind: "object", id });
@@ -108,7 +120,12 @@ test("desktop: café → eat → study, all visible in the character panel, and 
   let afterMeal!: LifeView;
   await test.step("walk to the café and buy a panino: the server charges €4.50 once", async () => {
     // The panel stays open while playing. The café counter is east of the spawn point.
+    // Stop 2.5 m from it, in two steps (the second point is under the panel as
+    // seen from the spawn point): from 4 m away the counter sat a few pixels from
+    // the panel's left edge, and where the walk ended (within 0.5 m) decided
+    // whether it was covered.
     await walkTo(page, 5, 11);
+    await walkTo(page, 6.5, 11.5);
     const counter = await objectPoint(page, "cafe-counter");
     await page.mouse.click(counter.x, counter.y);
     const menu = (await interaction(page)).menu;
@@ -158,7 +175,7 @@ test("desktop: café → eat → study, all visible in the character panel, and 
 
   await test.step("reload: needs, skills, money and purchase history come back from the server", async () => {
     await page.reload();
-    await waitUntilPlaying(page, "Giulia");
+    await continueFromTitle(page, "Giulia");
     await expect.poll(() => life(page)).not.toBeNull();
     const reloaded = await mustLife(page);
     expect(reloaded.traits).toEqual(["organised"]);
@@ -199,7 +216,7 @@ test("mobile: the character panel is a bottom sheet under half the screen", asyn
       return game.targetScreenPoint("player", game.selfId);
     });
     await page.touchscreen.tap(self.x, self.y);
-    expect(await interaction(page)).toMatchObject({ menu: { kind: "sheet", options: ["Character", "Edit appearance"] } });
+    expect(await interaction(page)).toMatchObject({ menu: { kind: "sheet", options: ["Character", "Edit look"] } });
     await page.locator('#action-sheet [data-action="character"]').tap();
     await expect(page.locator("#action-sheet")).toBeHidden();
     await expect(page.locator("#character-panel")).toBeVisible();

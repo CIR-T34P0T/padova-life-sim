@@ -56,7 +56,7 @@ describe("plaza room", () => {
   it("refuses a character with an unusable name and keeps the visitor out of the world", async () => {
     const visitor = await connect(server.url);
     openRooms.push(visitor.room);
-    expect(visitor.lastProfile()).toEqual({ status: "needs_character" });
+    expect(visitor.lastProfile()).toMatchObject({ status: "lobby", characters: [] });
     visitor.room.send(ClientMessage.CreateCharacter, { displayName: "<", ageCategory: "adult", appearance: {} });
     await waitFor(() => visitor.errors.length === 1);
     expect(visitor.errors[0]).toMatchObject({ action: "createCharacter", reason: "invalid_name" });

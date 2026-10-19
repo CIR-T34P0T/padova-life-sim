@@ -30,6 +30,8 @@ export interface RoomTuning {
   /** Multiplies how long eating and drinking take (1 = menu durations). */
   consumeDurationFactor: number;
   guestCreationsPerIpPerHour: number;
+  /** Characters one guest profile may hold (D-031). */
+  maxCharactersPerAccount: number;
   autosaveIntervalMs: number;
   /** Game minutes per real minute (D-021). */
   timeScale: number;
@@ -49,6 +51,7 @@ export const DEFAULT_TUNING: RoomTuning = {
   },
   consumeDurationFactor: 1,
   guestCreationsPerIpPerHour: PROFILE_CONFIG.guestCreationsPerIpPerHour,
+  maxCharactersPerAccount: PROFILE_CONFIG.maxCharactersPerAccount,
   autosaveIntervalMs: PROFILE_CONFIG.autosaveIntervalMs,
   timeScale: TIME_CONFIG.defaultScale,
   startingBalanceCents: ECONOMY_CONFIG.startingBalanceCents,

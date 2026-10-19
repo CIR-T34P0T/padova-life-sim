@@ -8,6 +8,9 @@ import type { CharacterModel } from "./avatar/index.ts";
 
 export type PreviewView = "body" | "face" | "upper";
 
+/** Where each named view sits on the continuous zoom scale of frameAt. */
+export const VIEW_ZOOM: Record<PreviewView, number> = { body: 0, upper: 1, face: 2 };
+
 export class PreviewStage {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -46,19 +49,35 @@ export class PreviewStage {
 
   /** Aims the camera at the character. `yaw` turns the character (radians). */
   frame(character: CharacterModel, view: PreviewView, yaw: number): void {
+    this.frameAt(character, VIEW_ZOOM[view], yaw);
+  }
+
+  /**
+   * Continuous framing for zooming: 0 = whole body, 1 = upper body, 2 = face.
+   * Values in between blend target and framing, so wheel / pinch zoom moves
+   * smoothly towards the face instead of into the middle of the body.
+   */
+  frameAt(character: CharacterModel, zoom: number, yaw: number): void {
     this.turntable.rotation.y = yaw;
     const m = character.metrics;
-    const target =
-      view === "face"
-        ? new THREE.Vector3(0, m.headCentreY - 0.01, 0)
-        : view === "upper"
-          ? new THREE.Vector3(0, (m.headCentreY + m.waistY) / 2 + 0.05, 0)
-          : new THREE.Vector3(0, m.height * 0.52, 0);
-    const span = view === "face" ? 0.42 : view === "upper" ? 0.95 : m.height + 0.35;
+    const shots = [
+      { y: m.height * 0.52, span: m.height + 0.35, lift: 0.1 },
+      { y: (m.headCentreY + m.waistY) / 2 + 0.05, span: 0.95, lift: 0.02 },
+      { y: m.headCentreY - 0.01, span: 0.42, lift: 0.02 },
+    ];
+    const z = THREE.MathUtils.clamp(zoom, 0, 2);
+    const i = Math.min(1, Math.floor(z));
+    const t = z - i;
+    const a = shots[i]!;
+    const b = shots[i + 1]!;
+    const y = THREE.MathUtils.lerp(a.y, b.y, t);
+    // Blend the span geometrically so each step of zoom feels the same size.
+    const span = a.span * Math.pow(b.span / a.span, t);
+    const lift = THREE.MathUtils.lerp(a.lift, b.lift, t);
     const fov = THREE.MathUtils.degToRad(this.camera.fov);
     const distance = span / 2 / Math.tan(fov / 2) / Math.min(1, this.camera.aspect * 1.1);
-    this.camera.position.set(0, target.y + (view === "body" ? 0.1 : 0.02), distance);
-    this.camera.lookAt(target);
+    this.camera.position.set(0, y + lift, distance);
+    this.camera.lookAt(0, y, 0);
   }
 
   render(): void {

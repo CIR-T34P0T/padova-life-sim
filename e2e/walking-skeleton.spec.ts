@@ -31,7 +31,7 @@ async function screenPointFor(page: Page, x: number, z: number) {
 }
 
 test("two desktop players and a touch player share the piazza", async ({ browser }) => {
-  test.setTimeout(150_000); // three software-rendered browsers; slow on 2-CPU machines
+  test.setTimeout(300_000); // three software-rendered browsers, each through the title screen; slow on 2-CPU machines
   const alice = await joinAs(browser, "Alice");
   const bruno = await joinAs(browser, "Bruno");
   const phone = await joinAs(browser, "Chiara", { ...devices["Pixel 7"] });

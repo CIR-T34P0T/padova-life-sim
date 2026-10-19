@@ -59,8 +59,18 @@ export type ProfileFailure =
   | "age_category_not_allowed"
   | "invalid_appearance"
   | "invalid_traits"
-  | "already_has_character"
-  | "no_character"
+  /** The profile already holds PROFILE_CONFIG.maxCharactersPerAccount characters. */
+  | "too_many_characters"
+  /** No character with that id belongs to this profile (or none is being played). */
+  | "character_not_found"
+  /** The character is in the world (in this or another window), so it can't be deleted now. */
+  | "character_in_use"
+  /** The typed name didn't match the character being deleted. */
+  | "confirm_name_mismatch"
+  /** Only possible at the title screen: leave the world first. */
+  | "in_world"
+  /** Another profile request from this window is still being handled. */
+  | "busy"
   | "profile_newer_version"
   | "rate_limited"
   | "storage_error";

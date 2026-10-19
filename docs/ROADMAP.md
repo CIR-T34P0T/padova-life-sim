@@ -12,6 +12,7 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M4 | Identity and persistence | Tested (persistence verified) | Temporary guest identity, PostgreSQL with migrations, versioned character profile, appearance and position restored after reload and server restart |
 | M5 | Life simulation | Tested (persistence verified) | Server game clock and offline rules; five needs; mood with reasons; five skills; four traits; money ledger with server-validated café purchases; character panel; the complete café → eat → study → reload loop |
 | M6 | Characters | Tested (persistence verified); Stage-1 procedural art | Versioned appearance config; procedural anime-inspired characters for every option (skin tones, 17 hair styles, face, body, wardrobe); character creator with live 3D preview; saved, upgraded from M5, replicated. Authored (artist-made) models not available yet (D-027) |
+| M6b | Title screen and character creation flow | Tested (persistence verified on PGlite and PostgreSQL 16); real phone and Windows not yet | Title screen (New life, Continue, Manage characters, Settings, Credits); up to 3 lives per guest profile (D-031); new life in three steps (name and personality → live 3D look in six categories → review and confirm); entering transition; edit a look from the title screen or the world without touching life data; original menu identity (D-032) |
 | M7 | A first job | Planned | Café shift pays a wage into the M5 ledger; skills start to matter (e.g. pay or eligibility) |
 
 After M7: **playable multiplayer prototype**. Later phases: sleep and beds
@@ -105,50 +106,77 @@ Not yet **verified**: real phone, Windows, play-testing of the balance, and the 
 Not yet **verified**: the product owner's own look at the characters, a real
 phone, and Windows.
 
+## M6b title screen and character creation: acceptance criteria
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| 1. Title screen with New Life, Continue, Character Management, Settings, Credits | Tested | e2e `title-flow.spec.ts`: five items, Continue disabled without a life and naming the last played character with a portrait; Manage characters, Settings, Credits open and Escape returns |
+| 2. Naming and initial setup | Tested | Name required (2–20 characters, checked again by the server), up to two personality traits, adult notice; going back keeps the values |
+| 3. Live 3D character creation | Tested | The real procedural characters (M6). Six categories: Appearance (starting looks, skin), Face, Hair, Body, Clothing, Accessories. Drag/touch to turn, wheel/pinch/buttons to zoom, randomise all or one category, reset a category, undo/redo, hold to compare |
+| 4. Final review and confirmation | Tested | Review step: turntable, name, traits, one plain line per category with "Change"; nothing is sent before "Begin life in Padova" / "Save look"; edits list what will change |
+| 5. Transition into the shared world | Tested | "Welcome to Padova" with the time of day, waits for the world's first frame, then uncovers it |
+| 6. Diverse starting presets, free combination, no ethnicity restriction | Tested (from M6) | 17 presets named by look; every field independently changeable; no ethnicity field (D-029) |
+| 7. Only functioning options shown; missing assets and unavailable options handled | Implemented; partly tested | Every catalogue option has renderer code (M6 tests); covered choices labelled (tested). If a body part can't be built, the default part is drawn and the player is told (implemented, not tested: no way to break a part on purpose yet); portraits fall back to the initial without WebGL, and the creator explains a missing WebGL (implemented, not tested); Settings shows only working settings |
+| 8. Desktop mouse and keyboard; mobile touch, portrait and landscape; no hover / right-click / keyboard-only requirement | Tested (emulation) | e2e desktop flows; 390×844 and 844×390 touch: everything on screen, 44 px targets, one-finger turn and two-finger pinch on the preview, tapping through creation and editing. Hover only previews starting looks (tap applies them); keyboard: Tab/Enter, arrow keys in the categories and on the preview, Escape = back. Real phone not tested |
+| 9. Saved through the existing persistence layer; same look in the world; other clients see it | Persistence verified (PGlite and PostgreSQL 16) | Integration and e2e: create, reload → Continue, others see the decoded look; database tests and the title-screen and persistence browser tests also on PostgreSQL 16, rows checked with SQL (see TESTING.md) |
+| 10. Changing cosmetics later never resets needs, money, skills, inventory or relationships | Tested | Integration: database rows for needs, wallet, ledger, skills, traits and position identical before and after a look change (title screen and world); e2e: money, ledger, skills, traits unchanged. Inventory and relationships don't exist yet |
+| 11. Cancellation, reconnecting, multiplayer replication, mobile usability tested | Tested | e2e: Cancel asks before discarding and saves nothing; simulated network drop reconnects into the same character; reload → Continue; another player sees the saved look |
+
+Not yet **verified** by the product owner: the screens on Windows and on a
+real phone, and the art direction of the new menus.
+
 ## Current state (handoff, 2026-10-19)
 
 Read this first when starting a new session.
 
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
-M0–M6 implemented and covered by automated tests (179 unit/integration
-tests, 14 browser tests; see `docs/TESTING.md` for the latest results).
+M0–M6 and M6b (title screen and creation flow) implemented and covered by
+automated tests (198 unit/integration tests, 18 browser tests; see
+`docs/TESTING.md` for the latest results).
 Characters and their life data are saved in PostgreSQL (embedded PGlite in
 development). Characters are procedural Stage-1 art (D-027), not
 artist-made models. Still placeholders: greybox world, a box for the café counter.
 
-**What a player can do today:** create a character in the character creator
-(name, a look built from presets or from scratch with a live 3D preview, up
-to two personality traits) and change the look later; walk, sit, sketch on
+**What a player can do today:** start from a title screen; create up to
+three characters ("lives") per browser in three steps (name and
+personality, a look built from starting looks or from scratch with a live 3D
+preview, a review), continue the last one, switch between them, edit a look
+from the title screen or in the world, delete a life; walk, sit, sketch on
 benches, study at desks, buy an espresso/cornetto/panino at the café, wash
 up at the fountain, greet other players; watch needs, mood (with reasons),
 skills and money in the character panel; come back later, even after a
 server restart, to the same character with the same look, needs, skills,
 money and purchase history.
 
-**Genuinely persistent:** account (guest), character profile, appearance
-config, traits, last position, needs, skills, mood events, wallet and every
-money transaction. **Temporary:** activity, seats, pending actions
-(including a meal in progress), cooldowns, online status; the guest identity
-itself lives only in one browser; looks saved in the creator live only in
-that browser. The world clock is derived from real time, not stored.
+**Genuinely persistent:** account (guest), its characters (up to three),
+each character's profile, appearance config, traits, last position, needs,
+skills, mood events, wallet and every money transaction. **Temporary:**
+activity, seats, pending actions (including a meal in progress), cooldowns,
+online status; the guest identity itself lives only in one browser; looks
+saved in the creator and device settings live only in that browser. The world clock is derived from real time, not stored.
 
 **Open items, in priority order:**
 
 | # | Item | Status | Owner |
 | --- | --- | --- | --- |
-| 1 | Look at the M6 characters and creator on the Windows PC (`git pull`, `npm ci`, `npm run dev`), including the character lab, and say what to change in the art direction | Planned | Product owner |
+| 1 | Look at the title screen, the creation flow and the M6 characters on the Windows PC (`git pull`, `npm ci`, `npm run dev`) and a phone, and say what to change in the art direction (menus and characters) | Planned | Product owner |
+| 1b | Confirm D-031 (three lives per guest profile; set `maxCharactersPerAccount` to 1 to go back) | Implemented as asked by the title screen brief; owner may change the number | Product owner |
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
-| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–21) | Planned | Product owner |
+| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–27) | Planned | Product owner |
 | 4 | Play-test the M5 balance (need rates, prices, allowance, study XP) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
 | 5 | Review the time model decisions D-021 (10 game minutes per real minute) and D-022 (offline cap) | Decided in M5 as instructed; owner may change the numbers | Product owner |
 | 6 | Decide on a real sign-in method to replace guest accounts, and on account deletion | Open decision (auth model needs approval) | Product owner, with options from Claude |
 | 7 | Decide the first real district | Open question, needed before real geometry | Product owner |
 | 8 | Decide whether to commission or license authored character models (requirements in ASSET_PIPELINE.md) or keep improving the procedural ones | Open; procedural characters are enough to continue | Product owner |
 
-**Recommended next task:** item 1, the product owner's look at the new
-characters on Windows (and a phone), because art direction is the owner's
-call and changes there are cheapest now. The next engineering milestone
+**Recommended next task:** item 1, the product owner's look at the title
+screen, the creation flow and the characters on Windows (and a phone),
+because art direction is the owner's call and changes there are cheapest now. The next engineering milestone
 after that, recommended: **M7, a first job** (a café shift that pays into
 the M5 ledger and uses a skill), which completes the earn → spend loop.
-Character follow-ups that can wait: spread character builds over frames and
-add a lower-detail version for distant players before rooms get busier.
+Follow-ups that can wait: spread character builds over frames and add a
+lower-detail version for distant players before rooms get busier; precompile
+the world's shaders while the title screen is open (entering takes about
+4 s with software rendering, 2.4 s of it the first world frame); stop
+sending the shared room state to sessions at the title screen (interest
+management); deleting a whole guest profile.

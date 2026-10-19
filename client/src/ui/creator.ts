@@ -1,22 +1,27 @@
-// Character creator (M6): live 3D preview plus controls for every part of
-// the appearance config. Used for "create your character" and "edit
-// appearance". The server validates everything again on save.
+// Character creator: the live 3D preview and the controls for every part of
+// the appearance config, grouped as Appearance, Face, Hair, Body, Clothing
+// and Accessories (shared/src/appearance/categories.ts). Used when creating
+// a character and when editing one (from the title screen or in the world).
+// The screen around it (creatorScreen.ts) adds the header, review step and
+// buttons. The server validates everything again on save.
 //
-// Features: presets with thumbnails (hover or focus to compare in the
-// preview, click to use), body / skin / face / hair / outfit tabs with
-// option buttons, colour swatches and sliders, randomise all or one tab,
-// reset a tab, undo / redo, hold-to-compare with the starting look, rotate
-// and zoom, look codes and looks saved in this browser.
+// Preview: drag (mouse or touch) to turn, wheel or pinch to zoom, buttons
+// and arrow / +/- keys for the same. Controls: option buttons, colour
+// swatches and sliders; randomise all or one category, reset a category,
+// undo / redo, hold to compare with the starting look, starting looks
+// (presets), look codes and looks saved in this browser.
 
 import {
   APPEARANCE_PRESETS,
-  APPEARANCE_SPEC,
   BEAUTY_MARKS,
   BODY_FRAMES,
   BOTTOMS,
   BROW_SHAPES,
   BUILDS,
+  CATEGORY_FIELDS,
+  CATEGORY_LABELS,
   CLOTHING_COLOURS,
+  CREATOR_CATEGORIES,
   EYE_COLOURS,
   EYE_SHAPES,
   FACE_SHAPES,
@@ -37,55 +42,52 @@ import {
   SKIN_TONE_STOPS,
   TOPS,
   UNDERTONES,
+  allFieldPaths,
   cloneAppearance,
   encodeLook,
   fromLookCode,
+  getAppearanceField,
+  heightCm,
   parseAppearanceConfig,
   randomAppearance,
-  randomiseSection,
+  randomiseCategory,
+  resetCategory,
   roundSlider,
   sameAppearance,
+  setAppearanceField,
   skinColour,
   skinToneLabel,
   toLookCode,
   visibleLayers,
   type AppearanceConfig,
-  type AppearanceSection,
   type ColourOption,
+  type CreatorCategory,
+  type FieldPath,
   type HairTexture,
   type Option,
 } from "@padova/shared";
 import { CharacterModel } from "../render/avatar/index.ts";
-import { PreviewStage, type PreviewView } from "../render/previewStage.ts";
-
-export type CreatorTab = "presets" | AppearanceSection | "personality";
+import { PreviewStage, VIEW_ZOOM, type PreviewView } from "../render/previewStage.ts";
+import { el, icon, iconButton } from "./screens/dom.ts";
+import { ICONS } from "./screens/icons.ts";
+import { fillPortrait } from "./screens/portraits.ts";
+import { cameraSpeedFactor, prefersReducedMotion } from "./settings.ts";
 
 export interface CreatorOptions {
   mode: "create" | "edit";
   initial: AppearanceConfig;
-  /** Extra panel content for a tab that isn't about appearance (personality in create mode). */
-  personality?: HTMLElement;
-  /** Content above the tabs (name field in create mode). */
-  header?: HTMLElement[];
+  /** Element that carries data-look / data-showing / data-build-ms (read by tests and tools). */
+  host: HTMLElement;
   onChange?: (appearance: AppearanceConfig) => void;
 }
 
-const SECTION_LABELS: Record<AppearanceSection, string> = { body: "Body", skin: "Skin", face: "Face", hair: "Hair", outfit: "Outfit" };
 const HISTORY_LIMIT = 60;
 const SAVED_LOOKS_KEY = "padova.savedLooks";
 const MAX_SAVED_LOOKS = 6;
-
-type Path = `${AppearanceSection}.${string}`;
-
-function getField(config: AppearanceConfig, path: Path): unknown {
-  const [section, field] = path.split(".") as [AppearanceSection, string];
-  return (config[section] as Record<string, unknown>)[field];
-}
-
-function setField(config: AppearanceConfig, path: Path, value: unknown): void {
-  const [section, field] = path.split(".") as [AppearanceSection, string];
-  (config[section] as Record<string, unknown>)[field] = value;
-}
+const MIN_ZOOM = 0;
+const MAX_ZOOM = 2;
+/** Where the camera goes when a category opens (0 body … 2 face). */
+const CATEGORY_ZOOM: Partial<Record<CreatorCategory, number>> = { face: 2, hair: 1.25, accessories: 1.35, body: 0, clothing: 0 };
 
 function readSavedLooks(): { name: string; code: string }[] {
   try {
@@ -106,79 +108,80 @@ function writeSavedLooks(list: { name: string; code: string }[]): boolean {
   }
 }
 
-const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] => {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  if (text !== undefined) element.textContent = text;
-  return element;
-};
-
 export class CharacterCreator {
-  readonly element: HTMLElement;
+  /** The 3D preview with its camera toolbar. */
+  readonly preview: HTMLElement;
+  /** History tools, category tabs and the options of the open category. */
+  readonly controls: HTMLElement;
   private appearance: AppearanceConfig;
   private readonly initial: AppearanceConfig;
+  private readonly host: HTMLElement;
   private readonly history: string[] = [];
   private future: string[] = [];
-  private tab: CreatorTab;
+  private category: CreatorCategory;
   private readonly stage: PreviewStage;
   private readonly model: CharacterModel;
   private readonly canvas: HTMLCanvasElement;
-  private view: PreviewView = "body";
+  private zoom = 0;
+  private targetZoom = 0;
   private yaw = 0.35;
   private comparing: AppearanceConfig | null = null;
   private previewing: AppearanceConfig | null = null;
   private pendingBuild = false;
+  private reviewing = false;
+  private dragging = false;
   private frame = 0;
+  private lastTick = performance.now();
+  private lastTurn = performance.now();
   private running = true;
-  private readonly controls: HTMLElement;
+  private readonly panel: HTMLElement;
   private readonly tabList: HTMLElement;
   private readonly statusLine: HTMLElement;
   private readonly undoButton: HTMLButtonElement;
   private readonly redoButton: HTMLButtonElement;
-  private thumbnails = new Map<string, string>();
+  private readonly viewButtons: HTMLButtonElement[] = [];
   private resizeObserver: ResizeObserver | null = null;
+  private sliderStart: string | null = null;
 
   constructor(private readonly options: CreatorOptions) {
     this.initial = cloneAppearance(options.initial);
     this.appearance = cloneAppearance(options.initial);
-    this.tab = options.mode === "create" ? "presets" : "hair";
+    this.host = options.host;
+    this.category = options.mode === "create" ? "appearance" : "hair";
 
-    this.element = el("div", "creator");
-    this.element.dataset.mode = options.mode;
-
-    // Preview column.
-    const preview = el("div", "creator-preview");
+    // ── Preview ──
+    this.preview = el("div", "creator-preview");
+    const stageBox = el("div", "creator-stage");
     this.canvas = el("canvas", "creator-canvas");
+    this.canvas.tabIndex = 0;
     this.canvas.setAttribute("role", "img");
-    this.canvas.setAttribute("aria-label", "Live preview of your character. Drag to turn.");
+    this.canvas.setAttribute("aria-label", "Live 3D preview of your character. Drag to turn, scroll or pinch to zoom. Arrow keys turn, plus and minus zoom.");
+    stageBox.append(this.canvas);
     const toolbar = el("div", "creator-toolbar");
-    const toolButton = (label: string, title: string, action: string, onClick: () => void) => {
-      const button = el("button", "tool-button", label);
-      button.type = "button";
-      button.title = title;
-      button.setAttribute("aria-label", title);
-      button.dataset.action = action;
-      button.addEventListener("click", onClick);
-      return button;
-    };
-    const views: [PreviewView, string][] = [["body", "Body"], ["upper", "Upper"], ["face", "Face"]];
-    const viewGroup = el("div", "tool-group");
-    viewGroup.setAttribute("role", "radiogroup");
-    viewGroup.setAttribute("aria-label", "Camera");
-    for (const [id, label] of views) {
-      const button = toolButton(label, `Show ${label.toLowerCase()}`, `view-${id}`, () => {
-        this.view = id;
-        for (const b of viewGroup.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === button));
-      });
-      button.setAttribute("aria-pressed", String(id === this.view));
-      viewGroup.append(button);
+    const views = el("div", "tool-group view-group");
+    views.setAttribute("role", "group");
+    views.setAttribute("aria-label", "Camera");
+    for (const [id, label] of [["body", "Body"], ["upper", "Upper"], ["face", "Face"]] as [PreviewView, string][]) {
+      const b = el("button", "tool-button", label);
+      b.type = "button";
+      b.dataset.action = `view-${id}`;
+      b.title = `Show ${label.toLowerCase()}`;
+      b.addEventListener("click", () => this.setZoom(VIEW_ZOOM[id]));
+      this.viewButtons.push(b);
+      views.append(b);
     }
-    const turnGroup = el("div", "tool-group");
-    turnGroup.append(
-      toolButton("⟲", "Turn left", "turn-left", () => (this.yaw -= Math.PI / 4)),
-      toolButton("⟳", "Turn right", "turn-right", () => (this.yaw += Math.PI / 4)),
+    const camera = el("div", "tool-group");
+    camera.append(
+      iconButton(ICONS.turnLeft, "Turn left", { className: "tool-button is-icon", action: "turn-left", onClick: () => (this.yaw -= Math.PI / 4) }),
+      iconButton(ICONS.turnRight, "Turn right", { className: "tool-button is-icon", action: "turn-right", onClick: () => (this.yaw += Math.PI / 4) }),
+      iconButton(ICONS.zoomOut, "Zoom out", { className: "tool-button is-icon", action: "zoom-out", onClick: () => this.setZoom(this.targetZoom - 0.5) }),
+      iconButton(ICONS.zoomIn, "Zoom in", { className: "tool-button is-icon", action: "zoom-in", onClick: () => this.setZoom(this.targetZoom + 0.5) }),
     );
-    const compare = toolButton("Hold to compare", "Hold to see the look you started with", "compare", () => {});
+    const compare = el("button", "tool-button compare-button");
+    compare.type = "button";
+    compare.dataset.action = "compare";
+    compare.title = "Hold to see the look you started with";
+    compare.append(icon(ICONS.compare), el("span", undefined, options.mode === "create" ? "Hold to compare" : "Hold for saved look"));
     const startCompare = (event: Event) => {
       event.preventDefault();
       this.comparing = this.initial;
@@ -193,68 +196,99 @@ export class CharacterCreator {
     compare.addEventListener("pointerup", stopCompare);
     compare.addEventListener("pointerleave", stopCompare);
     compare.addEventListener("pointercancel", stopCompare);
+    compare.addEventListener("contextmenu", (event) => event.preventDefault()); // long-press on phones
     compare.addEventListener("keydown", (event) => (event.key === " " || event.key === "Enter") && startCompare(event));
     compare.addEventListener("keyup", stopCompare);
-    toolbar.append(viewGroup, turnGroup, compare);
-    preview.append(this.canvas, toolbar);
+    compare.addEventListener("blur", stopCompare);
+    toolbar.append(views, camera, compare);
+    this.preview.append(stageBox, toolbar);
 
-    // Controls column.
-    const side = el("div", "creator-side");
-    const title = el("h1", undefined, options.mode === "create" ? "Create your character" : "Edit appearance");
-    side.append(title, ...(options.header ?? []));
+    // ── Controls ──
+    this.controls = el("div", "creator-controls-wrap");
     const history = el("div", "creator-history");
-    this.undoButton = toolButton("Undo", "Undo (Ctrl+Z)", "undo", () => this.undo());
-    this.redoButton = toolButton("Redo", "Redo (Ctrl+Shift+Z)", "redo", () => this.redo());
-    history.append(toolButton("Randomise all", "Random look", "randomise-all", () => this.apply(randomAppearance(this.seed()))), this.undoButton, this.redoButton);
-    side.append(history);
+    this.undoButton = iconButton(ICONS.undo, "Undo (Ctrl+Z)", { className: "tool-button is-icon", action: "undo", onClick: () => this.undo() });
+    this.redoButton = iconButton(ICONS.redo, "Redo (Ctrl+Shift+Z)", { className: "tool-button is-icon", action: "redo", onClick: () => this.redo() });
+    const randomAll = el("button", "tool-button");
+    randomAll.type = "button";
+    randomAll.dataset.action = "randomise-all";
+    randomAll.title = "A completely random look";
+    randomAll.append(icon(ICONS.dice), el("span", undefined, "Randomise all"));
+    randomAll.addEventListener("click", () => this.apply(randomAppearance(this.seed())));
+    history.append(randomAll, this.undoButton, this.redoButton);
+
     this.tabList = el("div", "creator-tabs");
     this.tabList.setAttribute("role", "tablist");
-    const tabs: [CreatorTab, string][] = [["presets", "Presets"], ["body", "Body"], ["skin", "Skin"], ["face", "Face"], ["hair", "Hair"], ["outfit", "Outfit"]];
-    if (options.personality) tabs.push(["personality", "Personality"]);
-    for (const [id, label] of tabs) {
-      const button = el("button", "creator-tab", label);
-      button.type = "button";
-      button.setAttribute("role", "tab");
-      button.dataset.tab = id;
-      button.addEventListener("click", () => this.showTab(id));
-      this.tabList.append(button);
+    this.tabList.setAttribute("aria-label", "Appearance categories");
+    for (const id of CREATOR_CATEGORIES) {
+      const tab = el("button", "creator-tab");
+      tab.type = "button";
+      tab.id = `creator-tab-${id}`;
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-controls", "creator-panel");
+      tab.dataset.tab = id;
+      tab.append(icon(ICONS[id]), el("span", "creator-tab-label", CATEGORY_LABELS[id]));
+      tab.addEventListener("click", () => this.showCategory(id));
+      this.tabList.append(tab);
     }
-    this.controls = el("div", "creator-controls");
-    this.controls.setAttribute("role", "tabpanel");
+    this.tabList.addEventListener("keydown", (event) => {
+      const index = CREATOR_CATEGORIES.indexOf(this.category);
+      const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
+      if (!step) return;
+      event.preventDefault();
+      const next = CREATOR_CATEGORIES[(index + step + CREATOR_CATEGORIES.length) % CREATOR_CATEGORIES.length]!;
+      this.showCategory(next);
+      this.tabList.querySelector<HTMLButtonElement>(`[data-tab="${next}"]`)?.focus();
+    });
+    this.panel = el("div", "creator-controls");
+    this.panel.id = "creator-panel";
+    this.panel.setAttribute("role", "tabpanel");
     this.statusLine = el("p", "creator-status");
     this.statusLine.setAttribute("aria-live", "polite");
-    side.append(this.tabList, this.controls, this.statusLine);
-    this.element.append(preview, side);
+    this.controls.append(history, this.tabList, this.panel, this.statusLine);
 
-    // Preview setup.
-    this.stage = new PreviewStage(this.canvas, { background: 0xefe5d8 });
+    // ── 3D ──
+    this.stage = new PreviewStage(this.canvas, { background: null });
     this.model = new CharacterModel(this.appearance);
     this.model.pose({ moving: false, seated: false, activity: "idle", time: 0 });
-    this.element.dataset.showing = "current";
+    this.host.dataset.showing = "current";
     this.stage.show(this.model);
-    this.attachDrag();
-    this.element.addEventListener("keydown", (event) => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
+    this.attachPointer();
+    this.canvas.addEventListener("keydown", (event) => {
+      const turns: Record<string, number> = { ArrowLeft: -Math.PI / 12, ArrowRight: Math.PI / 12 };
+      if (event.key in turns) {
+        event.preventDefault();
+        this.yaw += turns[event.key]!;
+      } else if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        this.setZoom(this.targetZoom + 0.25);
+      } else if (event.key === "-" || event.key === "_") {
+        event.preventDefault();
+        this.setZoom(this.targetZoom - 0.25);
+      }
+    });
+    this.host.addEventListener("keydown", (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z" || this.reviewing) return;
       if ((event.target as HTMLElement).tagName === "INPUT" && (event.target as HTMLInputElement).type === "text") return;
       event.preventDefault();
       if (event.shiftKey) this.redo();
       else this.undo();
     });
-    this.showTab(this.tab);
+    this.showCategory(this.category);
     this.refreshHistoryButtons();
-    this.element.dataset.look = encodeLook(this.appearance);
+    this.host.dataset.look = encodeLook(this.appearance);
     if (import.meta.env.DEV || new URLSearchParams(location.search).has("e2e")) {
       (window as unknown as { __creator: unknown }).__creator = {
-        /** Kept for tests: the creator preview has no idle animation, so it is always still. */
+        /** Kept for tests: the creator only animates while reviewing, so it is otherwise still. */
         freeze: () => undefined,
         stats: () => ({ ...this.model.stats }),
-        showing: () => this.element.dataset.showing,
+        showing: () => this.host.dataset.showing,
+        camera: () => ({ yaw: this.yaw, zoom: this.zoom }),
       };
     }
     this.loop();
   }
 
-  /** Must be called once the element is in the document (to size the preview). */
+  /** Must be called once the elements are in the document (to size the preview). */
   mounted(): void {
     const resize = () => {
       const rect = this.canvas.getBoundingClientRect();
@@ -269,14 +303,42 @@ export class CharacterCreator {
     return cloneAppearance(this.appearance);
   }
 
+  get initialValue(): AppearanceConfig {
+    return cloneAppearance(this.initial);
+  }
+
+  /** True when the look differs from the one the creator opened with. */
+  get changed(): boolean {
+    return !sameAppearance(this.appearance, this.initial);
+  }
+
+  /** Shows a different look without adding to the history (e.g. a draft kept while going back a step). */
+  startFrom(look: AppearanceConfig): void {
+    this.apply(look, false);
+  }
+
+  /** Review step: slow turntable, whole body; controls are hidden by the screen. */
+  setReviewing(reviewing: boolean): void {
+    this.reviewing = reviewing;
+    this.comparing = null;
+    this.previewing = null;
+    this.scheduleBuild();
+    if (reviewing) this.setZoom(0);
+    else this.setZoom(CATEGORY_ZOOM[this.category] ?? this.targetZoom);
+  }
+
+  status(text: string): void {
+    this.statusLine.textContent = text;
+  }
+
   destroy(): void {
     this.running = false;
     cancelAnimationFrame(this.frame);
     this.resizeObserver?.disconnect();
+    this.visibilityObserver?.disconnect();
     this.model.dispose();
     this.stage.renderer.forceContextLoss();
     this.stage.dispose();
-    this.element.remove();
     const hook = window as unknown as { __creator?: unknown };
     if (hook.__creator) delete hook.__creator;
   }
@@ -287,6 +349,12 @@ export class CharacterCreator {
     return Math.floor(Math.random() * 2 ** 31);
   }
 
+  private record(before: string): void {
+    this.history.push(before);
+    if (this.history.length > HISTORY_LIMIT) this.history.shift();
+    this.future = [];
+  }
+
   /** Replaces the whole look (preset, randomise, undo…), recording history. */
   private apply(next: AppearanceConfig, record = true): void {
     const parsed = parseAppearanceConfig(next);
@@ -295,42 +363,32 @@ export class CharacterCreator {
       return;
     }
     if (sameAppearance(parsed.value, this.appearance)) return;
-    if (record) {
-      this.history.push(encodeLook(this.appearance));
-      if (this.history.length > HISTORY_LIMIT) this.history.shift();
-      this.future = [];
-    }
+    if (record) this.record(encodeLook(this.appearance));
     this.appearance = parsed.value;
-    this.changed();
-    this.renderControls();
+    this.changed_();
+    this.renderPanel();
   }
 
   /** Changes one field. Sliders call this on every move with record=false, then once on release. */
-  private setValue(path: Path, value: unknown, record: boolean): void {
-    if (getField(this.appearance, path) === value && !record) return;
+  private setValue(path: FieldPath, value: unknown, record: boolean): void {
+    if (getAppearanceField(this.appearance, path) === value && !record) return;
     const next = cloneAppearance(this.appearance);
-    setField(next, path, value);
+    setAppearanceField(next, path, value);
     if (record) {
       const before = this.sliderStart ?? encodeLook(this.appearance);
       this.sliderStart = null;
-      if (before !== encodeLook(next)) {
-        this.history.push(before);
-        if (this.history.length > HISTORY_LIMIT) this.history.shift();
-        this.future = [];
-      }
+      if (before !== encodeLook(next)) this.record(before);
     }
     this.appearance = next;
-    this.changed();
+    this.changed_();
     // The skin-tone track and swatches are drawn for the current undertone.
-    if (record && path === "skin.undertone") this.renderControls();
+    if (record && path === "skin.undertone") this.renderPanel();
     else this.refreshHiddenNotes();
   }
 
-  private sliderStart: string | null = null;
-
-  private changed(): void {
+  private changed_(): void {
     this.options.onChange?.(this.value);
-    this.element.dataset.look = encodeLook(this.appearance);
+    this.host.dataset.look = encodeLook(this.appearance);
     this.refreshHistoryButtons();
     this.scheduleBuild();
   }
@@ -340,8 +398,8 @@ export class CharacterCreator {
     if (!previous) return;
     this.future.push(encodeLook(this.appearance));
     this.appearance = JSON.parse(previous) as AppearanceConfig;
-    this.changed();
-    this.renderControls();
+    this.changed_();
+    this.renderPanel();
     this.status("Undone.");
   }
 
@@ -350,8 +408,8 @@ export class CharacterCreator {
     if (!next) return;
     this.history.push(encodeLook(this.appearance));
     this.appearance = JSON.parse(next) as AppearanceConfig;
-    this.changed();
-    this.renderControls();
+    this.changed_();
+    this.renderPanel();
     this.status("Redone.");
   }
 
@@ -360,131 +418,169 @@ export class CharacterCreator {
     this.redoButton.disabled = this.future.length === 0;
   }
 
-  private status(text: string): void {
-    this.statusLine.textContent = text;
-  }
-
   // ── Preview ───────────────────────────────────────────────────────────
 
   private scheduleBuild(): void {
     this.pendingBuild = true;
   }
 
+  private setZoom(zoom: number): void {
+    this.targetZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+    if (prefersReducedMotion()) this.zoom = this.targetZoom;
+    const nearest = Math.round(this.targetZoom);
+    for (const b of this.viewButtons) {
+      const view = b.dataset.action!.slice(5) as PreviewView;
+      b.setAttribute("aria-pressed", String(Math.abs(VIEW_ZOOM[view] - this.targetZoom) < 0.01 || (VIEW_ZOOM[view] === nearest && Math.abs(nearest - this.targetZoom) < 0.13)));
+    }
+  }
+
   private builds = 0;
   private renderedKey = "";
 
   /**
-   * Renders only when something visible changed (look, angle, camera, size):
-   * no idle animation in the creator, so a still preview costs nothing on
+   * Renders only when something visible changed (look, angle, zoom, size),
+   * except during the review turntable: a still preview costs nothing on
    * phones and laptops on battery.
    */
   private loop = (): void => {
     if (!this.running) return;
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.lastTick) / 1000);
+    this.lastTick = now;
     if (this.pendingBuild) {
       this.pendingBuild = false;
       const shown = this.comparing ?? this.previewing ?? this.appearance;
-      this.element.dataset.showing = this.comparing ? "compare" : this.previewing ? "preview" : "current";
+      this.host.dataset.showing = this.comparing ? "compare" : this.previewing ? "preview" : "current";
       const stats = this.model.setAppearance(shown);
       this.model.pose({ moving: false, seated: false, activity: "idle", time: 0 });
-      this.element.dataset.buildMs = stats.buildMs.toFixed(1);
-      this.element.dataset.rebuilt = stats.rebuilt.join(",");
+      this.host.dataset.buildMs = stats.buildMs.toFixed(1);
+      this.host.dataset.rebuilt = stats.rebuilt.join(",");
+      this.host.dataset.fallback = stats.fallback.join(",");
+      if (stats.fallback.length > 0) this.status("Part of this look couldn't be drawn, so the default is shown there. Your choice is still saved; please report this.");
       this.builds++;
     }
-    const key = `${this.builds}|${this.view}|${this.yaw.toFixed(3)}|${this.canvas.width}x${this.canvas.height}`;
+    // Review turntable at 30 fps: half the rendering cost of 60 fps for a slow turn.
+    const turning = this.reviewing && !this.dragging && !prefersReducedMotion();
+    if (turning && now - this.lastTurn >= 33) {
+      this.yaw += (now - this.lastTurn) / 1000 * 0.5;
+      this.lastTurn = now;
+    } else if (!turning) this.lastTurn = now;
+    if (Math.abs(this.zoom - this.targetZoom) > 0.002) this.zoom += (this.targetZoom - this.zoom) * (1 - Math.exp(-dt * 12));
+    else this.zoom = this.targetZoom;
+    const key = `${this.builds}|${this.zoom.toFixed(3)}|${this.yaw.toFixed(3)}|${this.canvas.width}x${this.canvas.height}`;
     if (key !== this.renderedKey) {
       this.renderedKey = key;
-      this.stage.frame(this.model, this.view, this.yaw);
+      this.stage.frameAt(this.model, this.zoom, this.yaw);
       this.stage.render();
     }
     this.frame = requestAnimationFrame(this.loop);
   };
 
-  private attachDrag(): void {
-    let lastX: number | null = null;
+  /** Drag to turn (any pointer), wheel to zoom, two-finger pinch to zoom. */
+  private attachPointer(): void {
+    const pointers = new Map<number, { x: number; y: number }>();
+    let pinchStart: { distance: number; zoom: number } | null = null;
+    const distance = () => {
+      const [a, b] = [...pointers.values()];
+      return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+    };
     this.canvas.addEventListener("pointerdown", (event) => {
-      lastX = event.clientX;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       this.canvas.setPointerCapture(event.pointerId);
+      this.dragging = true;
+      if (pointers.size === 2) pinchStart = { distance: distance(), zoom: this.targetZoom };
     });
     this.canvas.addEventListener("pointermove", (event) => {
-      if (lastX === null) return;
-      this.yaw += (event.clientX - lastX) * 0.012;
-      lastX = event.clientX;
+      const last = pointers.get(event.pointerId);
+      if (!last) return;
+      const dx = event.clientX - last.x;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (pointers.size === 1) this.yaw += dx * 0.012 * cameraSpeedFactor();
+      else if (pinchStart && pinchStart.distance > 0) {
+        this.setZoom(pinchStart.zoom + Math.log2(distance() / pinchStart.distance) * 1.4);
+        this.zoom = this.targetZoom;
+      }
     });
-    const end = () => (lastX = null);
+    const end = (event: PointerEvent) => {
+      pointers.delete(event.pointerId);
+      if (pointers.size < 2) pinchStart = null;
+      if (pointers.size === 0) this.dragging = false;
+    };
     this.canvas.addEventListener("pointerup", end);
     this.canvas.addEventListener("pointercancel", end);
+    this.canvas.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        this.setZoom(this.targetZoom - event.deltaY * 0.0025);
+      },
+      { passive: false },
+    );
   }
 
-  // ── Tabs ──────────────────────────────────────────────────────────────
+  // ── Categories ────────────────────────────────────────────────────────
 
-  showTab(tab: CreatorTab): void {
-    this.tab = tab;
-    for (const button of this.tabList.querySelectorAll<HTMLButtonElement>(".creator-tab")) {
-      const selected = button.dataset.tab === tab;
-      button.setAttribute("aria-selected", String(selected));
-      button.tabIndex = selected ? 0 : -1;
+  showCategory(category: CreatorCategory): void {
+    this.category = category;
+    for (const tab of this.tabList.querySelectorAll<HTMLButtonElement>(".creator-tab")) {
+      const selected = tab.dataset.tab === category;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
     }
-    this.view = tab === "face" ? "face" : tab === "hair" ? "upper" : this.view === "face" && tab !== "presets" ? "body" : this.view;
-    for (const button of this.element.querySelectorAll<HTMLButtonElement>('[data-action^="view-"]')) {
-      button.setAttribute("aria-pressed", String(button.dataset.action === `view-${this.view}`));
-    }
-    this.renderControls();
-    this.controls.scrollTop = 0;
+    this.panel.setAttribute("aria-labelledby", `creator-tab-${category}`);
+    const zoom = CATEGORY_ZOOM[category];
+    if (zoom !== undefined && !this.reviewing) this.setZoom(zoom);
+    this.renderPanel();
+    this.panel.scrollTop = 0;
+    // On phones the selected tab may be scrolled out of its strip.
+    this.tabList.querySelector<HTMLElement>(`[data-tab="${category}"]`)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }
 
-  private renderControls(): void {
-    const scroll = this.controls.scrollTop;
-    this.controls.replaceChildren();
-    this.controls.dataset.tab = this.tab;
-    switch (this.tab) {
-      case "presets":
-        this.controls.append(this.presetsTab());
-        break;
-      case "personality":
-        if (this.options.personality) this.controls.append(this.options.personality);
-        break;
-      default:
-        this.controls.append(...this.sectionTab(this.tab));
-    }
-    this.controls.scrollTop = scroll;
+  private renderPanel(): void {
+    const scroll = this.panel.scrollTop;
+    // The old content is about to go: stop watching its portraits (cached ones refill at once).
+    this.visibilityObserver?.disconnect();
+    this.visibilityObserver = null;
+    this.panel.replaceChildren(...this.categoryContent(this.category));
+    this.panel.dataset.tab = this.category;
+    this.panel.scrollTop = scroll;
     this.refreshHiddenNotes();
   }
 
-  private sectionTools(section: AppearanceSection): HTMLElement {
+  private categoryTools(category: CreatorCategory): HTMLElement {
     const row = el("div", "section-tools");
-    const randomise = el("button", "tool-button", `Randomise ${SECTION_LABELS[section].toLowerCase()}`);
+    const name = CATEGORY_LABELS[category].toLowerCase();
+    const randomise = el("button", "tool-button");
     randomise.type = "button";
-    randomise.dataset.action = `randomise-${section}`;
-    randomise.addEventListener("click", () => this.apply(randomiseSection(this.appearance, section, this.seed())));
-    const reset = el("button", "tool-button", `Reset ${SECTION_LABELS[section].toLowerCase()}`);
+    randomise.dataset.action = `randomise-${category}`;
+    randomise.append(icon(ICONS.dice), el("span", undefined, `Randomise ${name}`));
+    randomise.addEventListener("click", () => this.apply(randomiseCategory(this.appearance, category, this.seed())));
+    const reset = el("button", "tool-button");
     reset.type = "button";
-    reset.dataset.action = `reset-${section}`;
+    reset.dataset.action = `reset-${category}`;
     reset.title = this.options.mode === "create" ? "Back to the starting look" : "Back to your saved look";
+    reset.append(icon(ICONS.reset), el("span", undefined, `Reset ${name}`));
     reset.addEventListener("click", () => {
-      const next = cloneAppearance(this.appearance);
-      (next as unknown as Record<string, unknown>)[section] = { ...this.initial[section] };
-      this.apply(next);
+      this.apply(resetCategory(this.appearance, category, this.initial));
+      this.status(`${CATEGORY_LABELS[category]} reset.`);
     });
     row.append(randomise, reset);
     return row;
   }
 
-  private sectionTab(section: AppearanceSection): HTMLElement[] {
-    const parts: HTMLElement[] = [this.sectionTools(section)];
-    switch (section) {
-      case "body":
+  private categoryContent(category: CreatorCategory): HTMLElement[] {
+    const parts: HTMLElement[] = [this.categoryTools(category)];
+    switch (category) {
+      case "appearance":
         parts.push(
-          this.options_("body.frame", "Body frame", BODY_FRAMES, "Frames change proportions only. Any look works with any frame."),
-          this.options_("body.build", "Build", BUILDS),
-          this.slider("body.height", "Height", (v) => `${Math.round(156 + v * 32)} cm`),
-          this.slider("body.shoulders", "Shoulders", narrowWide),
-          this.slider("body.torso", "Torso length", shortLong),
-          this.slider("body.legs", "Leg length", shortLong),
-          this.slider("body.arms", "Arm length", shortLong),
+          this.startingLooks(),
+          this.skinTone(),
+          this.options_("skin.undertone", "Undertone", UNDERTONES),
+          this.options_("skin.freckles", "Freckles", FRECKLES),
+          this.options_("skin.mark", "Beauty mark", BEAUTY_MARKS),
+          this.slider("skin.blush", "Blush", noneStrong),
+          this.lookCodes(),
         );
-        break;
-      case "skin":
-        parts.push(this.skinTone(), this.options_("skin.undertone", "Undertone", UNDERTONES), this.options_("skin.freckles", "Freckles", FRECKLES), this.options_("skin.mark", "Beauty mark", BEAUTY_MARKS), this.slider("skin.blush", "Blush", noneStrong));
         break;
       case "face":
         parts.push(
@@ -507,13 +603,29 @@ export class CharacterCreator {
         );
         break;
       case "hair":
-        parts.push(this.hairStyles(), this.swatches("hair.colour", "Hair colour", HAIR_COLOURS), this.options_("hair.hairline", "Hairline", HAIRLINES), this.options_("hair.facial", "Facial hair", FACIAL_HAIR, "Available for every body frame."));
+        parts.push(
+          this.hairStyles(),
+          this.swatches("hair.colour", "Hair colour", HAIR_COLOURS),
+          this.options_("hair.hairline", "Hairline", HAIRLINES),
+          this.options_("hair.facial", "Facial hair", FACIAL_HAIR, "Available for every body frame."),
+        );
         break;
-      case "outfit":
+      case "body":
+        parts.push(
+          this.options_("body.frame", "Body frame", BODY_FRAMES, "Frames change proportions only. Any look works with any frame."),
+          this.options_("body.build", "Build", BUILDS),
+          this.slider("body.height", "Height", (v) => `${heightCm(v)} cm`),
+          this.slider("body.shoulders", "Shoulders", narrowWide),
+          this.slider("body.torso", "Torso length", shortLong),
+          this.slider("body.legs", "Leg length", shortLong),
+          this.slider("body.arms", "Arm length", shortLong),
+        );
+        break;
+      case "clothing":
         parts.push(
           this.options_("outfit.full", "Full outfit", FULL_OUTFITS),
           this.options_("outfit.top", "Top", TOPS),
-          this.swatches("outfit.topColour", "Top / outfit colour", CLOTHING_COLOURS),
+          this.swatches("outfit.topColour", "Top or outfit colour", CLOTHING_COLOURS),
           this.options_("outfit.pattern", "Pattern", PATTERNS),
           this.options_("outfit.bottom", "Bottom", BOTTOMS),
           this.swatches("outfit.bottomColour", "Bottom colour", CLOTHING_COLOURS),
@@ -521,6 +633,10 @@ export class CharacterCreator {
           this.swatches("outfit.outerColour", "Outerwear colour", CLOTHING_COLOURS),
           this.options_("outfit.shoes", "Shoes", SHOES),
           this.swatches("outfit.shoesColour", "Shoe colour", CLOTHING_COLOURS),
+        );
+        break;
+      case "accessories":
+        parts.push(
           this.options_("outfit.headwear", "Headwear", HEADWEAR, "Headwraps and headscarves cover the hair; hats cover the top of it. Your hair choice is kept."),
           this.swatches("outfit.headwearColour", "Headwear colour", CLOTHING_COLOURS),
           this.options_("outfit.glasses", "Glasses", GLASSES),
@@ -532,10 +648,11 @@ export class CharacterCreator {
 
   // ── Controls ──────────────────────────────────────────────────────────
 
-  private group(path: Path, title: string, note?: string): { group: HTMLElement; row: HTMLElement } {
+  private group(path: FieldPath, title: string, note?: string): { group: HTMLElement; row: HTMLElement } {
     const group = el("div", "picker-group");
     group.dataset.field = path;
     const heading = el("div", "picker-title", title);
+    heading.id = `picker-${path.replace(".", "-")}`;
     const row = el("div", "picker-row");
     group.append(heading, row);
     if (note) group.append(el("p", "picker-note", note));
@@ -545,35 +662,35 @@ export class CharacterCreator {
     return { group, row };
   }
 
-  private choice(row: HTMLElement, path: Path, option: Option, content: HTMLElement | string, className: string): HTMLButtonElement {
-    const button = el("button", className);
-    button.type = "button";
-    button.setAttribute("role", "radio");
-    button.dataset.value = option.id;
-    button.title = option.label;
-    button.setAttribute("aria-label", option.label);
-    if (typeof content === "string") button.textContent = content;
-    else button.append(content);
-    button.setAttribute("aria-checked", String(getField(this.appearance, path) === option.id));
-    button.addEventListener("click", () => {
-      for (const sibling of row.closest(".picker-group")!.querySelectorAll('[role="radio"]')) sibling.setAttribute("aria-checked", String(sibling === button));
+  private choice(row: HTMLElement, path: FieldPath, option: Option, content: HTMLElement | string, className: string): HTMLButtonElement {
+    const b = el("button", className);
+    b.type = "button";
+    b.setAttribute("role", "radio");
+    b.dataset.value = option.id;
+    b.title = option.label;
+    b.setAttribute("aria-label", option.label);
+    if (typeof content === "string") b.textContent = content;
+    else b.append(content);
+    b.setAttribute("aria-checked", String(getAppearanceField(this.appearance, path) === option.id));
+    b.addEventListener("click", () => {
+      for (const sibling of row.closest(".picker-group")!.querySelectorAll('[role="radio"]')) sibling.setAttribute("aria-checked", String(sibling === b));
       this.setValue(path, option.id, true);
     });
-    return button;
+    return b;
   }
 
-  private options_(path: Path, title: string, list: readonly Option[], note?: string): HTMLElement {
+  private options_(path: FieldPath, title: string, list: readonly Option[], note?: string): HTMLElement {
     const { group, row } = this.group(path, title, note);
     group.setAttribute("role", "radiogroup");
-    group.setAttribute("aria-label", title);
+    group.setAttribute("aria-labelledby", `picker-${path.replace(".", "-")}`);
     for (const option of list) row.append(this.choice(row, path, option, option.label, "pill-option"));
     return group;
   }
 
-  private swatches(path: Path, title: string, list: readonly ColourOption[]): HTMLElement {
+  private swatches(path: FieldPath, title: string, list: readonly ColourOption[]): HTMLElement {
     const { group, row } = this.group(path, title);
     group.setAttribute("role", "radiogroup");
-    group.setAttribute("aria-label", title);
+    group.setAttribute("aria-labelledby", `picker-${path.replace(".", "-")}`);
     const fantasy = list.some((c) => c.kind === "fantasy");
     let fantasyRow: HTMLElement | null = null;
     if (fantasy) {
@@ -583,14 +700,14 @@ export class CharacterCreator {
     }
     for (const option of list) {
       const target = option.kind === "fantasy" && fantasyRow ? fantasyRow : row;
-      const button = this.choice(target, path, option, "", "swatch");
-      button.style.setProperty("--swatch", option.colour);
-      target.append(button);
+      const b = this.choice(target, path, option, "", "swatch");
+      b.style.setProperty("--swatch", option.colour);
+      target.append(b);
     }
     return group;
   }
 
-  private slider(path: Path, title: string, describe: (v: number) => string): HTMLElement {
+  private slider(path: FieldPath, title: string, describe: (v: number) => string): HTMLElement {
     const { group, row } = this.group(path, title);
     const id = `slider-${path.replace(".", "-")}`;
     const input = el("input", "creator-slider");
@@ -600,16 +717,18 @@ export class CharacterCreator {
     input.max = "100";
     input.step = "1";
     input.dataset.field = path;
-    const value = getField(this.appearance, path) as number;
+    const value = getAppearanceField(this.appearance, path) as number;
     input.value = String(Math.round(value * 100));
-    input.setAttribute("aria-label", title);
+    input.setAttribute("aria-labelledby", `picker-${path.replace(".", "-")}`);
     const output = el("output", "slider-value", describe(value));
     output.htmlFor.add(id);
+    input.setAttribute("aria-valuetext", describe(value));
     input.addEventListener("pointerdown", () => (this.sliderStart = encodeLook(this.appearance)));
     input.addEventListener("keydown", () => (this.sliderStart ??= encodeLook(this.appearance)));
     input.addEventListener("input", () => {
       const v = roundSlider(Number(input.value) / 100);
       output.textContent = describe(v);
+      input.setAttribute("aria-valuetext", describe(v));
       this.setValue(path, v, false);
     });
     input.addEventListener("change", () => this.setValue(path, roundSlider(Number(input.value) / 100), true));
@@ -618,7 +737,7 @@ export class CharacterCreator {
   }
 
   private skinTone(): HTMLElement {
-    const path: Path = "skin.tone";
+    const path: FieldPath = "skin.tone";
     const { group, row } = this.group(path, "Skin tone");
     const input = el("input", "creator-slider skin-slider");
     input.type = "range";
@@ -627,45 +746,47 @@ export class CharacterCreator {
     input.step = "1";
     input.id = "slider-skin-tone";
     input.dataset.field = path;
-    input.setAttribute("aria-label", "Skin tone");
+    input.setAttribute("aria-labelledby", "picker-skin-tone");
     const stops = Array.from({ length: 11 }, (_, i) => `${skinColour(i / 10, this.appearance.skin.undertone)} ${i * 10}%`);
     input.style.setProperty("--track", `linear-gradient(90deg, ${stops.join(", ")})`);
     input.value = String(Math.round(this.appearance.skin.tone * 100));
+    input.setAttribute("aria-valuetext", skinToneLabel(this.appearance.skin.tone));
     const output = el("output", "slider-value", skinToneLabel(this.appearance.skin.tone));
     input.addEventListener("pointerdown", () => (this.sliderStart = encodeLook(this.appearance)));
     input.addEventListener("keydown", () => (this.sliderStart ??= encodeLook(this.appearance)));
     input.addEventListener("input", () => {
       const v = roundSlider(Number(input.value) / 100);
       output.textContent = skinToneLabel(v);
+      input.setAttribute("aria-valuetext", skinToneLabel(v));
       this.setValue(path, v, false);
     });
     input.addEventListener("change", () => this.setValue(path, roundSlider(Number(input.value) / 100), true));
     row.append(input, output);
     const quick = el("div", "picker-row tone-stops");
     for (const stop of SKIN_TONE_STOPS) {
-      const button = el("button", "swatch");
-      button.type = "button";
-      button.dataset.value = String(stop.at);
-      button.title = stop.label;
-      button.setAttribute("aria-label", stop.label);
-      button.style.setProperty("--swatch", skinColour(stop.at, this.appearance.skin.undertone));
-      button.addEventListener("click", () => {
+      const b = el("button", "swatch");
+      b.type = "button";
+      b.dataset.value = String(stop.at);
+      b.title = stop.label;
+      b.setAttribute("aria-label", stop.label);
+      b.style.setProperty("--swatch", skinColour(stop.at, this.appearance.skin.undertone));
+      b.addEventListener("click", () => {
         input.value = String(Math.round(stop.at * 100));
         output.textContent = stop.label;
         this.sliderStart = encodeLook(this.appearance);
         this.setValue(path, roundSlider(stop.at), true);
       });
-      quick.append(button);
+      quick.append(b);
     }
     group.append(quick, el("p", "picker-note", "Any tone, from very fair to deep brown. Skin tone never affects gameplay."));
     return group;
   }
 
   private hairStyles(): HTMLElement {
-    const path: Path = "hair.style";
+    const path: FieldPath = "hair.style";
     const { group, row } = this.group(path, "Hair style");
     group.setAttribute("role", "radiogroup");
-    group.setAttribute("aria-label", "Hair style");
+    group.setAttribute("aria-labelledby", "picker-hair-style");
     row.classList.add("hair-styles");
     const textures: HairTexture[] = ["none", "straight", "wavy", "curly", "coily", "tightly-coiled"];
     for (const texture of textures) {
@@ -685,35 +806,35 @@ export class CharacterCreator {
   /** Shows "Covered by the headscarf" and similar under choices that aren't visible right now. */
   private refreshHiddenNotes(): void {
     const layers = visibleLayers(this.appearance);
-    for (const group of this.controls.querySelectorAll<HTMLElement>(".picker-group")) {
+    for (const group of this.panel.querySelectorAll<HTMLElement>(".picker-group")) {
       const note = group.querySelector<HTMLElement>(".hidden-note");
       if (!note) continue;
       const hidden = layers.hidden.find((h) => h.field === group.dataset.field);
       note.hidden = !hidden;
-      note.textContent = hidden ? `${hidden.reason} — saved, but not visible right now.` : "";
+      note.textContent = hidden ? `${hidden.reason}: saved, but not visible right now.` : "";
       group.classList.toggle("is-hidden-choice", Boolean(hidden));
     }
   }
 
-  // ── Presets and saved looks ───────────────────────────────────────────
+  // ── Starting looks and saved looks ────────────────────────────────────
 
-  private presetsTab(): HTMLElement {
+  private startingLooks(): HTMLElement {
     const wrapper = el("div", "presets-tab");
-    wrapper.append(el("p", "picker-note", "Optional starting points, named by their look. Hover or focus to compare in the preview, click to use, then change anything."));
+    wrapper.append(el("div", "picker-title", "Starting looks"), el("p", "picker-note", "Optional starting points, named by their look. Hover or focus to preview, choose one to use it, then change anything."));
     const grid = el("div", "preset-grid");
     grid.setAttribute("role", "list");
     for (const preset of APPEARANCE_PRESETS) {
+      const item = el("div", "preset-item");
+      item.setAttribute("role", "listitem");
       const card = el("button", "preset-card");
       card.type = "button";
       card.dataset.preset = preset.id;
-      card.setAttribute("role", "listitem");
-      card.setAttribute("aria-label", `Use preset: ${preset.label}`);
+      card.setAttribute("aria-label", `Use starting look: ${preset.label}`);
       const image = el("img", "preset-thumb");
       image.alt = "";
       image.width = 96;
       image.height = 120;
-      const cached = this.thumbnails.get(preset.id);
-      if (cached) image.src = cached;
+      this.whenVisible(image, grid, () => fillPortrait(image, preset.appearance, "body"));
       card.append(image, el("span", "preset-label", preset.label));
       card.setAttribute("aria-pressed", String(sameAppearance(preset.appearance, this.appearance)));
       const preview = () => {
@@ -727,61 +848,52 @@ export class CharacterCreator {
       };
       card.addEventListener("pointerenter", (event) => event.pointerType === "mouse" && preview());
       card.addEventListener("pointerleave", endPreview);
-      card.addEventListener("focus", preview);
+      card.addEventListener("focus", (event) => (event.target as HTMLElement).matches(":focus-visible") && preview());
       card.addEventListener("blur", endPreview);
       card.addEventListener("click", () => {
         this.previewing = null;
         this.apply(preset.appearance);
         this.status(`Using “${preset.label}”. Change anything you like.`);
       });
-      grid.append(card);
+      item.append(card);
+      grid.append(item);
     }
-    wrapper.append(grid, this.lookCodes());
-    if (this.thumbnails.size < APPEARANCE_PRESETS.length) requestAnimationFrame(() => void this.renderThumbnails(grid));
+    wrapper.append(grid);
     return wrapper;
   }
 
-  private thumbnailsRunning = false;
+  private visibilityObserver: IntersectionObserver | null = null;
+  private readonly visibilityCallbacks = new WeakMap<Element, () => void>();
 
-  /** Draws preset thumbnails one per frame with a small offscreen renderer, then frees it. */
-  private async renderThumbnails(grid: HTMLElement): Promise<void> {
-    if (this.thumbnailsRunning) return;
-    this.thumbnailsRunning = true;
-    const canvas = document.createElement("canvas");
-    let stage: PreviewStage | null = null;
-    try {
-      stage = new PreviewStage(canvas, { antialias: true, background: 0xf4ece1 });
-      stage.renderer.setPixelRatio(1);
-      stage.setSize(192, 240);
-      for (const preset of APPEARANCE_PRESETS) {
-        if (!this.running) break;
-        if (!this.thumbnails.has(preset.id)) {
-          const model = new CharacterModel(preset.appearance);
-          model.pose({ moving: false, seated: false, activity: "idle", time: 0 });
-          stage.show(model);
-          stage.frame(model, "body", 0.3);
-          stage.render();
-          this.thumbnails.set(preset.id, canvas.toDataURL("image/png"));
-          model.dispose();
+  /**
+   * Runs `callback` once the element scrolls into (or near) view, so the
+   * starting-look portraits are drawn a few at a time instead of all 17 when
+   * the creator opens (each is a full character build). `root` is the
+   * scrolling row, so cards just outside it (within the margin) are drawn
+   * ahead of time.
+   */
+  private whenVisible(element: Element, root: Element, callback: () => void): void {
+    if (typeof IntersectionObserver !== "function") return callback();
+    this.visibilityObserver ??= new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          this.visibilityObserver?.unobserve(entry.target);
+          this.visibilityCallbacks.get(entry.target)?.();
+          this.visibilityCallbacks.delete(entry.target);
         }
-        const image = grid.querySelector<HTMLImageElement>(`[data-preset="${preset.id}"] img`);
-        if (image && !image.src) image.src = this.thumbnails.get(preset.id)!;
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-      }
-    } catch (error) {
-      console.warn("Preset thumbnails unavailable", error);
-    } finally {
-      stage?.renderer.forceContextLoss();
-      stage?.dispose();
-      this.thumbnailsRunning = false;
-    }
+      },
+      { root, rootMargin: "0px 240px 0px 240px" },
+    );
+    this.visibilityCallbacks.set(element, callback);
+    this.visibilityObserver.observe(element);
   }
 
   private lookCodesOpen = false;
 
   private lookCodes(): HTMLElement {
     const box = el("details", "look-codes");
-    // Stays open when the tab re-renders (e.g. after applying a code).
+    // Stays open when the panel re-renders (e.g. after applying a code).
     box.open = this.lookCodesOpen;
     box.addEventListener("toggle", () => (this.lookCodesOpen = box.open));
     box.append(el("summary", undefined, "Saved looks and look codes"));
@@ -824,7 +936,7 @@ export class CharacterCreator {
       renderSaved();
     });
     const codeRow = el("div", "look-code-row");
-    const codeInput = el("input", "look-code-input");
+    const codeInput = el("input", "look-code-input text-field");
     codeInput.type = "text";
     codeInput.placeholder = "Paste a look code (PLS1.…)";
     codeInput.setAttribute("aria-label", "Look code");
@@ -840,7 +952,7 @@ export class CharacterCreator {
         this.status("Look code copied.");
       } catch {
         codeInput.select();
-        this.status("Look code shown above: copy it from the box.");
+        this.status("Look code shown in the box: copy it from there.");
       }
     });
     const use = el("button", "tool-button", "Use code");
@@ -870,18 +982,8 @@ const softDefined = (v: number) => (v < 0.34 ? "Soft" : v > 0.66 ? "Defined" : "
 const thinFull = (v: number) => (v < 0.34 ? "Thin" : v > 0.66 ? "Full" : "Medium");
 const noneStrong = (v: number) => (v < 0.05 ? "None" : v < 0.4 ? "Light" : v < 0.7 ? "Medium" : "Strong");
 
-// The spec table is the source of truth for which fields exist; fail loudly in development if a field has no control.
+// Every config field must have a control in exactly the category that owns it.
 if (import.meta.env.DEV) {
-  const covered = new Set([
-    "body.frame", "body.build", "body.height", "body.shoulders", "body.torso", "body.legs", "body.arms",
-    "skin.tone", "skin.undertone", "skin.freckles", "skin.mark", "skin.blush",
-    "face.shape", "face.cheekbones", "face.jaw", "face.chin", "face.forehead", "face.eyeShape", "face.eyeSize", "face.eyeSpacing", "face.eyeColour",
-    "face.browShape", "face.browHeight", "face.noseShape", "face.noseWidth", "face.noseLength", "face.lipShape", "face.lipFullness",
-    "hair.style", "hair.colour", "hair.hairline", "hair.facial",
-    "outfit.top", "outfit.topColour", "outfit.pattern", "outfit.bottom", "outfit.bottomColour", "outfit.full", "outfit.shoes", "outfit.shoesColour",
-    "outfit.outer", "outfit.outerColour", "outfit.glasses", "outfit.headwear", "outfit.headwearColour",
-  ]);
-  for (const [section, fields] of Object.entries(APPEARANCE_SPEC)) {
-    for (const field of Object.keys(fields)) if (!covered.has(`${section}.${field}`)) console.error(`Creator has no control for ${section}.${field}`);
-  }
+  const grouped = new Set(CREATOR_CATEGORIES.flatMap((category) => [...CATEGORY_FIELDS[category]]));
+  for (const path of allFieldPaths()) if (!grouped.has(path)) console.error(`Creator has no category for ${path}`);
 }

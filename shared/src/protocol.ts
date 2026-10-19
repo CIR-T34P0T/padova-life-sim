@@ -20,10 +20,20 @@ export const ClientMessage = {
   Interact: "interact",
   /** Cancel the current action, if any. No payload. */
   CancelAction: "cancelAction",
-  /** Create this session's character (first visit). Payload: NewCharacterInput. */
+  /** Create a new character and enter the world with it. Payload: NewCharacterInput. */
   CreateCharacter: "createCharacter",
-  /** Change your own character's appearance. Payload: { appearance }. */
+  /**
+   * Change a character's appearance. Payload: UpdateAppearancePayload. In the
+   * world it always changes the character being played; at the title screen
+   * (lobby) `characterId` picks one of this account's characters.
+   */
   UpdateAppearance: "updateAppearance",
+  /** Enter the world with one of this account's characters. Payload: EnterWorldPayload. */
+  EnterWorld: "enterWorld",
+  /** Leave the world and go back to the title screen (lobby). No payload. */
+  LeaveWorld: "leaveWorld",
+  /** Permanently delete one of this account's characters (lobby only). Payload: DeleteCharacterPayload. */
+  DeleteCharacter: "deleteCharacter",
 } as const;
 
 export const ServerMessage = {
@@ -48,14 +58,58 @@ export const CLOSE_SIGNED_IN_ELSEWHERE = 4100;
 /** Error code returned when a stored guest token is not recognised. */
 export const ERROR_INVALID_GUEST_TOKEN = 4401;
 
+/**
+ * One of the account's characters as listed at the title screen (sent only
+ * to the owner). Life data (needs, money…) is not included: it is sent with
+ * `life` once the character is in the world.
+ */
+export interface CharacterSummary {
+  characterId: string;
+  displayName: string;
+  /** Appearance as canonical JSON (encodeLook), already repaired. */
+  look: string;
+  traits: TraitId[];
+  createdAt: string;
+  /** When the character was last saved in the world; null if never. */
+  lastPlayedAt: string | null;
+  /** Saved by a newer server version: playable, but its look can't be changed here. */
+  readOnly: boolean;
+  /** Human-readable notices, e.g. retired appearance options that were replaced. */
+  notices: string[];
+}
+
 export interface ProfilePayload {
-  /** "needs_character": show the create form. "ready": the character is in the world. */
-  status: "needs_character" | "ready";
+  /**
+   * "lobby": not in the world yet (title screen); `characters` lists this
+   * account's characters (empty for a new visitor). "ready": the character
+   * in `profile` is in the world.
+   */
+  status: "lobby" | "ready";
+  /** Lobby only: most recently played first. */
+  characters?: CharacterSummary[];
+  /** Lobby only: how many characters one profile may hold. */
+  maxCharacters?: number;
   profile?: CharacterProfile;
   /** True when the stored profile came from a newer server version and cannot be edited here. */
   readOnly?: boolean;
   /** Human-readable notices, e.g. retired appearance options that were replaced. */
   notices?: string[];
+}
+
+export interface EnterWorldPayload {
+  characterId: string;
+}
+
+export interface DeleteCharacterPayload {
+  characterId: string;
+  /** The character's name as typed by the player, to prevent accidental deletion. */
+  confirmName: string;
+}
+
+export interface UpdateAppearancePayload {
+  appearance: unknown;
+  /** Lobby only: which of this account's characters to change. Ignored in the world. */
+  characterId?: string;
 }
 
 export interface IdentityPayload {
@@ -64,7 +118,7 @@ export interface IdentityPayload {
 }
 
 export interface ProfileErrorPayload {
-  action: "createCharacter" | "updateAppearance";
+  action: "createCharacter" | "updateAppearance" | "enterWorld" | "deleteCharacter" | "listCharacters";
   reason: ProfileFailure;
   field?: string;
 }
@@ -211,6 +265,36 @@ export function parseInteract(payload: unknown): Parsed<InteractPayload> {
  * Cleans a requested display name. Returns null when the name is unusable,
  * in which case the server assigns a guest name.
  */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A character id as sent by a client: a UUID string, or null. Ownership is checked separately. */
+export function parseCharacterId(raw: unknown): string | null {
+  return typeof raw === "string" && UUID.test(raw) ? raw.toLowerCase() : null;
+}
+
+export function parseEnterWorld(payload: unknown): EnterWorldPayload | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const characterId = parseCharacterId((payload as { characterId?: unknown }).characterId);
+  return characterId ? { characterId } : null;
+}
+
+export function parseDeleteCharacter(payload: unknown): DeleteCharacterPayload | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const record = payload as { characterId?: unknown; confirmName?: unknown };
+  const characterId = parseCharacterId(record.characterId);
+  if (!characterId || typeof record.confirmName !== "string" || record.confirmName.length > 200) return null;
+  return { characterId, confirmName: record.confirmName };
+}
+
+/**
+ * True when the typed confirmation matches the character's name. Case and
+ * surrounding spaces don't matter; everything else must match.
+ */
+export function confirmNameMatches(typed: string, displayName: string): boolean {
+  const normalise = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  return normalise(typed) !== "" && normalise(typed) === normalise(displayName);
+}
+
 export function sanitizeDisplayName(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const cleaned = raw
