@@ -1,7 +1,7 @@
 // Migrations and the profile repository against real PostgreSQL engines
 // (PGlite always; a PostgreSQL server too when TEST_DATABASE_URL is set).
 
-import { DEFAULT_APPEARANCE, PROFILE_VERSION, type NewCharacterInput } from "@padova/shared";
+import { APPEARANCE_PRESETS, DEFAULT_APPEARANCE, PROFILE_VERSION, cloneAppearance, legacyAppearanceProjection, type NewCharacterInput } from "@padova/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "../src/db/database.ts";
 import { redactUrl } from "../src/db/database.ts";
@@ -18,7 +18,7 @@ import {
 } from "../src/profiles/profileRepository.ts";
 import { testBackends } from "./helpers/testDatabase.ts";
 
-const input: NewCharacterInput = { displayName: "Giulia", ageCategory: "adult", appearance: { ...DEFAULT_APPEARANCE }, traits: [] };
+const input: NewCharacterInput = { displayName: "Giulia", ageCategory: "adult", appearance: cloneAppearance(DEFAULT_APPEARANCE), traits: [] };
 const spawn = { area: "plaza", x: 0, z: 13, rotation: Math.PI };
 const seed = { startingBalanceCents: 10_000, gameMinute: 480 };
 
@@ -105,13 +105,21 @@ for (const backend of testBackends) {
       it("saves and loads appearance and position", async () => {
         const { accountId, character } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
         const owner = { accountId, characterId: character.characterId };
-        const changed = { ...DEFAULT_APPEARANCE, hairColour: "teal", outfit: "hoodie-navy" };
+        const changed = APPEARANCE_PRESETS.find((p) => p.id === "locs-beard")!.appearance;
         const updated = await updateAppearance(db, owner, changed, PROFILE_VERSION);
         expect(updated?.appearance).toEqual(changed);
         expect(updated!.updatedAt.getTime()).toBeGreaterThanOrEqual(character.updatedAt.getTime());
         expect(await saveState(db, owner, { area: "plaza", x: -4.5, z: 2.25, rotation: 1 })).toBe(true);
         const loaded = await loadCharacterByAccount(db, accountId);
         expect(loaded?.appearance).toEqual(changed);
+        // The M4 columns hold the closest old look, for rollback (migration 0003).
+        const legacy = await db.query("SELECT preset, skin_tone, hair_style, hair_colour, eye_colour, outfit FROM character_appearance WHERE character_id = $1", [character.characterId]);
+        const projection = legacyAppearanceProjection(changed);
+        expect(legacy.rows[0]).toEqual({
+          preset: projection.preset, skin_tone: projection.skinTone, hair_style: projection.hairStyle,
+          hair_colour: projection.hairColour, eye_colour: projection.eyeColour, outfit: projection.outfit,
+        });
+        expect(legacy.rows[0]).toMatchObject({ preset: "male", skin_tone: "skin-8", hair_style: "long" });
         expect(loaded?.state).toMatchObject({ x: -4.5, z: 2.25 });
         expect(loaded?.state?.rotation).toBeCloseTo(1, 5);
       });
@@ -120,11 +128,11 @@ for (const backend of testBackends) {
         const alice = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
         const bruno = await createGuestWithCharacter(db, { ...input, displayName: "Bruno" }, PROFILE_VERSION, spawn, seed);
         const brunoAttack = { accountId: bruno.accountId, characterId: alice.character.characterId };
-        expect(await updateAppearance(db, brunoAttack, { ...DEFAULT_APPEARANCE, hairColour: "rose" }, PROFILE_VERSION)).toBeNull();
+        expect(await updateAppearance(db, brunoAttack, APPEARANCE_PRESETS[3]!.appearance, PROFILE_VERSION)).toBeNull();
         expect(await saveState(db, brunoAttack, { area: "plaza", x: 20, z: 20, rotation: 0 })).toBe(false);
         expect(await loadCharacterById(db, brunoAttack)).toBeNull();
         const aliceNow = await loadCharacterByAccount(db, alice.accountId);
-        expect(aliceNow?.appearance.hairColour).toBe(DEFAULT_APPEARANCE.hairColour);
+        expect(aliceNow?.appearance).toEqual(DEFAULT_APPEARANCE);
         expect(aliceNow?.state).toMatchObject({ x: 0, z: 13 });
       });
 
@@ -139,6 +147,31 @@ for (const backend of testBackends) {
         await expect(db.query("UPDATE characters SET profile_version = 0 WHERE id = $1", [character.characterId])).rejects.toThrow();
         await expect(db.query("INSERT INTO accounts (id, kind) VALUES ($1, 'admin')", [crypto.randomUUID()])).rejects.toThrow();
         expect(accountId).toBeTruthy();
+      });
+
+      it("stores appearance as a JSON object and refuses oversized or non-object documents", async () => {
+        const { character } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
+        const id = character.characterId;
+        const kind = await db.query<{ t: string }>("SELECT jsonb_typeof(config) AS t FROM character_appearance WHERE character_id = $1", [id]);
+        expect(kind.rows[0]!.t).toBe("object");
+        await expect(db.query(`UPDATE character_appearance SET config = '"a string"'::jsonb WHERE character_id = $1`, [id])).rejects.toThrow();
+        const huge = JSON.stringify({ v: 1, junk: "x".repeat(5000) });
+        await expect(db.query("UPDATE character_appearance SET config = $2::jsonb WHERE character_id = $1", [id, huge])).rejects.toThrow();
+      });
+
+      it("rolls back the appearance document to the M5 shape with the closest old look, and upgrades again", async () => {
+        const { accountId, character } = await createGuestWithCharacter(db, { ...input, appearance: APPEARANCE_PRESETS[0]!.appearance }, PROFILE_VERSION, spawn, seed);
+        expect(loadMigrations().at(-1)!.version).toBe(3); // this test is about migration 0003
+        expect(await rollback(db)).toEqual([3]);
+        const old = await db.query<{ profile_version: number; preset: string; skin_tone: string }>(
+          "SELECT c.profile_version, a.preset, a.skin_tone FROM characters c JOIN character_appearance a ON a.character_id = c.id WHERE c.id = $1",
+          [character.characterId],
+        );
+        expect(old.rows[0]).toEqual({ profile_version: 2, preset: "female", skin_tone: "skin-7" });
+        await migrate(db);
+        const reloaded = await loadCharacterByAccount(db, accountId);
+        expect(reloaded?.profileVersion).toBe(2);
+        expect(reloaded?.appearance).toMatchObject({ preset: "female", skinTone: "skin-7", hairStyle: "short" });
       });
 
       it("rolls back a failed creation completely", async () => {

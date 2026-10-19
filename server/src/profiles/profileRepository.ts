@@ -4,7 +4,7 @@
 // simply finds nothing, so one player cannot read or change another's profile.
 
 import { randomUUID } from "node:crypto";
-import type { Appearance, NewCharacterInput } from "@padova/shared";
+import { legacyAppearanceProjection, type AppearanceConfig, type NewCharacterInput } from "@padova/shared";
 import type { Database, Queryable } from "../db/database.ts";
 import { generateGuestToken, hashGuestToken, isWellFormedGuestToken } from "../identity/guestIdentity.ts";
 import { insertInitialLife } from "../life/lifeRepository.ts";
@@ -30,8 +30,12 @@ export interface StoredCharacter {
   profileVersion: number;
   createdAt: Date;
   updatedAt: Date;
-  /** Raw stored values; validate with sanitizeStoredAppearance before use. */
-  appearance: Record<keyof Appearance, unknown>;
+  /**
+   * Raw stored appearance: the config document when present (profile version
+   * 3+), otherwise the six M4 columns as a flat object. Upgrade with
+   * upgradeProfileData and clean with sanitizeAppearance before use.
+   */
+  appearance: unknown;
   /** Raw stored trait ids; clean with sanitizeStoredTraits. */
   traits: unknown[];
   state: SavedState | null;
@@ -56,6 +60,7 @@ interface CharacterRow {
   hair_colour: unknown;
   eye_colour: unknown;
   outfit: unknown;
+  config: unknown;
   area: string | null;
   pos_x: number | null;
   pos_z: number | null;
@@ -66,7 +71,7 @@ interface CharacterRow {
 const SELECT_CHARACTER = `
   SELECT c.id AS character_id, c.account_id, c.display_name, c.age_category, c.profile_version,
          c.created_at, c.updated_at,
-         a.preset, a.skin_tone, a.hair_style, a.hair_colour, a.eye_colour, a.outfit,
+         a.preset, a.skin_tone, a.hair_style, a.hair_colour, a.eye_colour, a.outfit, a.config,
          s.area, s.pos_x, s.pos_z, s.rotation,
          (SELECT array_agg(t.trait ORDER BY t.trait) FROM character_traits t WHERE t.character_id = c.id) AS traits
     FROM characters c
@@ -82,20 +87,39 @@ function toStored(row: CharacterRow): StoredCharacter {
     profileVersion: Number(row.profile_version),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
-    appearance: {
-      preset: row.preset,
-      skinTone: row.skin_tone,
-      hairStyle: row.hair_style,
-      hairColour: row.hair_colour,
-      eyeColour: row.eye_colour,
-      outfit: row.outfit,
-    },
+    appearance:
+      row.config !== null && row.config !== undefined
+        ? parseJsonColumn(row.config)
+        : {
+            preset: row.preset,
+            skinTone: row.skin_tone,
+            hairStyle: row.hair_style,
+            hairColour: row.hair_colour,
+            eyeColour: row.eye_colour,
+            outfit: row.outfit,
+          },
     traits: Array.isArray(row.traits) ? row.traits : [],
     state:
       row.pos_x === null || row.pos_z === null
         ? null
         : { area: row.area ?? "plaza", x: Number(row.pos_x), z: Number(row.pos_z), rotation: Number(row.rotation ?? 0) },
   };
+}
+
+/** pg returns jsonb parsed; be tolerant of drivers that hand back a string. */
+function parseJsonColumn(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+/** Column values for an appearance: the config document plus the M4 projection (rollback safety, migration 0003). */
+function appearanceColumns(appearance: AppearanceConfig): unknown[] {
+  const legacy = legacyAppearanceProjection(appearance);
+  return [legacy.preset, legacy.skinTone, legacy.hairStyle, legacy.hairColour, legacy.eyeColour, legacy.outfit, JSON.stringify(appearance)];
 }
 
 async function insertCharacter(
@@ -107,15 +131,14 @@ async function insertCharacter(
   seed: LifeSeed,
 ): Promise<string> {
   const characterId = randomUUID();
-  const { appearance } = input;
   await tx.query(
     `INSERT INTO characters (id, account_id, display_name, age_category, profile_version) VALUES ($1, $2, $3, $4, $5)`,
     [characterId, accountId, input.displayName, input.ageCategory, profileVersion],
   );
   await tx.query(
-    `INSERT INTO character_appearance (character_id, preset, skin_tone, hair_style, hair_colour, eye_colour, outfit)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [characterId, appearance.preset, appearance.skinTone, appearance.hairStyle, appearance.hairColour, appearance.eyeColour, appearance.outfit],
+    `INSERT INTO character_appearance (character_id, preset, skin_tone, hair_style, hair_colour, eye_colour, outfit, config)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+    [characterId, ...appearanceColumns(input.appearance)],
   );
   await tx.query(`INSERT INTO character_state (character_id, area, pos_x, pos_z, rotation) VALUES ($1, $2, $3, $4, $5)`, [
     characterId,
@@ -198,7 +221,7 @@ export async function loadCharacterById(db: Queryable, owner: Owner): Promise<St
 export async function updateAppearance(
   db: Database,
   owner: Owner,
-  appearance: Appearance,
+  appearance: AppearanceConfig,
   profileVersion: number,
 ): Promise<StoredCharacter | null> {
   const updated = await db.transaction(async (tx) => {
@@ -209,9 +232,10 @@ export async function updateAppearance(
     if (owned.rows.length === 0) return false;
     await tx.query(
       `UPDATE character_appearance
-          SET preset = $2, skin_tone = $3, hair_style = $4, hair_colour = $5, eye_colour = $6, outfit = $7, updated_at = now()
+          SET preset = $2, skin_tone = $3, hair_style = $4, hair_colour = $5, eye_colour = $6, outfit = $7,
+              config = $8::jsonb, updated_at = now()
         WHERE character_id = $1`,
-      [owner.characterId, appearance.preset, appearance.skinTone, appearance.hairStyle, appearance.hairColour, appearance.eyeColour, appearance.outfit],
+      [owner.characterId, ...appearanceColumns(appearance)],
     );
     return true;
   });

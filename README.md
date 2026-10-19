@@ -5,7 +5,7 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation (M0–M5)
+## Current status: walking skeleton, interactions, saved characters, life simulation, character creator (M0–M6)
 
 What exists today is a deliberately plain, end-to-end slice that proves the
 architecture. It is **not** the game yet.
@@ -23,17 +23,19 @@ architecture. It is **not** the game yet.
 | Action progress, cancel, and explanations when refused | Multiplayer functional, tested |
 | Saved character profile (name, adult age category, appearance, position) in PostgreSQL | Persistence verified (tested on embedded PGlite and PostgreSQL 16) |
 | Temporary guest identity (one browser = one character; no sign-in) | Multiplayer functional, tested; temporary by design (D-017) |
-| Minimal create-character and edit-appearance forms | Locally functional, tested; not the full character creator |
+| Character creator with live 3D preview: presets, body, skin tone (continuous), face, hair (17 styles, all textures), facial hair, outfits, headwear, glasses; randomise, undo, compare, look codes | Locally functional, tested (desktop and phone emulation) |
+| Procedural anime-inspired characters (every option is real geometry), walk / sit / wave poses | Multiplayer functional, persistence verified; **Stage-1 procedural art, not final artist-made models** (D-027) |
 | Needs (hunger, energy, hygiene, social, fun), mood with reasons, five skills, personality traits | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16) |
 | Money: balance, server-validated purchases and allowances, transaction history, no debt | Multiplayer functional, persistence verified |
 | Shared world clock (10 game minutes per real minute) and capped offline progression | Multiplayer functional, tested |
 | Character panel (your needs, mood, skills, money, current action) and top-right time/money chip | Locally functional, tested (desktop and phone emulation) |
-| Placeholder avatars built from primitives (body, head, eyes, three hair shapes, colours) | Placeholder |
-| Full character creator, sleep/beds, cooking, inventory, jobs, university courses | Not started (see docs/ROADMAP.md) |
+| Sleep/beds, cooking, inventory, jobs, university courses | Not started (see docs/ROADMAP.md) |
 
 "Tested" means covered by the automated tests in `docs/TESTING.md`. Mobile is
 tested in Chromium mobile emulation only; a real phone has not been tested yet.
-All automated runs so far were on Linux; running on Windows is not yet confirmed.
+All automated runs so far were on Linux. The product owner has run the game
+on Windows (a character joined the piazza after M5); a full report of the
+play loop on Windows is still open.
 Open items and the next task are listed in `docs/ROADMAP.md` ("Current state").
 
 ## Prerequisites
@@ -111,6 +113,14 @@ The client runs on port 5173 and the game server on port 2567.
 - **Cancel:** the Cancel button on the action bar, or Escape.
 - **Camera:** drag to turn; mouse wheel or pinch to zoom.
 - **Change your look:** click/tap yourself (while standing) → **Edit appearance**.
+  Drag the preview to turn it; *Hold to compare* shows your saved look.
+
+### Character lab (developer page)
+
+With `npm run dev` running, open <http://localhost:5173/lab.html> to see every
+preset and option side by side with its triangle count and build time
+(`?grid`, `?grid&view=face`, `?options=hair|outfit|skin|face|pose`,
+`?random`). It is not linked from the game.
 
 ### Your saved data
 
@@ -176,11 +186,13 @@ See `.env.example`. The only secret is `DATABASE_URL`, when used.
 
 ```
 shared/   Game rules used by both sides: world layout, collision, pathfinding, message validation,
-          life/ (clock, needs, mood, skills, traits, economy and all their tuning)
+          life/ (clock, needs, mood, skills, traits, economy and all their tuning),
+          appearance/ (character options, validation, skin colours, presets)
 server/   Authoritative Colyseus game server; db/ (database + migrations runner),
           identity/ (guest tokens), profiles/ (character profiles),
           life/ (needs, skills, money, clock), migrations/ (SQL)
-client/   Three.js browser client (rendering, input, networking)
+client/   Three.js browser client (rendering, input, networking); render/avatar/ builds
+          the characters, ui/creator.ts is the character creator, lab.html the character lab
 e2e/      Playwright multi-browser tests
 docs/     Design, architecture, roadmap, decisions, testing
 ```

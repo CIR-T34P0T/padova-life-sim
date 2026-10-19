@@ -6,6 +6,7 @@ import {
   GAME_CONFIG,
   NavGrid,
   ServerMessage,
+  encodeLook,
   gameMinuteAt,
   isPositionWalkable,
   parseAppearance,
@@ -13,7 +14,7 @@ import {
   parseMoveTo,
   parseNewCharacter,
   stepCharacter,
-  type Appearance,
+  type AppearanceConfig,
   type IdentityPayload,
   type JoinOptionsWithIdentity,
   type ProfileErrorPayload,
@@ -486,11 +487,6 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   }
 }
 
-function applyAppearance(player: PlayerState, appearance: Appearance): void {
-  player.preset = appearance.preset;
-  player.skinTone = appearance.skinTone;
-  player.hairStyle = appearance.hairStyle;
-  player.hairColour = appearance.hairColour;
-  player.eyeColour = appearance.eyeColour;
-  player.outfit = appearance.outfit;
+function applyAppearance(player: PlayerState, appearance: AppearanceConfig): void {
+  player.look = encodeLook(appearance);
 }

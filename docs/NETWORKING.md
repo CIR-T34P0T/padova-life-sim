@@ -9,7 +9,7 @@ The server is authoritative over every replicated value.
 | --- | --- | --- | --- |
 | Player position, facing, moving flag | Server | Yes (all players in room) | Position and facing: yes (on leave, eviction, room close, 30 s autosave) |
 | Display name | Server (from the saved profile) | Yes | Yes |
-| Appearance option ids | Server (validated against the catalogue) | Yes (public) | Yes |
+| Appearance config (M6) | Server (validated with `parseAppearanceConfig`) | Yes (public), as one `look` string: canonical JSON under 1 KB | Yes (`character_appearance.config`) |
 | Character id, account id, age category, profile version, timestamps | Server | No; the owner receives them in `profile` | Yes |
 | Guest token | Client (`localStorage`); server keeps only its hash | Never replicated; sent by the server once, in `identity` | Hash only |
 | Activity (`idle`/`sitting`/`studying`/`sketching`/`greeting`/`ordering`/`eating`/`drinking`/`washing`), seat or standing spot, greeting target | Server | Yes | No |
@@ -41,7 +41,7 @@ Client → server (intents only):
 | `interact` | `{ targetKind: "object" \| "player", targetId, action, itemId?, requestId? }` | Validates and runs the interaction lifecycle (see ARCHITECTURE "Interactions"). `itemId` (`[a-z0-9-]{1,32}`) names the café item for `buy`; the price always comes from the server's menu. `requestId` (`[A-Za-z0-9_-]{8,64}`) makes a purchase idempotent: the same id never charges or serves twice (a repeat is refused with `duplicate_request`); the server makes one if absent. Any other field (e.g. a price) is ignored. Malformed → `rejected`; refused → `action` with status `rejected`. Counts toward the 20/s intent limit. |
 | `cancelAction` | none | Cancels the current action, if any. |
 | `createCharacter` | `{ displayName, ageCategory, appearance, traits? }` | Only for a session without a character. Validated (`parseNewCharacter`); player characters must be `adult`; `traits` = up to two distinct known trait ids. Unknown fields (e.g. a chosen id or owner) are ignored. Creates a guest account too if the session has none. Answers `identity` (new accounts) and `profile`, or `profileError`. |
-| `updateAppearance` | `{ appearance }` | Only for your own character (from the session, never the payload). Every field must be a catalogue id. Saved, then replicated. Counts toward the intent rate limit. |
+| `updateAppearance` | `{ appearance }` | Only for your own character (from the session, never the payload). `appearance` is a complete appearance config (version 1): every option a catalogue id, every slider a number 0–1, or the request is refused naming the field (`hair.style`, `skin.tone`…). Saved, then replicated as the new `look`. Counts toward the intent rate limit. |
 | anything else | — | Ignored and logged at warn level. |
 
 Server → client:
@@ -101,6 +101,19 @@ The local player is rendered the same way (no prediction yet, see D-006).
   with exponential backoff and resumes the same session; `onReconnect` restores it.
 - SDK limitation: automatic reconnection is refused if the room was joined
   less than 5 s ago (SDK default `minUptime`).
+
+## Appearance replication (M6, D-028)
+
+Each player's look is one replicated string, `PlayerState.look`: the
+appearance config as canonical JSON (fixed key order, so equal looks are
+equal strings), about 700–900 bytes. It is sent when the player appears and
+again only when the owner saves a change; nothing about appearance is sent
+per frame. Clients decode it with `decodeLook`, which never throws: an
+unreadable or newer look is drawn as the default look rather than breaking
+the client. On a change, the client compares the new look with the old one
+and rebuilds only the affected body parts (`client/src/render/avatar/character.ts`).
+Hidden choices (hair under a headscarf) are still replicated, so the look is
+the same on every client when the covering comes off.
 
 ## Game time (D-021)
 

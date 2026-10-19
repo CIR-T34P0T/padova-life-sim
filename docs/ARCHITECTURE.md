@@ -1,7 +1,8 @@
 # Architecture
 
-Status as of M5 (walking skeleton, contextual interactions, identity and
-persistence, life simulation). Sections marked *planned* describe intent, not code.
+Status as of M6 (walking skeleton, contextual interactions, identity and
+persistence, life simulation, procedural characters and the character
+creator). Sections marked *planned* describe intent, not code.
 
 ## Overview
 
@@ -19,8 +20,9 @@ persistence, life simulation). Sections marked *planned* describe intent, not co
               │ imports                                  │ imports
               └──────────────► shared/ ◄─────────────────┘
                  world layout + interactables · collision · pathfinding · movement
-                 interaction rules · profile model + catalogue · message contract + validators · tuning config
+                 interaction rules · profile model · message contract + validators · tuning config
                  life/: clock · needs · mood · skills · traits · economy · action effects
+                 appearance/: catalogue · versioned config + validation · skin colour · presets · randomiser · visibility
 ```
 
 ## Packages
@@ -43,6 +45,36 @@ the client, `tsx` runs it on the server.
   ≤ 1.5, no shadows, no antialiasing. Override with `?quality=high|low`.
 - Name tags use `CSS2DRenderer` (DOM elements positioned over the canvas).
 - Portrait screens get a wider vertical field of view (`render/cameraRig.ts`).
+- While the full-screen character creator is open, the world is not rendered
+  (`Game.setCovered`), so only the creator's preview uses the GPU.
+
+## Characters (M6, D-027 to D-030)
+
+`client/src/render/avatar/` builds every character procedurally from its
+appearance config; there are no character model files yet (ASSET_PIPELINE.md).
+
+| Module | Role |
+| --- | --- |
+| `metrics.ts` | Sliders and presets → joint heights, widths and radii (one source for body, clothes, hair and poses) |
+| `geometry.ts` | Tubes, sweeps, ellipsoids, merging; every piece has position, normal, uv and colour attributes |
+| `head.ts` | Head deformed by face shape and sliders; eyes, brows, nose, lips, ears, freckles, beauty marks; blush and stubble in the skin colours |
+| `hair.ts` | Hair styles and beards as geometry built from the head surface (shells with a tapered hairline, hanging locks that clear the face and body, curls, buns) |
+| `body.ts` | Torso, arms, legs, clothing colours and shells (sleeves, skirts, jackets, hoods, trousers, shoes), standing and seated variants |
+| `accessories.ts` | Glasses and headwear |
+| `materials.ts`, `patterns.ts` | Shared soft cel-shading materials; garment patterns drawn into small canvas textures, cached per pattern and colour |
+| `character.ts` | `CharacterModel`: parts on pivots (head, torso, two arms, two thighs, two shins), incremental rebuild, poses |
+| `avatar.ts` | In-world wrapper: name tag, bubble, rings, invisible picking capsule |
+
+Each moving part is **one merged, vertex-coloured mesh** (plus a pattern
+mesh when a garment is patterned and seated-only skirt pieces), so a
+character is 8–12 draw calls and every character shares the same materials.
+`setAppearance` compares per-part signatures and rebuilds only the parts
+whose inputs changed (hair → head only; a top → torso and arms). Poses
+(idle, walk, seated, studying, sketching, greeting, café and fountain
+actions) only rotate pivots. Strand placement is seeded, so all clients
+draw identical hair. `render/previewStage.ts` is the lit turntable shared
+by the creator and the character lab (`client/lab.html`, a developer page
+that renders presets and option sweeps with their build cost).
 
 ## Input
 
@@ -110,7 +142,7 @@ target when the fan would overlap) and a bottom sheet with 56 px buttons (coarse
 right in landscape, full width in portrait with the joystick hidden while
 open). Override with `?menu=radial|sheet`. `actionProgress.ts` shows the
 current action with a progress bar for timed actions and a Cancel button.
-Highlights (`render/worldScene.ts` outline, `render/avatars.ts` rings),
+Highlights (`render/worldScene.ts` outline, `render/avatar/avatar.ts` rings),
 the seated pose, activity label and "Ciao!" bubble are presentation only.
 
 ## Life simulation (M5)
@@ -191,15 +223,15 @@ create a character. Account and character ids from clients are never trusted.
 every query scoped by the owning account id. `ProfileService.ts` loads with
 upgrade/repair (newer versions read-only), creates (guest account + character
 in one transaction, rate-limited per IP), updates appearance and saves
-position. Validation rules (names, age categories, appearance catalogue,
-version upgrades) live in `shared/src/profile.ts`.
+position. Validation rules live in `shared/src/profile.ts` (names, age
+categories, version upgrades) and `shared/src/appearance/` (appearance).
 
 **Room lifecycle (`server/src/PlazaRoom.ts`).**
 - Anonymous join → `profile {status: "needs_character"}`; nobody is placed in the world.
 - `createCharacter` → validated, stored, `identity {guestToken}` sent once, character spawned.
 - Join with a valid token → saved character loaded and spawned at its saved
   position (spawn point if that spot is no longer walkable).
-- `updateAppearance` → validated against the catalogue, saved, replicated.
+- `updateAppearance` → validated as a complete appearance config, saved (document plus the M4 projection), replicated as one `look` string.
 - Leave, eviction, room disposal → position and life data saved; autosave
   every 30 s for every character in the world (since M5).
 - Same account in a second session → the newest wins (D-018,
@@ -208,11 +240,17 @@ version upgrades) live in `shared/src/profile.ts`.
 - Brief network drop → same session resumes within 20 s; nothing reloads.
 
 **Client.** `main.ts` drives the page: connect with the stored token →
-create form or straight into the game. `ui/profilePanel.ts` is a deliberately
-MINIMAL form (name, adult-only notice, appearance pickers) and the edit form,
-reached by clicking yourself → "Edit appearance". It is not the character
-creator (no live preview); that comes later. Avatars (`render/avatars.ts`)
-draw every catalogue option with placeholder primitives.
+character creator or straight into the game. `ui/profilePanel.ts` shows
+"connecting", messages, and the character creator (`ui/creator.ts`) for
+creating (name, look, personality) and for editing (clicking yourself →
+"Edit appearance"). The creator has a live 3D preview (drag to turn, body /
+upper / face camera), presets with thumbnails (hover or focus to compare),
+tabs for body, skin, face, hair and outfit, randomise (all or one tab),
+reset a tab, undo/redo, hold-to-compare with the starting look, look codes
+and up to six looks saved in the browser (`localStorage`, convenience only).
+Choices that are covered by another (hair under a headscarf, top under a
+full outfit) are labelled "saved, but not visible right now". It renders only
+when something visible changes.
 
 **Services wiring.** `app.ts` builds a `ProfileService`, `LifeService` and
 `SessionRegistry` per game server and registers them under a key passed in room options
@@ -224,7 +262,10 @@ draw every catalogue option with placeholder primitives.
   enough for M3 menus and the M5 character panel; see D-007.
 - A real sign-in method to replace guest accounts (needs the product owner's decision).
 - Hosting, managed PostgreSQL and backups.
-- Character pipeline (VRM, M6) — see `ASSET_PIPELINE.md`.
+- Authored character models (rigged glTF/VRM) to replace the procedural
+  Stage-1 characters — requirements in `ASSET_PIPELINE.md`.
+- Level of detail for characters (far characters still use full geometry)
+  and spreading character builds over several frames when many players join at once.
 - Camera occlusion: buildings between the camera and the player are not
   faded or cut away yet, so the south edge of the piazza can hide characters
   (why the café counter stands in the open piazza).

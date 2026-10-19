@@ -7,8 +7,9 @@ Three layers: **persistent** (PostgreSQL, survives restarts), **replicated**
 ## Persistent (PostgreSQL, since M4)
 
 Schema: `server/migrations/0001_identity_and_profiles.sql` (identity and
-profiles, M4) and `0002_life_simulation.sql` (traits, needs, skills, mood
-events and money, M5). One table per concern, so later systems (inventory,
+profiles, M4), `0002_life_simulation.sql` (traits, needs, skills, mood
+events and money, M5) and `0003_appearance_config.sql` (the appearance
+document, M6). One table per concern, so later systems (inventory,
 relationships, jobs) get their own tables instead of growing one JSON blob.
 
 ```
@@ -33,7 +34,11 @@ characters              the character profile
 
 character_appearance    one row per character
   character_id  uuid PK → characters (cascade delete)
-  preset, skin_tone, hair_style, hair_colour, eye_colour, outfit   option ids from the shared catalogue
+  config        jsonb    the appearance config (M6, D-028), see "Appearance config" below;
+                         CHECK: a JSON object under 4 KB. NULL only for rows last saved by M4/M5.
+  preset, skin_tone, hair_style, hair_colour, eye_colour, outfit   the M4 option ids. Since M6
+                         they hold the closest old look (legacyAppearanceProjection), written
+                         with every save, so rolling back migration 0003 keeps characters loadable.
   updated_at
 
 character_state         where the character was when last saved
@@ -107,11 +112,48 @@ needs (80/80/80/70/70), a €100 wallet with a "Starting allowance" ledger row,
 no traits and no skills. Its `down` section drops all six tables (destroys
 life data; back up first).
 
+**Migration 0003 (M6).** Adds `character_appearance.config`. Existing rows
+keep `config` NULL and `profile_version` 2; the server upgrades each
+character the first time it loads (profile version 2 → 3: the six flat
+fields become an appearance config with the same body frame, the old skin
+tone mapped onto the new continuous scale, hair style, hair and eye colour,
+and the outfit split into top / outer / full outfit) and saves it. Its
+`down` section sets version-3 characters back to version 2 and drops the
+column; the M4 columns already hold the closest old look, so nothing is lost
+that the M5 server could show.
+
+**Appearance config** (`shared/src/appearance/schema.ts`, version
+`APPEARANCE_SCHEMA_VERSION` = 1). One JSON object:
+
+```
+{ v: 1,
+  body:   { frame, build, height, shoulders, torso, legs, arms },
+  skin:   { tone, undertone, freckles, mark, blush },
+  face:   { shape, cheekbones, jaw, chin, forehead, eyeShape, eyeSize, eyeSpacing, eyeColour,
+            browShape, browHeight, noseShape, noseWidth, noseLength, lipShape, lipFullness },
+  hair:   { style, colour, hairline, facial },
+  outfit: { top, topColour, pattern, bottom, bottomColour, full, shoes, shoesColour,
+            outer, outerColour, glasses, headwear, headwearColour } }
+```
+
+Option fields hold catalogue ids (`shared/src/appearance/catalogue.ts`);
+slider fields are numbers 0–1 with two decimals (meanings in `schema.ts`).
+Strict validation for anything a player sends (`parseAppearanceConfig`:
+every field present and valid, or refused naming the field, e.g.
+`hair.style`); lenient repair for stored or replicated data
+(`sanitizeAppearance`: out-of-range sliders clamped, unknown ids replaced by
+defaults and listed). There is **no ethnicity, race, nationality or heritage
+field** (D-029), and no life-simulation rule reads appearance (guarded by a
+test). Choices that are covered by others (hair under a headscarf, top and
+bottom under a full outfit) stay saved; `visibleLayers` decides what is drawn.
+
 **Profile versus table versions.** `profile_version` describes the *shape
 and meaning* of profile data and is upgraded in code on load
-(`shared/src/profile.ts`: `PROFILE_UPGRADES`, one step per version). Table
-structure changes are SQL migrations. Appearance option ids are validated
-against the catalogue in code, so adding options needs neither.
+(`shared/src/profile.ts`: `PROFILE_UPGRADES`, one step per version: 1 → 2
+adds traits, 2 → 3 the appearance config). Table structure changes are SQL
+migrations. Appearance option ids are validated against the catalogue in
+code, so adding options needs neither; changing what a field means bumps
+`APPEARANCE_SCHEMA_VERSION` with an upgrade step (docs/ASSET_PIPELINE.md).
 
 **Ownership.** Every read and write of a character is scoped by the owning
 account id, which the server takes from the authenticated session (a
@@ -121,7 +163,7 @@ verified guest token), never from client input
 **Loading stored data safely** (`ProfileService.prepare`):
 - Older profile version → upgraded step by step, then saved.
 - Missing or retired appearance option → replaced by the default, saved, and
-  the player is told which option changed.
+  the player is told which part (hair, outfit…) changed.
 - Newer profile version (written by a newer server) or an unknown version →
   loaded **read-only** with safe defaults in memory; never overwritten.
 - Saved position no longer walkable (e.g. the layout changed) → spawn point.
@@ -157,8 +199,9 @@ PlayerState
   rotation: float32    radians around Y, 0 faces +Z
   moving: boolean
   connected: boolean   false during the reconnection window
-  preset, skinTone, hairStyle, hairColour, eyeColour, outfit: string
-                       appearance option ids (public: everyone sees your look)
+  look: string         the appearance config as canonical JSON (encodeLook, < 1 KB;
+                       public: everyone sees your look). One string, so a change arrives
+                       as one patch and clients rebuild only the parts that changed.
   activity: string     "idle" | "sitting" | "studying" | "sketching" | "greeting"
                        | "ordering" | "eating" | "drinking" | "washing"
   seatId: string       seat or standing spot in use, else ""
@@ -193,8 +236,12 @@ money changes or refusals. Other players see only the public activity
 
 - `world.ts`: world bounds, obstacle boxes, spawn points, interactables with
   seats (sitting) and standing spots (café counter, fountain; D-026).
-- `profile.ts`: appearance catalogue (option ids, labels, display colours),
-  defaults, age categories, profile version and upgrade steps (version 2 adds traits).
+- `appearance/`: the appearance catalogue (option ids, labels, colours, hair
+  textures), the config schema with validation, look strings and look codes,
+  skin-tone colour maths (OKLab), presets, the seeded randomiser and the
+  visibility rules (M6).
+- `profile.ts`: age categories, profile version and upgrade steps (version 2
+  adds traits, version 3 the appearance config).
 - `life/config.ts`: every M5 tuning value and catalogue — needs (initial
   values, rates, thresholds), offline rules, mood events, skills and XP
   curve, action effects, the café menu (`CAFE_MENU`, prices in cents),
@@ -204,7 +251,9 @@ money changes or refusals. Other players see only the public activity
 
 - Every persistent value has a single server-side owner and is changed only by
   validated server actions.
-- Separate tables per concern; no catch-all JSON column for game state.
+- Separate tables per concern; no catch-all JSON column for game state. The
+  appearance document is the one documented exception (D-028): purely
+  cosmetic, versioned and validated as a whole.
 - Currency changes are recorded as ledger transactions with an idempotency
   key, never as a client-set balance. The balance never goes below zero.
 - Store the minimum personal data. Guest accounts hold no personal data beyond

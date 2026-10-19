@@ -6,7 +6,7 @@ import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import {
   GAME_CONFIG,
   PLAZA_LAYOUT,
-  type Appearance,
+  type AppearanceConfig,
   type CharacterProfile,
   type IdentityPayload,
   type LifePayload,
@@ -20,7 +20,7 @@ import { InputController } from "./input/inputController.ts";
 import { InteractionController } from "./interaction/interactionController.ts";
 import { GameConnection, appearanceOf, type ConnectionStatus, type ReplicatedPlayer } from "./net/connection.ts";
 import { SnapshotBuffer } from "./net/interpolation.ts";
-import { createAvatar, type AvatarView } from "./render/avatars.ts";
+import { createAvatar, type AvatarView } from "./render/avatar/index.ts";
 import { CameraRig } from "./render/cameraRig.ts";
 import { detectQuality } from "./render/quality.ts";
 import { buildWorldScene } from "./render/worldScene.ts";
@@ -165,7 +165,7 @@ export class Game {
     this.connection.createCharacter(input);
   }
 
-  updateAppearance(appearance: Appearance): void {
+  updateAppearance(appearance: AppearanceConfig): void {
     this.connection.updateAppearance(appearance);
   }
 
@@ -181,10 +181,18 @@ export class Game {
     this.interactions.onWorldChanged(); // e.g. what the player can afford changed
   }
 
+  /** True while a full-screen panel (the character creator) hides the world: skip rendering it. */
+  private covered = false;
+
+  setCovered(covered: boolean): void {
+    this.covered = covered;
+  }
+
   private frame(): void {
     const now = performance.now();
     const dt = Math.min((now - this.lastFrame) / 1000, 0.1);
     this.lastFrame = now;
+    if (this.covered) return;
 
     this.sendDirectionIfChanged(now);
 
@@ -208,7 +216,13 @@ export class Game {
     this.rig.update(dt);
     this.renderer.render(this.world.scene, this.rig.camera);
     this.labelRenderer.render(this.world.scene, this.rig.camera);
+    // Rolling averages for the performance readout (debug hook only).
+    const cpu = performance.now() - now;
+    this.perf.frameCpuMs += (cpu - this.perf.frameCpuMs) * 0.05;
+    this.perf.frameIntervalMs += (dt * 1000 - this.perf.frameIntervalMs) * 0.05;
   }
+
+  private readonly perf = { frameCpuMs: 0, frameIntervalMs: 16.7 };
 
   /**
    * Keyboard / joystick input is camera-relative; the server needs a world
@@ -275,16 +289,7 @@ export class Game {
     if (entity.latest.connected !== player.connected) entity.view.setAway(!player.connected);
     if (entity.latest.name !== player.name) entity.view.setName(player.name);
     const before = entity.latest;
-    if (
-      before.preset !== player.preset ||
-      before.skinTone !== player.skinTone ||
-      before.hairStyle !== player.hairStyle ||
-      before.hairColour !== player.hairColour ||
-      before.eyeColour !== player.eyeColour ||
-      before.outfit !== player.outfit
-    ) {
-      entity.view.setAppearance(appearanceOf(player));
-    }
+    if (before.look !== player.look) entity.view.setAppearance(appearanceOf(player));
     if (entity.latest.activity !== player.activity || entity.latest.seatId !== player.seatId) {
       entity.view.setActivity(player.activity, player.seatId !== "");
     }
@@ -333,6 +338,22 @@ export class Game {
       },
       players() {
         return [...game.entities].map(([id, e]) => ({ id, ...e.latest }));
+      },
+      /** Geometry stats of one player's character (triangles, meshes, last build time). */
+      avatarStats(id: string) {
+        return game.entities.get(id)?.view.stats() ?? null;
+      },
+      /** Renderer and frame-time numbers (rolling averages; software rendering is not representative). */
+      renderStats() {
+        const info = game.renderer.info;
+        return {
+          drawCalls: info.render.calls,
+          triangles: info.render.triangles,
+          geometries: info.memory.geometries,
+          textures: info.memory.textures,
+          frameCpuMs: game.perf.frameCpuMs,
+          frameIntervalMs: game.perf.frameIntervalMs,
+        };
       },
       /** Selection, open menu, progress text and current action. */
       interaction() {

@@ -2,7 +2,7 @@
 // and money transactions, on PGlite and (with TEST_DATABASE_URL) PostgreSQL.
 
 import { randomUUID } from "node:crypto";
-import { DEFAULT_APPEARANCE, NEEDS_CONFIG, PROFILE_VERSION, type NewCharacterInput } from "@padova/shared";
+import { DEFAULT_APPEARANCE, NEEDS_CONFIG, cloneAppearance, PROFILE_VERSION, type NewCharacterInput } from "@padova/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "../src/db/database.ts";
 import { loadMigrations, migrate, rollback } from "../src/db/migrate.ts";
@@ -13,7 +13,7 @@ import { testBackends } from "./helpers/testDatabase.ts";
 const input: NewCharacterInput = {
   displayName: "Giulia",
   ageCategory: "adult",
-  appearance: { ...DEFAULT_APPEARANCE },
+  appearance: cloneAppearance(DEFAULT_APPEARANCE),
   traits: ["organised", "sociable"],
 };
 const spawn = { area: "plaza", x: 0, z: 13, rotation: Math.PI };
@@ -57,7 +57,7 @@ for (const backend of testBackends) {
         [characterId],
       );
 
-      expect(await migrate(db)).toEqual([2]);
+      expect(await migrate(db)).toEqual([2, 3]);
       const life = await loadLife(db, { accountId, characterId }, 5);
       expect(life?.needs).toEqual(NEEDS_CONFIG.initial);
       expect(life?.traits).toEqual([]);
@@ -70,7 +70,7 @@ for (const backend of testBackends) {
     it("rolls back the life migration without touching profiles", async () => {
       await migrate(db);
       const { accountId } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
-      expect(await rollback(db)).toEqual([2]);
+      expect(await rollback(db, 2)).toEqual([3, 2]);
       const tables = (await db.query<{ table_name: string }>(
         `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
       )).rows.map((r) => r.table_name);

@@ -1,0 +1,334 @@
+// A complete procedural character: builds the parts from an appearance
+// config, rebuilds only the parts whose inputs changed, and poses them.
+// Used by the in-world avatars, the character creator preview and the
+// character lab. Presentation only: nothing here affects gameplay.
+
+import * as THREE from "three";
+import {
+  colourOf,
+  skinColour,
+  visibleLayers,
+  type AppearanceConfig,
+  type VisibleLayers,
+} from "@padova/shared";
+import { buildGlasses, buildHeadwear } from "./accessories.ts";
+import { buildArm, buildShin, buildThigh, buildTorso, resolveOutfit, type Outfit, type Piece } from "./body.ts";
+import { merge } from "./geometry.ts";
+import { buildFacialHair, buildHair } from "./hair.ts";
+import { buildHead } from "./head.ts";
+import { colourMaterial, patternMaterial } from "./materials.ts";
+import { bodyMetrics, type BodyMetrics } from "./metrics.ts";
+
+type PartName = "head" | "torso" | "armL" | "armR" | "thighL" | "thighR" | "shinL" | "shinR";
+const PARTS: readonly PartName[] = ["head", "torso", "armL", "armR", "thighL", "thighR", "shinL", "shinR"];
+
+export interface PoseInput {
+  moving: boolean;
+  seated: boolean;
+  activity: string;
+  /** Seconds, for animation. */
+  time: number;
+}
+
+export interface CharacterStats {
+  triangles: number;
+  meshes: number;
+  /** Milliseconds spent in the last (re)build, and which parts were rebuilt. */
+  buildMs: number;
+  rebuilt: PartName[];
+}
+
+interface PartState {
+  group: THREE.Group;
+  meshes: THREE.Mesh[];
+  signature: string;
+}
+
+/** The inputs each part depends on, so a change rebuilds only what it affects. */
+function signatures(config: AppearanceConfig, layers: VisibleLayers): Record<PartName, string> {
+  const { body, skin, face, hair, outfit } = config;
+  const clothes = { ...outfit, glasses: undefined, headwear: undefined, headwearColour: undefined };
+  const head = JSON.stringify([body, skin, face, hair, outfit.headwear, outfit.headwearColour, outfit.glasses, layers.hair]);
+  const torso = JSON.stringify([body, skin.tone, skin.undertone, clothes, layers.topAndBottom]);
+  const arm = JSON.stringify([body, skin.tone, skin.undertone, outfit.top, outfit.topColour, outfit.full, outfit.pattern, outfit.outer, outfit.outerColour]);
+  const thigh = JSON.stringify([body, skin.tone, skin.undertone, outfit.bottom, outfit.bottomColour, outfit.full, outfit.topColour, outfit.pattern, outfit.outer, outfit.outerColour]);
+  const shin = JSON.stringify([thigh, outfit.shoes, outfit.shoesColour]);
+  return { head, torso, armL: arm, armR: arm, thighL: thigh, thighR: thigh, shinL: shin, shinR: shin };
+}
+
+export class CharacterModel {
+  readonly root = new THREE.Group();
+  /** Lowered and shifted when seated. */
+  readonly figure = new THREE.Group();
+  private readonly torsoPivot = new THREE.Group();
+  private readonly headPivot = new THREE.Group();
+  private readonly shoulders = { L: new THREE.Group(), R: new THREE.Group() };
+  private readonly hips = { L: new THREE.Group(), R: new THREE.Group() };
+  private readonly knees = { L: new THREE.Group(), R: new THREE.Group() };
+  private readonly parts = new Map<PartName, PartState>();
+  private config: AppearanceConfig | null = null;
+  private metricsValue: BodyMetrics | null = null;
+  private outfit: Outfit | null = null;
+  private away = false;
+  private seated = false;
+  stats: CharacterStats = { triangles: 0, meshes: 0, buildMs: 0, rebuilt: [] };
+
+  constructor(
+    config: AppearanceConfig,
+    private readonly options: { shadows: boolean } = { shadows: false },
+  ) {
+    this.root.add(this.figure);
+    this.figure.add(this.torsoPivot);
+    this.torsoPivot.add(this.headPivot, this.shoulders.L, this.shoulders.R);
+    this.figure.add(this.hips.L, this.hips.R);
+    this.hips.L.add(this.knees.L);
+    this.hips.R.add(this.knees.R);
+    const groups: Record<PartName, THREE.Group> = {
+      head: this.headPivot,
+      torso: this.torsoPivot,
+      armL: this.shoulders.L,
+      armR: this.shoulders.R,
+      thighL: this.hips.L,
+      thighR: this.hips.R,
+      shinL: this.knees.L,
+      shinR: this.knees.R,
+    };
+    for (const name of PARTS) this.parts.set(name, { group: groups[name], meshes: [], signature: "" });
+    this.setAppearance(config);
+  }
+
+  get metrics(): BodyMetrics {
+    return this.metricsValue!;
+  }
+
+  get appearance(): AppearanceConfig | null {
+    return this.config;
+  }
+
+  /** Applies a look, rebuilding only the parts whose inputs changed. */
+  setAppearance(config: AppearanceConfig): CharacterStats {
+    const started = performance.now();
+    const layers = visibleLayers(config);
+    const metrics = bodyMetrics(config);
+    const skin = skinColour(config.skin.tone, config.skin.undertone);
+    const hairHex = colourOf("hairColours", config.hair.colour, "#3b2a22");
+    const outfit = resolveOutfit(config, layers, skin, (id) => colourOf("clothingColours", id, "#888888"), metrics);
+    this.config = config;
+    this.metricsValue = metrics;
+    this.outfit = outfit;
+    this.placePivots(metrics);
+
+    const next = signatures(config, layers);
+    const rebuilt: PartName[] = [];
+    for (const name of PARTS) {
+      const part = this.parts.get(name)!;
+      if (part.signature === next[name]) continue;
+      let pieces: Piece[];
+      switch (name) {
+        case "head": {
+          const built = buildHead(config, metrics, skin, hairHex);
+          const hair = buildHair(config, built.head, built.layout, metrics, hairHex, skin, layers.hair);
+          const geometry = [
+            ...built.pieces,
+            ...hair.pieces,
+            ...buildFacialHair(config, built.head, hairHex),
+            ...buildHeadwear(config, built.head, metrics, hair.thicknessAt, colourOf("clothingColours", config.outfit.headwearColour, "#d4a12e"), layers.hair),
+            ...buildGlasses(config, built.head, built.layout),
+          ];
+          pieces = geometry.map((g) => ({ geometry: g, material: "colour" as const, pose: "always" as const }));
+          break;
+        }
+        case "torso":
+          pieces = buildTorso(metrics, outfit);
+          break;
+        case "armL":
+          pieces = buildArm(metrics, outfit, 1);
+          break;
+        case "armR":
+          pieces = buildArm(metrics, outfit, -1);
+          break;
+        case "thighL":
+        case "thighR":
+          pieces = buildThigh(metrics, outfit);
+          break;
+        case "shinL":
+        case "shinR":
+          pieces = buildShin(metrics, outfit, config);
+          break;
+      }
+      this.replaceMeshes(part, pieces, config);
+      part.signature = next[name];
+      rebuilt.push(name);
+    }
+    this.applyPoseVisibility();
+    this.stats = { ...this.countStats(), buildMs: performance.now() - started, rebuilt };
+    return this.stats;
+  }
+
+  private placePivots(m: BodyMetrics): void {
+    this.headPivot.position.set(0, m.headCentreY, 0);
+    this.shoulders.L.position.set(m.shoulderJointX, m.shoulderJointY, 0);
+    this.shoulders.R.position.set(-m.shoulderJointX, m.shoulderJointY, 0);
+    this.hips.L.position.set(m.legOffsetX, m.hipY, 0);
+    this.hips.R.position.set(-m.legOffsetX, m.hipY, 0);
+    this.knees.L.position.set(0, -(m.hipY - m.kneeY), 0);
+    this.knees.R.position.set(0, -(m.hipY - m.kneeY), 0);
+  }
+
+  private replaceMeshes(part: PartState, pieces: Piece[], config: AppearanceConfig): void {
+    for (const mesh of part.meshes) {
+      mesh.removeFromParent();
+      mesh.geometry.dispose();
+    }
+    part.meshes = [];
+    const groups = new Map<string, THREE.BufferGeometry[]>();
+    for (const piece of pieces) {
+      const key = `${piece.material}|${piece.pose}`;
+      const list = groups.get(key) ?? [];
+      list.push(piece.geometry);
+      groups.set(key, list);
+    }
+    for (const [key, list] of groups) {
+      const [material, pose] = key.split("|") as [Piece["material"], Piece["pose"]];
+      const mesh = new THREE.Mesh(merge(list), this.materialFor(material, config));
+      mesh.userData.pose = pose;
+      mesh.userData.materialKind = material;
+      mesh.castShadow = this.options.shadows;
+      mesh.receiveShadow = false;
+      part.group.add(mesh);
+      part.meshes.push(mesh);
+    }
+  }
+
+  private materialFor(kind: Piece["material"], config: AppearanceConfig): THREE.Material {
+    if (kind === "pattern") {
+      return patternMaterial(config.outfit.pattern, colourOf("clothingColours", config.outfit.topColour, "#888888"), this.away);
+    }
+    return colourMaterial(this.away);
+  }
+
+  setAway(away: boolean): void {
+    if (this.away === away) return;
+    this.away = away;
+    for (const part of this.parts.values()) {
+      for (const mesh of part.meshes) mesh.material = this.materialFor(mesh.userData.materialKind as Piece["material"], this.config!);
+    }
+  }
+
+  private applyPoseVisibility(): void {
+    for (const part of this.parts.values()) {
+      for (const mesh of part.meshes) {
+        const pose = mesh.userData.pose as Piece["pose"];
+        mesh.visible = pose === "always" || (pose === "seated") === this.seated;
+      }
+    }
+  }
+
+  private countStats(): { triangles: number; meshes: number } {
+    let triangles = 0;
+    let meshes = 0;
+    for (const part of this.parts.values()) {
+      for (const mesh of part.meshes) {
+        if (!mesh.visible) continue;
+        meshes++;
+        triangles += (mesh.geometry.index?.count ?? mesh.geometry.getAttribute("position").count) / 3;
+      }
+    }
+    return { triangles, meshes };
+  }
+
+  /** Total height (m), for placing name tags and menus. */
+  get height(): number {
+    return this.metricsValue?.height ?? 1.7;
+  }
+
+  /** Poses the parts. Cheap: only rotations and offsets, no geometry changes. */
+  pose(input: PoseInput): void {
+    const m = this.metricsValue!;
+    const stride = this.outfit?.stride ?? 1;
+    if (input.seated !== this.seated) {
+      this.seated = input.seated;
+      this.applyPoseVisibility();
+      this.stats = { ...this.stats, ...this.countStats() };
+    }
+    const t = input.time;
+    const rest = m.armRestAngle;
+    let thighL = 0;
+    let thighR = 0;
+    let shinL = 0;
+    let shinR = 0;
+    let armLX = 0;
+    let armRX = 0;
+    let armLZ = rest;
+    let armRZ = -rest;
+    let figureY = 0;
+    let figureZ = 0;
+    let breathe = 1 + Math.sin(t * 1.6) * 0.004;
+
+    if (input.seated) {
+      const seatTop = 0.5;
+      const hipHeight = seatTop + m.thighRadius * 0.85;
+      figureY = hipHeight - m.hipY;
+      figureZ = -0.1;
+      thighL = thighR = -Math.PI / 2;
+      const shinLength = m.kneeY;
+      const tilt = shinLength > hipHeight ? Math.acos(Math.min(1, hipHeight / shinLength)) : 0;
+      shinL = shinR = Math.PI / 2 - tilt;
+      const busy = input.activity === "studying" || input.activity === "sketching";
+      armLX = armRX = busy ? -0.95 + Math.sin(t * 3) * 0.04 : -0.5;
+      armLZ = rest * 0.4;
+      armRZ = -rest * 0.4;
+      if (input.activity === "sketching") armRX = -1.05 + Math.sin(t * 7) * 0.08;
+      breathe = 1;
+    } else if (input.moving) {
+      const phase = t * 8.5;
+      const swing = 0.42 * stride;
+      thighL = -Math.sin(phase) * swing;
+      thighR = Math.sin(phase) * swing;
+      shinL = Math.max(0, Math.sin(phase - 1.1)) * 0.7 * stride;
+      shinR = Math.max(0, -Math.sin(phase - 1.1)) * 0.7 * stride;
+      armLX = Math.sin(phase) * 0.36 * stride;
+      armRX = -Math.sin(phase) * 0.36 * stride;
+      figureY = Math.abs(Math.sin(phase)) * 0.022;
+      breathe = 1;
+    } else {
+      switch (input.activity) {
+        case "greeting":
+          armRZ = -(2.55 + Math.sin(t * 9) * 0.22);
+          break;
+        case "ordering":
+          armRX = -0.55;
+          break;
+        case "eating":
+        case "drinking":
+          armRX = -1.85 + Math.sin(t * 2.2) * 0.18;
+          armRZ = -0.25;
+          break;
+        case "washing":
+          armLX = armRX = -0.85 + Math.sin(t * 4) * 0.08;
+          armLZ = 0.18;
+          armRZ = -0.18;
+          break;
+        default:
+          armLX = Math.sin(t * 0.9) * 0.025;
+          armRX = Math.sin(t * 0.9 + 1) * 0.025;
+      }
+    }
+    this.figure.position.set(0, figureY, figureZ);
+    this.torsoPivot.scale.set(1, breathe, 1);
+    this.hips.L.rotation.set(thighL, 0, 0);
+    this.hips.R.rotation.set(thighR, 0, 0);
+    this.knees.L.rotation.set(shinL, 0, 0);
+    this.knees.R.rotation.set(shinR, 0, 0);
+    this.shoulders.L.rotation.set(armLX, 0, armLZ);
+    this.shoulders.R.rotation.set(armRX, 0, armRZ);
+  }
+
+  dispose(): void {
+    for (const part of this.parts.values()) {
+      for (const mesh of part.meshes) mesh.geometry.dispose();
+      part.meshes = [];
+    }
+    this.root.removeFromParent();
+  }
+}

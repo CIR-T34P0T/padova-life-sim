@@ -3,6 +3,7 @@
 
 import type { Room } from "@colyseus/sdk";
 import {
+  APPEARANCE_PRESETS,
   CLOSE_SIGNED_IN_ELSEWHERE,
   ClientMessage,
   DEFAULT_APPEARANCE,
@@ -10,8 +11,11 @@ import {
   GAME_CONFIG,
   PLAZA_LAYOUT,
   PROFILE_VERSION,
+  cloneAppearance,
+  decodeLook,
   findSeat,
   isPositionWalkable,
+  type AppearanceConfig,
 } from "@padova/shared";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { isWellFormedGuestToken } from "../src/identity/guestIdentity.ts";
@@ -44,6 +48,18 @@ function useProfileServer(port: number, tuning = {}) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const playerIn = (client: ProfileClient, id: string): any => client.room.state.players.get(id);
+/** The appearance another client sees for a player, decoded from the replicated look string. */
+const lookIn = (client: ProfileClient, id: string): AppearanceConfig | undefined => {
+  const look = playerIn(client, id)?.look as string | undefined;
+  return look ? decodeLook(look).appearance : undefined;
+};
+const preset = (id: string) => APPEARANCE_PRESETS.find((p) => p.id === id)!.appearance;
+/** A copy of the default appearance with one field changed (any value, even an invalid one). */
+const withField = (section: string, field: string, value: unknown) => {
+  const config = cloneAppearance(DEFAULT_APPEARANCE) as unknown as Record<string, Record<string, unknown>>;
+  config[section]![field] = value;
+  return config;
+};
 
 describe("character profiles", () => {
   const { context, track } = useProfileServer(2616);
@@ -59,7 +75,7 @@ describe("character profiles", () => {
 
   it("creates a character: guest token issued once, profile returned, others see the appearance", async () => {
     const watcher = track(await joinWithNewCharacter(context.server.url, "Watcher"));
-    const appearance = { ...DEFAULT_APPEARANCE, preset: "male", skinTone: "skin-6", hairColour: "teal", outfit: "hoodie-navy" };
+    const appearance = preset("locs-beard");
     const alice = track(await joinWithNewCharacter(context.server.url, "  Alice   R. ", appearance));
     expect(alice.identities).toHaveLength(1);
     expect(isWellFormedGuestToken(alice.guestToken)).toBe(true);
@@ -69,19 +85,20 @@ describe("character profiles", () => {
     expect(Date.parse(profile.createdAt)).not.toBeNaN();
     expect(JSON.stringify(alice.lastProfile())).not.toContain(alice.guestToken); // the token is never echoed in profile data
     await waitFor(() => playerIn(watcher, alice.room.sessionId) !== undefined, 3000, "watcher sees Alice");
-    expect(playerIn(watcher, alice.room.sessionId)).toMatchObject({ name: "Alice R.", preset: "male", skinTone: "skin-6", hairColour: "teal", outfit: "hoodie-navy" });
+    expect(playerIn(watcher, alice.room.sessionId)).toMatchObject({ name: "Alice R." });
+    expect(lookIn(watcher, alice.room.sessionId)).toEqual(appearance);
   });
 
   it("refuses invalid characters and keeps the visitor anonymous", async () => {
     const visitor = track(await connect(context.server.url));
     const send = (payload: unknown) => visitor.room.send(ClientMessage.CreateCharacter, payload);
     send({ displayName: "Teo", ageCategory: "teen", appearance: DEFAULT_APPEARANCE });
-    send({ displayName: "Teo", ageCategory: "adult", appearance: { ...DEFAULT_APPEARANCE, outfit: "spacesuit" } });
+    send({ displayName: "Teo", ageCategory: "adult", appearance: withField("outfit", "top", "spacesuit") });
     send("Teo");
     send({ displayName: "Teo", ageCategory: "adult" });
     await waitFor(() => visitor.errors.length === 4, 3000, "four rejections");
     expect(visitor.errors.map((e) => e.reason)).toEqual(["age_category_not_allowed", "invalid_appearance", "invalid_payload", "invalid_appearance"]);
-    expect(visitor.errors[1]).toMatchObject({ field: "outfit" });
+    expect(visitor.errors[1]).toMatchObject({ field: "outfit.top" });
     expect(visitor.identities).toHaveLength(0);
     expect(visitor.room.state.players.get(visitor.room.sessionId)).toBeUndefined();
   });
@@ -125,12 +142,13 @@ describe("character profiles", () => {
   it("saves appearance changes, replicates them, and keeps them across visits", async () => {
     const watcher = track(await joinWithNewCharacter(context.server.url, "Watcher"));
     const dario = await joinWithNewCharacter(context.server.url, "Dario");
-    const changed = { ...DEFAULT_APPEARANCE, hairStyle: "bun", hairColour: "rose", eyeColour: "violet" };
+    const changed = preset("lavender-ponytail");
     const before = dario.profiles.length;
     dario.room.send(ClientMessage.UpdateAppearance, { appearance: changed });
     await waitFor(() => dario.profiles.length > before, 3000, "updated profile");
     expect(dario.lastProfile()!.profile!.appearance).toEqual(changed);
-    await waitFor(() => playerIn(watcher, dario.room.sessionId)?.hairColour === "rose", 3000, "replicated");
+    await waitFor(() => lookIn(watcher, dario.room.sessionId)?.hair.colour === "lavender", 3000, "replicated");
+    expect(lookIn(watcher, dario.room.sessionId)).toEqual(changed);
     await dario.room.leave(true);
     await sleep(300);
     const again = track(await connect(context.server.url, { guestToken: dario.guestToken }));
@@ -139,10 +157,17 @@ describe("character profiles", () => {
 
   it("rejects invalid appearance and appearance changes before a character exists", async () => {
     const elena = track(await joinWithNewCharacter(context.server.url, "Elena"));
-    elena.room.send(ClientMessage.UpdateAppearance, { appearance: { ...DEFAULT_APPEARANCE, skinTone: "green" } });
+    elena.room.send(ClientMessage.UpdateAppearance, { appearance: withField("skin", "tone", "green") });
+    elena.room.send(ClientMessage.UpdateAppearance, { appearance: withField("body", "height", 1.5) });
+    elena.room.send(ClientMessage.UpdateAppearance, { appearance: { ...cloneAppearance(DEFAULT_APPEARANCE), v: 99 } });
     elena.room.send(ClientMessage.UpdateAppearance, "pink");
-    await waitFor(() => elena.errors.length === 2, 3000, "rejections");
-    expect(elena.errors.map((e) => [e.reason, e.field])).toEqual([["invalid_appearance", "skinTone"], ["invalid_appearance", undefined]]);
+    await waitFor(() => elena.errors.length === 4, 3000, "rejections");
+    expect(elena.errors.map((e) => [e.reason, e.field])).toEqual([
+      ["invalid_appearance", "skin.tone"],
+      ["invalid_appearance", "body.height"],
+      ["invalid_appearance", "v"],
+      ["invalid_appearance", "appearance"],
+    ]);
     const visitor = track(await connect(context.server.url));
     visitor.room.send(ClientMessage.UpdateAppearance, { appearance: DEFAULT_APPEARANCE });
     await waitFor(() => visitor.errors.length === 1, 3000, "visitor rejection");
@@ -158,13 +183,13 @@ describe("character profiles", () => {
     bruno.room.send(ClientMessage.UpdateAppearance, {
       characterId: aliceId,
       accountId: "someone-else",
-      appearance: { ...DEFAULT_APPEARANCE, hairColour: "silver" },
+      appearance: preset("silver-buzz"),
     });
     await waitFor(() => bruno.profiles.length > before, 3000, "Bruno's update");
     expect(bruno.lastProfile()!.profile!.characterId).not.toBe(aliceId);
-    expect(bruno.lastProfile()!.profile!.appearance.hairColour).toBe("silver");
-    const stored = await context.server.db.query<{ hair_colour: string }>("SELECT hair_colour FROM character_appearance WHERE character_id = $1", [aliceId]);
-    expect(stored.rows[0]!.hair_colour).toBe(DEFAULT_APPEARANCE.hairColour);
+    expect(bruno.lastProfile()!.profile!.appearance.hair.colour).toBe("silver");
+    const stored = await context.server.db.query<{ config: unknown }>("SELECT config FROM character_appearance WHERE character_id = $1", [aliceId]);
+    expect(stored.rows[0]!.config).toEqual(DEFAULT_APPEARANCE);
   });
 
   it("lets only the newest session play an account: the older window is saved and disconnected", async () => {
@@ -213,19 +238,60 @@ describe("outdated and unexpected stored data", () => {
   const { context, track } = useProfileServer(2617);
 
   it("repairs retired appearance options on load and saves the repair", async () => {
-    const ivo = await joinWithNewCharacter(context.server.url, "Ivo");
+    const ivo = await joinWithNewCharacter(context.server.url, "Ivo", preset("rounded-afro"));
     const characterId = ivo.lastProfile()!.profile!.characterId;
     await ivo.room.leave(true);
     await sleep(300);
-    await context.server.db.query("UPDATE character_appearance SET hair_style = 'mohawk-retired', outfit = '' WHERE character_id = $1", [characterId]);
+    await context.server.db.query(
+      `UPDATE character_appearance
+          SET config = jsonb_set(jsonb_set(config, '{hair,style}', '"mohawk-retired"'), '{outfit,shoes}', '42')
+        WHERE character_id = $1`,
+      [characterId],
+    );
 
     const again = track(await connect(context.server.url, { guestToken: ivo.guestToken }));
     const payload = again.lastProfile()!;
-    expect(payload.profile!.appearance).toMatchObject({ hairStyle: DEFAULT_APPEARANCE.hairStyle, outfit: DEFAULT_APPEARANCE.outfit });
-    expect(payload.notices?.length).toBe(2);
+    const expected = cloneAppearance(preset("rounded-afro"));
+    expected.hair.style = DEFAULT_APPEARANCE.hair.style;
+    expected.outfit.shoes = DEFAULT_APPEARANCE.outfit.shoes;
+    expect(payload.profile!.appearance).toEqual(expected); // only the broken fields fall back
+    expect(payload.notices).toEqual(["Some hair and outfit options you chose are no longer available, so defaults were chosen. You can change them any time."]);
     expect(payload.readOnly).toBe(false);
-    const stored = await context.server.db.query<{ hair_style: string; outfit: string }>("SELECT hair_style, outfit FROM character_appearance WHERE character_id = $1", [characterId]);
-    expect(stored.rows[0]).toEqual({ hair_style: DEFAULT_APPEARANCE.hairStyle, outfit: DEFAULT_APPEARANCE.outfit });
+    const stored = await context.server.db.query<{ config: unknown }>("SELECT config FROM character_appearance WHERE character_id = $1", [characterId]);
+    expect(stored.rows[0]!.config).toEqual(expected);
+  });
+
+  it("upgrades an M5 character (profile version 2) on load, keeping its look, and saves the new document", async () => {
+    const kim = await joinWithNewCharacter(context.server.url, "Kim");
+    const characterId = kim.lastProfile()!.profile!.characterId;
+    await kim.room.leave(true);
+    await sleep(300);
+    // Exactly what the M5 server left behind: version 2, the six flat columns, no document.
+    await context.server.db.query("UPDATE characters SET profile_version = 2 WHERE id = $1", [characterId]);
+    await context.server.db.query(
+      `UPDATE character_appearance SET preset = 'male', skin_tone = 'skin-7', hair_style = 'bun', hair_colour = 'teal',
+              eye_colour = 'green', outfit = 'jacket-olive', config = NULL WHERE character_id = $1`,
+      [characterId],
+    );
+    const watcher = track(await joinWithNewCharacter(context.server.url, "Watcher"));
+    const again = track(await connect(context.server.url, { guestToken: kim.guestToken }));
+    const profile = again.lastProfile()!.profile!;
+    expect(profile.profileVersion).toBe(PROFILE_VERSION);
+    expect(profile.appearance).toMatchObject({
+      body: { frame: "masculine" },
+      skin: { tone: 0.86 },
+      hair: { style: "top-bun", colour: "teal" },
+      face: { eyeColour: "green" },
+      outfit: { outer: "denim-jacket", outerColour: "olive" },
+    });
+    expect(again.lastProfile()!.notices ?? []).toEqual([]);
+    const stored = await context.server.db.query<{ profile_version: number; config: unknown }>(
+      "SELECT c.profile_version, a.config FROM characters c JOIN character_appearance a ON a.character_id = c.id WHERE c.id = $1",
+      [characterId],
+    );
+    expect(stored.rows[0]).toEqual({ profile_version: PROFILE_VERSION, config: profile.appearance });
+    await waitFor(() => lookIn(watcher, again.room.sessionId) !== undefined, 3000, "watcher sees Kim");
+    expect(lookIn(watcher, again.room.sessionId)).toEqual(profile.appearance);
   });
 
   it("loads a profile from a newer version read-only and never overwrites it", async () => {
@@ -234,19 +300,19 @@ describe("outdated and unexpected stored data", () => {
     await jun.room.leave(true);
     await sleep(300);
     await context.server.db.query("UPDATE characters SET profile_version = $2 WHERE id = $1", [characterId, PROFILE_VERSION + 98]);
-    await context.server.db.query("UPDATE character_appearance SET eye_colour = 'starlight' WHERE character_id = $1", [characterId]);
+    await context.server.db.query(`UPDATE character_appearance SET config = jsonb_set(config, '{face,eyeColour}', '"starlight"') WHERE character_id = $1`, [characterId]);
 
     const again = track(await connect(context.server.url, { guestToken: jun.guestToken }));
     expect(again.lastProfile()).toMatchObject({ status: "ready", readOnly: true, profile: { displayName: "Jun" } });
-    expect(again.lastProfile()!.profile!.appearance.eyeColour).toBe(DEFAULT_APPEARANCE.eyeColour); // safe copy in memory
+    expect(again.lastProfile()!.profile!.appearance.face.eyeColour).toBe(DEFAULT_APPEARANCE.face.eyeColour); // safe copy in memory
     again.room.send(ClientMessage.UpdateAppearance, { appearance: DEFAULT_APPEARANCE });
     await waitFor(() => again.errors.length === 1, 3000, "rejection");
     expect(again.errors[0]).toMatchObject({ reason: "profile_newer_version" });
-    const stored = await context.server.db.query<{ profile_version: number; eye_colour: string }>(
-      "SELECT c.profile_version, a.eye_colour FROM characters c JOIN character_appearance a ON a.character_id = c.id WHERE c.id = $1",
+    const stored = await context.server.db.query<{ profile_version: number; eye: string }>(
+      "SELECT c.profile_version, a.config->'face'->>'eyeColour' AS eye FROM characters c JOIN character_appearance a ON a.character_id = c.id WHERE c.id = $1",
       [characterId],
     );
-    expect(stored.rows[0]).toEqual({ profile_version: PROFILE_VERSION + 98, eye_colour: "starlight" });
+    expect(stored.rows[0]).toEqual({ profile_version: PROFILE_VERSION + 98, eye: "starlight" });
   });
 });
 

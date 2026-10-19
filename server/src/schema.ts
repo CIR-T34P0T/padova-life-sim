@@ -14,13 +14,12 @@ export const PlayerState = schema(
     moving: t.boolean(),
     /** False while the player is dropped and inside the reconnection window. */
     connected: t.boolean(),
-    /** Appearance option ids from the shared catalogue (see shared/src/profile.ts). */
-    preset: t.string(),
-    skinTone: t.string(),
-    hairStyle: t.string(),
-    hairColour: t.string(),
-    eyeColour: t.string(),
-    outfit: t.string(),
+    /**
+     * The character's appearance config as canonical JSON (encodeLook in
+     * shared/src/appearance/schema.ts, under 1 KB). One string, so a change
+     * arrives in one patch and clients rebuild the avatar once (D-028).
+     */
+    look: t.string(),
     /** Public activity (shared Activity type): idle, sitting, studying, sketching, greeting, ordering, eating, drinking, washing. */
     activity: t.string(),
     /** Seat occupied while sitting or studying; "" when standing. */

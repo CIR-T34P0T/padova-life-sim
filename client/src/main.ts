@@ -39,7 +39,7 @@ let profile: CharacterProfile | null = null;
 let readOnly = false;
 let createNotice: string | undefined;
 
-const game = new Game(byId("game"), byId("joystick"), hud, {
+const game: Game = new Game(byId("game"), byId("joystick"), hud, {
   onProfile(payload) {
     if (payload.status === "needs_character") {
       panel.showCreate((input) => {
@@ -88,6 +88,8 @@ const game = new Game(byId("game"), byId("joystick"), hud, {
     );
   },
 });
+
+panel.onCoverChange = (covered) => game.setCovered(covered);
 
 const isInvalidToken = (error: unknown) =>
   typeof error === "object" && error !== null && (error as { code?: number }).code === ERROR_INVALID_GUEST_TOKEN;

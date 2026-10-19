@@ -5,11 +5,11 @@
 
 import {
   PROFILE_VERSION,
-  sanitizeStoredAppearance,
+  sanitizeAppearance,
   sanitizeStoredTraits,
   upgradeProfileData,
   type AgeCategory,
-  type Appearance,
+  type AppearanceConfig,
   type CharacterProfile,
   type NewCharacterInput,
   type TraitId,
@@ -98,10 +98,10 @@ export class ProfileService {
     return { accountId: created.accountId, guestToken: created.guestToken, loaded: await this.prepare(created.character) };
   }
 
-  async updateAppearance(owner: Owner, appearance: Appearance): Promise<CharacterProfile | null> {
+  async updateAppearance(owner: Owner, appearance: AppearanceConfig): Promise<CharacterProfile | null> {
     const stored = await updateAppearance(this.db, owner, appearance, PROFILE_VERSION);
     return stored
-      ? toProfile(stored, sanitizeStoredAppearance(stored.appearance).appearance, stored.profileVersion, sanitizeStoredTraits(stored.traits))
+      ? toProfile(stored, sanitizeAppearance(stored.appearance).appearance, stored.profileVersion, sanitizeStoredTraits(stored.traits))
       : null;
   }
 
@@ -125,7 +125,7 @@ export class ProfileService {
       // Never overwrite data this server does not understand. Use a safe copy in memory.
       log.warn("profiles", `character ${stored.characterId} has profile version ${stored.profileVersion}: ${upgrade.reason}; loading read-only`);
       notices.push("Your profile was saved by a newer version of the game, so it can't be edited here.");
-      const safe = sanitizeStoredAppearance(stored.appearance).appearance;
+      const safe = sanitizeAppearance(stored.appearance).appearance;
       return {
         owner,
         profile: toProfile(stored, safe, stored.profileVersion, sanitizeStoredTraits(stored.traits)),
@@ -137,10 +137,8 @@ export class ProfileService {
 
     const traits = sanitizeStoredTraits(upgrade.data.traits ?? []);
 
-    const repaired = sanitizeStoredAppearance(upgrade.data.appearance);
-    for (const field of repaired.replaced) {
-      notices.push(`Your ${FIELD_NAMES[field]} is no longer available, so the default was chosen.`);
-    }
+    const repaired = sanitizeAppearance(upgrade.data.appearance);
+    if (repaired.replaced.length > 0) notices.push(appearanceNotice(repaired.replaced));
     if (upgrade.upgraded || repaired.changed) {
       const saved = await updateAppearance(this.db, owner, repaired.appearance, PROFILE_VERSION);
       if (saved) {
@@ -152,16 +150,17 @@ export class ProfileService {
   }
 }
 
-const FIELD_NAMES: Record<keyof Appearance, string> = {
-  preset: "body preset",
-  skinTone: "skin tone",
-  hairStyle: "hair style",
-  hairColour: "hair colour",
-  eyeColour: "eye colour",
-  outfit: "outfit",
-};
+const SECTION_NAMES: Record<string, string> = { body: "body", skin: "skin", face: "face", hair: "hair", outfit: "outfit" };
 
-function toProfile(stored: StoredCharacter, appearance: Appearance, profileVersion: number, traits: TraitId[]): CharacterProfile {
+/** One readable notice for the player, e.g. "Some hair and outfit options you chose are no longer available…". */
+function appearanceNotice(replaced: string[]): string {
+  if (replaced.includes("appearance")) return "Your saved appearance couldn't be read, so a default look was chosen. You can change it any time.";
+  const sections = [...new Set(replaced.map((path) => SECTION_NAMES[path.split(".")[0] ?? ""] ?? "appearance"))];
+  const list = sections.length > 1 ? `${sections.slice(0, -1).join(", ")} and ${sections.at(-1)}` : sections[0];
+  return `Some ${list} options you chose are no longer available, so defaults were chosen. You can change them any time.`;
+}
+
+function toProfile(stored: StoredCharacter, appearance: AppearanceConfig, profileVersion: number, traits: TraitId[]): CharacterProfile {
   return {
     characterId: stored.characterId,
     displayName: stored.displayName,

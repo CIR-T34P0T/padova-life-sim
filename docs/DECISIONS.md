@@ -222,3 +222,62 @@ existing seat reservation (`Seat.pose = "stand"`) rather than a second system:
 reserved while walking and acting, released when the action ends, never left
 "occupied" like a seat. The field is still called `seats` in code and data to
 avoid churn; ARCHITECTURE.md explains the naming.
+
+## D-027 — Characters are procedural geometry until authored assets exist (2026-10-18, M6)
+
+The repository has no character models, rigs or textures, and none may be
+downloaded or generated without a source and licence (ASSET_PIPELINE.md).
+Options considered: (a) wait for a VRM/glTF asset pipeline, which blocks the
+character creator on art production that doesn't exist; (b) build characters
+from parametric geometry in code; (c) (b) now, with the saved appearance
+config designed so authored models can replace the renderer later. Chosen:
+**(c)**. Every catalogue option produces real, distinct geometry (hair shells
+that follow the head, braids and locs as strands, face shape by deforming the
+head mesh, body proportions by segment lengths and widths). Limits: no
+skeleton rig (procedural limb animation), no facial expressions, prototype-
+grade art. This changes no technology: Three.js, the data model and the
+networking stay; `client/src/render/avatar/` replaces `avatars.ts`.
+
+## D-028 — The appearance is a versioned, validated JSON document (2026-10-18, M6)
+
+Appearance grew from 6 ids to about 40 values (styles, colours, sliders).
+It is stored as one `jsonb` column (`character_appearance.config`) holding a
+config with an explicit schema version (`APPEARANCE_SCHEMA_VERSION`), and
+validated by `shared/src/appearance/schema.ts`: strictly when a player
+changes it (unknown ids, wrong types or out-of-range values are refused,
+naming the field), leniently when it is loaded (bad values are replaced by
+defaults and the player is told). A document fits because the appearance is
+one concern that is read and written as a whole; adding an option needs no
+migration. Gameplay state stays in its own tables (D-023 and DATA_MODEL.md).
+The M4 columns are kept and, on every save, filled with the closest old
+look (`legacyAppearanceProjection`), so rolling back migration 0003 leaves
+every character loadable by the M5 server with a similar look.
+It is replicated to other players as one compact string field (`look`), which
+changes only when the player edits their look.
+
+## D-029 — No ethnicity data; presets are named by look (2026-10-18, M6)
+
+The game never stores, infers or displays a character's ethnicity or
+heritage, and appearance has no effect on any gameplay rule (needs, skills,
+money, interactions). Starting presets are optional conveniences, named after
+what they look like ("Rounded afro", "Box braids & print dress", "Freckles &
+copper curls"), never
+after a population, and every value in a preset can be changed independently:
+skin tone, face, hair, body and clothing combine without restriction.
+Cultural fashion pieces (headwrap, headscarf, patterned prints) are ordinary
+wardrobe items available to every character. Labels can be revised by the
+product owner as data.
+
+## D-030 — Characters use toon shading and one merged mesh per body part (2026-10-18, M6)
+
+Anime-inspired look: characters use `MeshToonMaterial` with a soft cel ramp
+(a light shadow tone and a short smooth step to the lit tone; a hard
+three-step ramp was tried first and left blotchy bands on rounded faces);
+the world keeps its standard materials. To keep draw calls low on phones,
+each body part that moves on its own (head, torso, each arm, each thigh,
+each shin) is one merged mesh with colours stored per vertex; blush and
+stubble are painted into the skin's vertex colours, so they need no extra
+mesh. Only patterned garments (a shared canvas texture per pattern and
+colour) and seated-only skirt pieces add meshes. All characters share the
+same materials. Changing anything rebuilds only the body parts whose inputs
+changed (per-part signatures in `character.ts`).

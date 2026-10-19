@@ -26,7 +26,7 @@ import {
   type TargetKind,
 } from "@padova/shared";
 import type { GameConnection, ReplicatedPlayer } from "../net/connection.ts";
-import type { AvatarView } from "../render/avatars.ts";
+import type { AvatarView } from "../render/avatar/index.ts";
 import type { WorldScene } from "../render/worldScene.ts";
 import type { ActionMenu, MenuChoice, MenuOption, MenuSpec } from "../ui/actionMenu.ts";
 import type { ActionProgress } from "../ui/actionProgress.ts";

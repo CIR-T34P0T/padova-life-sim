@@ -18,12 +18,53 @@ work, make friends and choose their own path. No single storyline.
 3. **Work and money** — student jobs and careers, shifts, wages, rent and expenses. Money matters without being punishing.
 4. **Relationships** — friendships, adult romance, rivalry, reputation and groups that grow from shared experiences, not just a meter. Privacy, blocking and reporting from the start of social features.
 5. **Character customisation** — anime-inspired 3D male and female characters, wide range of skin tones, modular hair, clothing and accessories.
-   *Since M4:* a saved profile with name, age category and appearance (two body
-   presets, 8 skin tones, 3 hair styles, 8 hair colours, 6 eye colours, 6
-   outfits), drawn by placeholder avatars. Player characters are university-age
-   adults (D-019); non-adult categories exist in the data model for future NPCs.
+   *Since M4:* a saved profile with name and age category. Player characters
+   are university-age adults (D-019); non-adult categories exist in the data
+   model for future NPCs. *Since M6:* the character creator and procedural
+   anime-inspired characters described in "Characters" below.
 6. **Housing** — dorms, shared flats, roommates, furnishing with a controlled catalogue first.
 7. **Emergent stories** — meaningful events are recorded and influence the future.
+
+## Characters (M6)
+
+Goal: every player can make a character that looks like them or like who
+they want to be, from a wide range of skin tones, hair textures, faces and
+bodies, without any option being tied to ethnicity.
+
+**What can be chosen** (full list: `shared/src/appearance/catalogue.ts`):
+- *Body:* feminine or masculine frame (proportions only), six builds (slim,
+  average, athletic, curvy, broad, soft), sliders for height (156–188 cm),
+  shoulders, torso, legs and arms.
+- *Skin:* a continuous tone slider from very fair to deep brown with nine
+  named points, cool / neutral / warm undertone, freckles, beauty marks, blush.
+- *Face:* six face shapes, six eye shapes (round, almond, hooded, monolid,
+  upturned, downturned), eight eye colours, five brow shapes, five noses,
+  four lip shapes, and sliders for cheekbones, jaw, chin, forehead, eye size
+  and spacing, brow height, nose width and length, lip fullness. Slider
+  ranges are clamped so faces never break.
+- *Hair:* 17 styles across straight, wavy, curly, coily and tightly coiled
+  textures, including a rounded afro, afro puffs, twists, locs, box braids,
+  cornrows, fades and crops, buzz cut, bob, ponytail, bun, long straight
+  and long curls; four hairlines; facial hair (stubble, moustache, goatee,
+  short and full beard) for every frame; 10 natural and 6 fantasy colours.
+- *Outfit:* five tops, five bottoms, three full outfits, five patterns,
+  four outerwear pieces, four kinds of shoes, glasses, and headwear
+  (headband, hair clips, beanie, cap, headwrap, headscarf), with 18 colours.
+
+**Rules.** Appearance never affects gameplay (needs, skills, money,
+interactions); a test guards this. The game never infers, assigns or shows
+ethnicity, and has no ethnicity field (D-029). Presets are optional starting
+points named by their look ("Box braids & print dress"), mix every skin
+tone, texture, frame and build, and are never required. Cultural pieces
+(headwraps, headscarves, bold prints) are available to every character.
+When one choice covers another (a headscarf over hair, a full outfit over a
+top), the covered choice is kept and the creator says it is not visible,
+so a menu never claims a change the character doesn't show.
+
+**Look.** Stylised and warm: large expressive eyes, soft cel shading with
+light shadows, simple shapes, original designs. Characters are built from
+code for now ("Stage-1 procedural art", D-027); authored models can replace
+them later without changing saved characters.
 
 ## World
 

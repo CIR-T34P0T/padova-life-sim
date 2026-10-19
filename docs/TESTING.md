@@ -66,13 +66,37 @@ gesture, then refuses a repeat (`too_soon`); greeting fails with
 `target_left` when the target leaves; greeting a seated player leaves them
 seated; `too_far` with a 25 m limit; `unreachable` in a walled world.
 
-**Profile rules (`shared/test/profile.test.ts`):** female and male presets and
-eight skin tones; unique catalogue ids and a valid default; adult vs non-adult
+**Profile rules (`shared/test/profile.test.ts`):** adult vs non-adult
 categories; valid characters accepted with names cleaned; unexpected fields
 such as a client-chosen id or owner ignored; non-adult player characters
-refused; malformed input rejected; unknown appearance ids rejected naming the
-field; retired/corrupt stored options replaced with defaults; version upgrades
-run one step at a time; newer, missing-step and invalid versions refused.
+refused; malformed input rejected; invalid appearance refused naming the
+field (`hair.colour`); version upgrades run one step at a time; **an M5
+(version 2) flat appearance upgrades to a config that keeps its look**, and
+corrupt version-2 data upgrades to a valid config; newer, missing-step and
+invalid versions refused.
+
+**Appearance rules (`shared/test/appearance.test.ts`, M6):** catalogue ids
+unique with labels and valid colours; every hair texture from straight to
+tightly coiled and the protective styles exist; **no option, field or preset
+mentions ethnicity, nationality or heritage**; skin tones get steadily deeper
+along the slider with no jumps, hit the nine named stops exactly, and
+undertones shift hue without changing depth; bad input never throws; strict
+validation names the bad field (version, missing section, unknown id, slider
+out of range, NaN, wrong type) and drops unknown fields; stored data is
+repaired (sliders clamped, bad ids replaced and listed); 200 random looks
+round-trip through the replicated string under 2 KB; equal looks encode to
+equal strings; unreadable looks decode to the default; look codes round-trip
+and tampered codes are refused; presets are valid, unique and span the skin
+range, every hair texture, both frames and five or more builds; the
+randomiser is deterministic, always valid, **can produce every option of
+every field**, and randomising one section leaves the others unchanged;
+visibility rules (full outfit hides top and bottom, headwrap/headscarf hide
+hair, hats keep long hair below them, hair clips need hair); M4 options all
+map to valid configs in the old skin-tone order.
+
+**Boundaries (`server/test/boundaries.test.ts`, M6):** no life-simulation
+rule mentions appearance (looks have no gameplay effect) and the appearance
+schema has no ethnicity, race, heritage or nationality field.
 
 **Life simulation through the real room (15 tests, `server/test/life.test.ts`,
 M5)** — real WebSocket clients and servers with faster tuning: entering with
@@ -107,25 +131,55 @@ succeeds**; refunds and allowances once per key. Runs on PGlite and, with
 without gaps; statement splitting; passwords never printed; fresh database
 migrates idempotently; rollback and re-apply; guest + character created
 atomically and only the token hash stored; account found only with the exact
-token; appearance and position saved and loaded; reads/writes refused for a
-non-owning account; one character per account; age-category and version
-constraints enforced by the database itself; a failed creation rolls back
-completely; configuration chooses the backend and resolves folders correctly.
+token; appearance and position saved and loaded, **with the M4 columns
+holding the closest old look**; reads/writes refused for a non-owning
+account; one character per account; age-category and version constraints
+enforced by the database itself; the appearance document must be a JSON
+object under 4 KB; **rolling back migration 0003 leaves a version-2
+character with the closest old look, and migrating again loads it**; a
+failed creation rolls back completely; configuration chooses the backend and
+resolves folders correctly.
 
 **Profiles through the real room (`server/test/profiles.test.ts`)** — real
 WebSocket clients: a first visit is anonymous and stores nothing; creating a
 character issues a guest token once and others see the appearance; invalid
 characters refused and the visitor stays anonymous; no second character; the
 same character and saved position come back on a later visit; unknown or
-malformed tokens refused (4401); appearance changes saved, replicated and kept;
-invalid appearance refused; one player can never change another's profile
+malformed tokens refused (4401); appearance changes saved, replicated (the
+decoded `look` equals the saved config) and kept; invalid appearance refused
+naming the field (`skin.tone`, `body.height`, `v`); one player can never change another's profile
 (forged ids in the payload are ignored); the newest session wins and the older
 one is saved and closed (4100); a network drop keeps the character; a seated
 character is saved where it would stand up; retired appearance options are
-repaired on load and saved; a newer-version profile loads read-only and is
+repaired on load (only the broken fields fall back, one readable notice) and
+saved; **an M5 character (version 2, flat columns, no document) is upgraded
+on load, keeps its look, is saved as version 3 and replicates the new look**;
+a newer-version profile loads read-only and is
 never overwritten; guest creations are limited per IP; autosave writes online
 players' positions; **leaving and immediately rejoining loads the position the
 old session was still saving** (regression test with deliberately slowed saves).
+
+**End to end, character creator (`e2e/creator.spec.ts`, M6)** — in the real
+creator with its live WebGL preview: **every hair style, every top and every
+eye shape produces a different preview image** (canvas screenshots compared),
+and a hair change rebuilds only the head while a top never rebuilds it;
+choosing a headscarf then another hair style keeps the choice, labels it
+"Covered by the headscarf", and the preview stays identical (it doesn't
+pretend), until the headscarf comes off; a full outfit labels the top as
+covered; presets apply and show thumbnails; undo/redo; randomise all;
+reset one tab leaves the others; hold-to-compare shows the starting look;
+look codes copy, apply and refuse invalid codes. Phone (390×844, touch):
+preview above the controls, no sideways scrolling, tapping a preset and a
+skin-tone stop, creating the character; the saved look matches. Four
+browsers with diverse presets: every player sees every other player's exact
+look; each character stays under 30 000 triangles and 14 meshes; a picture
+of them together is saved to `test-results/m6-diverse-plaza.png`.
+
+**Character lab (`client/lab.html`, manual)** — renders every preset, hair
+style (front and back), hairline, facial hair, top, bottom, full outfit,
+pattern, outerwear, shoes, headwear, glasses, skin-tone stop, undertone,
+build, body and face slider extreme, and walk/seated/greeting poses, with
+triangle counts and build times. Used for the visual checks in the results log.
 
 **End to end, persistence (`e2e/persistence.spec.ts`)** — create a character
 with chosen options, walk, reload: no create form, same name, look, position
@@ -171,6 +225,11 @@ removes the player for the others. Screenshots are saved to `test-results/`.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-19 (M6) | typecheck + build | Pass | shared, server, client; production build with the game and the character lab as two entries (880 KB, 245 KB gzipped) |
+| 2026-10-19 (M6) | unit + integration | 179/179 pass | `npm run check` (shared 94 incl. 25 new appearance tests; server 85 incl. new upgrade, migration-rollback and boundary tests). Database tests with `TEST_DATABASE_URL` on a throwaway PostgreSQL 16: 48/48 (both backends, incl. migration 0003 up, down with the closest old look, and up again) |
+| 2026-10-19 (M6) | e2e | 14/14 pass (after fixes) | Full suite on the in-memory database: 13/14 on the first full run; the appearance-edit test then hit the 60 s default timeout (two software-rendered browsers plus the creator) and got 150 s like the other multi-browser tests; re-run 4/4. Persistence spec also on PostgreSQL 16 (`E2E_DATABASE_URL`): 4/4, rows checked with SQL (profile version 3, `config` v1, M4 columns holding the closest old look) |
+| 2026-10-19 (M6) | manual visual check (Claude, character lab screenshots) | Pass with known limitations | Every preset (body and face), every hair style front and back, hairlines, facial hair, every top, bottom, full outfit, pattern, outerwear, shoe, headwear and glasses, all nine skin-tone stops and three undertones, builds and every body and face slider at 0 and 1, walk / seated / greeting poses. No broken geometry found; limitations listed in ASSET_PIPELINE.md. Not yet checked by the product owner |
+| 2026-10-19 (M6) | bugs found while testing | Fixed | (1) Sleeveless tops produced NaN arm vertices (division by a zero sleeve length). (2) Locs and braids rooted at the front fell over the face; locks now turn to fall beside it. (3) Skin-tone quick buttons sent 0.375 while the server stores two decimals (0.38): now rounded in the creator. (4) The look-code box closed itself when a preset was applied. (5) A three-step toon ramp left blotchy bands on faces; replaced by a soft ramp. (6) The creator re-rendered every frame; it now renders only when something changes, and the world isn't rendered behind it |
 | 2026-10-18 (M5) | typecheck + build | Pass | shared, server, client; client production build |
 | 2026-10-18 (M5) | unit + integration | 150/150 pass | `npm run check` (70 shared + 80 server). With `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: 170/170 (database and life-database tests on both backends) |
 | 2026-10-18 (M5) | e2e | 9/9 pass | Full suite twice: once on the in-memory database, once with the server on PostgreSQL 16.15 (`E2E_DATABASE_URL`, empty database); the café purchase (one 450-cent "Panino" row, balance 11 500 → 11 050) and 26.4 academic XP confirmed with SQL. The life loop uses the game's real durations (about 70 s) |
@@ -240,14 +299,13 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   - Activity, seats and pending actions are not saved; after a reload the
     character stands at the spot it would stand up to.
   - One character per account (D-020); name and age can't be changed after creation.
-  - The create/edit forms are minimal (no live preview); the full character
-    creator is a later milestone.
   - Not tested: a real phone, Windows, Firefox, Safari; profile room tests run
     on PGlite only (the database layer and the persistence browser tests were
     also run on real PostgreSQL).
 - **M3 interaction limitations:**
   - One action at a time; a new request replaces the current one (D-011). No multi-action queue.
-  - No animations: sitting lowers the capsule; greeting shows a "Ciao!" bubble.
+  - Poses are simple procedural limb rotations (since M6): walk, sit, study,
+    sketch, wave, café and fountain actions; no blending between poses.
   - A greeter walks to where the other player was; if they keep moving, it
     re-plans up to 3 times, then fails with `target_moved`.
   - Objects hidden behind others from the camera's angle can't be selected;
@@ -261,8 +319,19 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 - Firefox and Safari not tested.
 - Reconnection-window expiry (player removed after 20 s offline) is not
   covered by an automated test.
-- Rendering performance not measured (no frame-time budget yet).
-- Load beyond 3 simultaneous players not tested.
+- Rendering performance measured only on this cloud machine with software
+  WebGL (geometry budgets per character are enforced by e2e; see
+  ASSET_PIPELINE.md "Measured cost"). No frame-rate measurement on a real
+  GPU or phone yet, and no frame-time budget.
+- Load beyond 4 simultaneous players not tested.
+- **M6 character limitations:** procedural Stage-1 art, not artist-made
+  models (D-027; visual limitations in ASSET_PIPELINE.md); no level of detail
+  for distant characters; each new or changed character is built on the main
+  thread in one go (a short stall per player joining); looks saved in the
+  browser (`localStorage`) are a per-browser convenience only; the "no WebGL"
+  message in the creator has no automated test; opening the creator takes
+  several seconds in software-rendered test browsers (shader compilation),
+  not measured on real devices.
 - `npm audit` reports 9 low/moderate advisories, all inside `@colyseus/auth`
   (pulled in by the SDK, unused by this project). The suggested `--force` fix
   would downgrade Colyseus to 0.15, so it was not applied. Recheck on Colyseus updates.
@@ -310,3 +379,14 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     fun dip a little.
 18. Reload the page (and, once, restart the server): money, purchases, skills
     and needs are as you left them.
+19. **Characters (M6):** in a private window, the character creator opens with
+    a 3D preview. Drag the preview to turn it; try Body / Upper / Face. Pick a
+    few presets, then change the skin-tone slider end to end, the hair style
+    (every style must look different), a face shape and an outfit. Undo and
+    Redo work; *Hold to compare* shows the starting look.
+20. Choose **Headscarf** under Outfit → Headwear, then change the hair style:
+    the hair stays covered and the creator says "Covered by the headscarf".
+21. Create the character, walk, sit on a bench and greet someone: the new
+    character walks, sits and waves. The other device sees exactly the same
+    look; reload and it is still the same. On the phone the preview is on top
+    and the controls scroll below.

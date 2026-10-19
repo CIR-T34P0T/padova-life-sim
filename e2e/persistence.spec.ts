@@ -4,19 +4,15 @@
 // temporary guest token; everything else comes from the server's database.
 
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { createCharacter, waitUntilPlaying } from "./helpers.ts";
+import { chooseAppearance, createCharacter, lookOf, waitUntilPlaying } from "./helpers.ts";
 
 interface DebugPlayer {
   id: string;
   name: string;
   x: number;
   z: number;
-  preset: string;
-  skinTone: string;
-  hairStyle: string;
-  hairColour: string;
-  eyeColour: string;
-  outfit: string;
+  /** Appearance config as JSON (decode with lookOf). */
+  look: string;
 }
 
 const TOKEN_KEY = "padova.guestToken.v1";
@@ -44,9 +40,11 @@ test("a character is created once and comes back after a reload with its look an
   const context = await newContext(browser);
   const page = await context.newPage();
   await page.goto("/");
-  const look = { preset: "male", hairStyle: "bun", hairColour: "teal", eyeColour: "green", outfit: "hoodie-navy", skinTone: "skin-6" };
-  await createCharacter(page, "Giulia", look);
-  expect(await self(page)).toMatchObject({ name: "Giulia", ...look });
+  const choices = { "body.frame": "masculine", "hair.style": "top-bun", "hair.colour": "teal", "face.eyeColour": "green", "outfit.top": "hoodie", "outfit.topColour": "navy", "skin.tone": 0.72 };
+  await createCharacter(page, "Giulia", choices);
+  const expected = { body: { frame: "masculine" }, hair: { style: "top-bun", colour: "teal" }, face: { eyeColour: "green" }, outfit: { top: "hoodie", topColour: "navy" }, skin: { tone: 0.72 } };
+  expect(await self(page)).toMatchObject({ name: "Giulia" });
+  expect(lookOf(await self(page))).toMatchObject(expected);
   const savedToken = await token(page);
   expect(savedToken).toMatch(/^plsg1_/);
 
@@ -63,21 +61,23 @@ test("a character is created once and comes back after a reload with its look an
   await waitUntilPlaying(page, "Giulia after reload");
   expect(await page.locator('#profile-panel[data-mode="create"]').count()).toBe(0);
   const back = await self(page);
-  expect(back).toMatchObject({ name: "Giulia", ...look });
+  expect(back).toMatchObject({ name: "Giulia" });
+  expect(lookOf(back)).toMatchObject(expected);
   expect(Math.hypot(back.x + 7, back.z - 11)).toBeLessThan(0.3);
   expect(await token(page)).toBe(savedToken); // same identity, nothing new issued
 });
 
 test("appearance changes are saved, seen by other players, and kept after a reload", async ({ browser }) => {
+  test.setTimeout(150_000); // two software-rendered browsers, the creator twice and a reload; slow on 2-CPU machines
   const aliceContext = await newContext(browser);
   const alice = await aliceContext.newPage();
   await alice.goto("/");
-  await createCharacter(alice, "Alice", { hairColour: "black" });
+  await createCharacter(alice, "Alice", { "hair.colour": "black" });
   const brunoContext = await newContext(browser);
   const bruno = await brunoContext.newPage();
   await bruno.goto("/");
   await createCharacter(bruno, "Bruno");
-  await expect.poll(async () => (await seenBy(bruno, "Alice"))?.hairColour).toBe("black");
+  await expect.poll(async () => lookOf(await seenBy(bruno, "Alice"))?.hair.colour).toBe("black");
 
   // Open your own menu by clicking yourself, then "Edit appearance".
   await alice.waitForTimeout(500);
@@ -85,18 +85,17 @@ test("appearance changes are saved, seen by other players, and kept after a relo
   await alice.mouse.click(me.x, me.y);
   await alice.click('#action-menu [data-action="edit-appearance"]');
   await expect(alice.locator('#profile-panel[data-mode="edit"]')).toBeVisible();
-  await alice.click('#profile-panel .picker-group[data-field="hairColour"] [data-value="silver"]');
-  await alice.click('#profile-panel .picker-group[data-field="outfit"] [data-value="dress-plum"]');
+  await chooseAppearance(alice, { "hair.colour": "silver", "outfit.full": "dress", "outfit.topColour": "plum" });
   await alice.click("#profile-panel button.primary");
   await expect(alice.locator("#profile-panel")).toBeHidden();
 
-  await expect.poll(async () => (await seenBy(bruno, "Alice"))?.hairColour).toBe("silver");
-  expect((await seenBy(bruno, "Alice"))?.outfit).toBe("dress-plum");
+  await expect.poll(async () => lookOf(await seenBy(bruno, "Alice"))?.hair.colour).toBe("silver");
+  expect(lookOf(await seenBy(bruno, "Alice"))?.outfit).toMatchObject({ full: "dress", topColour: "plum" });
   await alice.screenshot({ path: "test-results/m4-after-edit.png" });
 
   await alice.reload();
   await waitUntilPlaying(alice, "Alice after reload");
-  expect(await self(alice)).toMatchObject({ name: "Alice", hairColour: "silver", outfit: "dress-plum" });
+  expect(lookOf(await self(alice))).toMatchObject({ hair: { colour: "silver" }, outfit: { full: "dress", topColour: "plum" } });
 });
 
 test("opening the game in a second tab moves the character there; the first tab is told", async ({ browser }) => {

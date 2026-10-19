@@ -8,7 +8,7 @@ import {
   DEFAULT_APPEARANCE,
   ROOM_NAME,
   ServerMessage,
-  type Appearance,
+  type AppearanceConfig,
   type ActionUpdatePayload,
   type IdentityPayload,
   type LifePayload,
@@ -92,7 +92,7 @@ export async function connect(url: string, options: { guestToken?: string } = {}
 export async function joinWithNewCharacter(
   url: string,
   displayName: string,
-  appearance: Appearance = DEFAULT_APPEARANCE,
+  appearance: AppearanceConfig = DEFAULT_APPEARANCE,
   traits: TraitId[] = [],
 ): Promise<ProfileClient & { guestToken: string }> {
   const client = await connect(url);

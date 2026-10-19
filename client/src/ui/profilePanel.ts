@@ -1,40 +1,32 @@
 // The profile panel: "connecting", "create your character", "edit
-// appearance", and plain messages (e.g. signed in elsewhere). A MINIMAL form
-// for M4 persistence; the full character creator (live preview, more
-// options) is a later milestone. Choices are validated again by the server.
+// appearance", and plain messages (e.g. signed in elsewhere). Creating and
+// editing use the full character creator (creator.ts) with a live 3D
+// preview. Choices are validated again by the server.
 
 import {
-  APPEARANCE_CATALOGUE,
-  APPEARANCE_FIELDS,
   DEFAULT_APPEARANCE,
   GAME_CONFIG,
   MAX_TRAITS,
   TRAITS,
   TRAIT_IDS,
-  type Appearance,
-  type CatalogueOption,
+  cloneAppearance,
+  type AppearanceConfig,
   type CharacterProfile,
   type NewCharacterInput,
   type TraitId,
 } from "@padova/shared";
+import { CharacterCreator } from "./creator.ts";
 
 export type PanelMode = "hidden" | "connecting" | "create" | "edit" | "message";
 
-const GROUP_LABELS: Record<keyof Appearance, string> = {
-  preset: "Body",
-  skinTone: "Skin tone",
-  hairStyle: "Hair style",
-  hairColour: "Hair colour",
-  eyeColour: "Eye colour",
-  outfit: "Outfit",
-};
-
 export class ProfilePanel {
   mode: PanelMode = "hidden";
-  private appearance: Appearance = { ...DEFAULT_APPEARANCE };
   private traits: TraitId[] = [];
   private errorElement: HTMLElement | null = null;
   private submitButton: HTMLButtonElement | null = null;
+  private creator: CharacterCreator | null = null;
+  /** Told when the full-screen creator opens or closes (the world needn't render behind it). */
+  onCoverChange: ((covered: boolean) => void) | null = null;
 
   constructor(private readonly element: HTMLElement) {}
 
@@ -44,53 +36,57 @@ export class ProfilePanel {
     });
   }
 
-  /** First visit: name + appearance. Player characters are adults. */
+  /** First visit: name, appearance and personality. Player characters are adults. */
   showCreate(onSubmit: (input: NewCharacterInput) => void, notice?: string): void {
-    this.appearance = { ...DEFAULT_APPEARANCE };
     this.traits = [];
-    this.render("create", (body) => {
-      body.append(heading("Create your character"));
-      if (notice) body.append(paragraph(notice, "join-notice"));
-      const label = document.createElement("label");
-      label.htmlFor = "character-name";
-      label.textContent = "Name";
-      const input = document.createElement("input");
-      input.id = "character-name";
-      input.name = "displayName";
-      input.setAttribute("autocomplete", "nickname");
-      input.maxLength = GAME_CONFIG.nameMaxLength;
-      input.placeholder = "e.g. Giulia";
-      body.append(label, input, this.pickers(), this.traitPicker());
-      body.append(paragraph("Age: adult (18+). All player characters are university-age adults.", "join-note"));
-      body.append(this.actions("Create character", () => {
-        onSubmit({ displayName: input.value, ageCategory: "adult", appearance: { ...this.appearance }, traits: [...this.traits] });
-      }));
-      body.append(paragraph("Your progress is saved to a temporary guest profile in this browser. Clearing site data, or using another device, starts over.", "join-note"));
-      body.append(paragraph("A fan-made game. Not affiliated with the University of Padua.", "join-note"));
-      queueMicrotask(() => input.focus());
+    const label = document.createElement("label");
+    label.htmlFor = "character-name";
+    label.textContent = "Name";
+    const input = document.createElement("input");
+    input.id = "character-name";
+    input.name = "displayName";
+    input.setAttribute("autocomplete", "nickname");
+    input.maxLength = GAME_CONFIG.nameMaxLength;
+    input.placeholder = "e.g. Giulia";
+    const nameRow = document.createElement("div");
+    nameRow.className = "creator-name";
+    nameRow.append(label, input);
+    const header: HTMLElement[] = [];
+    if (notice) header.push(paragraph(notice, "join-notice"));
+    header.push(nameRow);
+    const personality = document.createElement("div");
+    personality.append(this.traitPicker(), paragraph("Personality affects how your character's needs and skills change. Appearance never does.", "picker-note"));
+
+    this.renderCreator("create", { mode: "create", initial: cloneAppearance(DEFAULT_APPEARANCE), header, personality }, (actions) => {
+      actions.append(
+        this.actions("Create character", () => {
+          onSubmit({ displayName: input.value, ageCategory: "adult", appearance: this.creator!.value, traits: [...this.traits] });
+        }),
+        paragraph("Age: adult (18+). All player characters are university-age adults. Your progress is saved to a temporary guest profile in this browser. Not affiliated with the University of Padua.", "join-note"),
+      );
     });
+    queueMicrotask(() => input.focus());
   }
 
   /** Change appearance of an existing character. Name and age are not editable yet. */
-  showEdit(profile: CharacterProfile, onSave: (appearance: Appearance) => void, onCancel: () => void, readOnly = false): void {
-    this.appearance = { ...profile.appearance };
-    this.render("edit", (body) => {
-      body.append(heading("Edit appearance"), paragraph(profile.displayName, "join-sub"));
-      if (readOnly) {
+  showEdit(profile: CharacterProfile, onSave: (appearance: AppearanceConfig) => void, onCancel: () => void, readOnly = false): void {
+    if (readOnly) {
+      this.render("edit", (body) => {
+        body.append(heading("Edit appearance"), paragraph(profile.displayName, "join-sub"));
         body.append(paragraph("This profile was saved by a newer version of the game and can't be edited here.", "join-notice"));
-      } else {
-        body.append(this.pickers());
-      }
-      const actions = this.actions(readOnly ? "Close" : "Save changes", () => (readOnly ? onCancel() : onSave({ ...this.appearance })));
-      if (!readOnly) {
-        const cancel = document.createElement("button");
-        cancel.type = "button";
-        cancel.className = "secondary";
-        cancel.textContent = "Cancel";
-        cancel.addEventListener("click", onCancel);
-        actions.querySelector(".panel-actions")?.append(cancel);
-      }
-      body.append(actions);
+        body.append(this.actions("Close", onCancel));
+      });
+      return;
+    }
+    this.renderCreator("edit", { mode: "edit", initial: profile.appearance, header: [paragraph(profile.displayName, "join-sub")] }, (actions) => {
+      const buttons = this.actions("Save changes", () => onSave(this.creator!.value));
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "secondary";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", onCancel);
+      buttons.querySelector(".panel-actions")?.append(cancel);
+      actions.append(buttons);
     });
   }
 
@@ -112,7 +108,9 @@ export class ProfilePanel {
 
   hide(): void {
     this.mode = "hidden";
+    this.destroyCreator();
     this.element.hidden = true;
+    this.element.classList.remove("is-creator");
     this.element.replaceChildren();
     this.errorElement = null;
     this.submitButton = null;
@@ -120,8 +118,16 @@ export class ProfilePanel {
 
   // ── Building blocks ─────────────────────────────────────────────────────
 
+  private destroyCreator(): void {
+    if (this.creator) this.onCoverChange?.(false);
+    this.creator?.destroy();
+    this.creator = null;
+  }
+
   private render(mode: PanelMode, build: (body: HTMLElement) => void): void {
+    this.destroyCreator();
     this.mode = mode;
+    this.element.classList.remove("is-creator");
     this.element.replaceChildren();
     this.errorElement = null;
     this.submitButton = null;
@@ -137,47 +143,41 @@ export class ProfilePanel {
     this.element.hidden = false;
   }
 
-  private pickers(): HTMLElement {
-    const container = document.createElement("div");
-    container.className = "pickers";
-    for (const field of Object.keys(APPEARANCE_FIELDS) as (keyof Appearance)[]) {
-      const options: readonly CatalogueOption[] = APPEARANCE_CATALOGUE[APPEARANCE_FIELDS[field]];
-      const group = document.createElement("div");
-      group.className = "picker-group";
-      group.setAttribute("role", "radiogroup");
-      group.setAttribute("aria-label", GROUP_LABELS[field]);
-      group.dataset.field = field;
-      const title = document.createElement("div");
-      title.className = "picker-title";
-      title.textContent = GROUP_LABELS[field];
-      const row = document.createElement("div");
-      row.className = "picker-row";
-      for (const option of options) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.setAttribute("role", "radio");
-        button.dataset.value = option.id;
-        button.title = option.label;
-        button.setAttribute("aria-label", option.label);
-        if (option.colour) {
-          button.className = "swatch";
-          button.style.setProperty("--swatch", option.colour);
-        } else {
-          button.className = "pill-option";
-          button.textContent = option.label;
-        }
-        const select = () => {
-          this.appearance[field] = option.id;
-          for (const sibling of row.querySelectorAll("button")) sibling.setAttribute("aria-checked", String(sibling === button));
-        };
-        button.setAttribute("aria-checked", String(this.appearance[field] === option.id));
-        button.addEventListener("click", select);
-        row.append(button);
-      }
-      group.append(title, row);
-      container.append(group);
+  private renderCreator(mode: "create" | "edit", options: ConstructorParameters<typeof CharacterCreator>[0], buildActions: (actions: HTMLElement) => void): void {
+    this.destroyCreator();
+    this.mode = mode;
+    this.element.replaceChildren();
+    this.errorElement = null;
+    this.submitButton = null;
+    this.element.classList.add("is-creator");
+    this.element.dataset.mode = mode;
+    this.element.hidden = false;
+    try {
+      this.creator = new CharacterCreator(options);
+    } catch (error) {
+      // No WebGL (or it failed): say so rather than showing a creator with an empty preview.
+      console.error("Character creator unavailable", error);
+      this.element.classList.remove("is-creator");
+      this.render("message", (body) => {
+        body.append(heading("3D preview unavailable"), paragraph("This browser couldn't start the 3D preview (WebGL). Try another browser or update your graphics drivers.", "join-sub"));
+        body.append(this.actions("Reload", () => location.reload()));
+      });
+      return;
     }
-    return container;
+    this.onCoverChange?.(true);
+    const actions = document.createElement("div");
+    actions.className = "creator-actions";
+    buildActions(actions);
+    this.creator.element.querySelector(".creator-side")!.append(actions);
+    const form = document.createElement("form");
+    form.className = "creator-form";
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      this.submitButton?.click();
+    });
+    form.append(this.creator.element);
+    this.element.append(form);
+    this.creator.mounted();
   }
 
   /** Up to MAX_TRAITS personality traits. Chosen once, at creation (validated again by the server). */

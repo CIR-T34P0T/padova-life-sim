@@ -7,8 +7,9 @@ import {
   ClientMessage,
   ROOM_NAME,
   ServerMessage,
+  decodeLook,
   type ActionUpdatePayload,
-  type Appearance,
+  type AppearanceConfig,
   type GreetedPayload,
   type IdentityPayload,
   type InteractPayload,
@@ -32,12 +33,8 @@ export interface ReplicatedPlayer {
   rotation: number;
   moving: boolean;
   connected: boolean;
-  preset: string;
-  skinTone: string;
-  hairStyle: string;
-  hairColour: string;
-  eyeColour: string;
-  outfit: string;
+  /** Appearance config as canonical JSON (encodeLook). Decode with appearanceOf. */
+  look: string;
   activity: string;
   seatId: string;
   targetId: string;
@@ -62,16 +59,9 @@ export interface ConnectionEvents {
   onClock(gameMinute: number): void;
 }
 
-/** Copies the appearance fields out of a replicated player. */
-export function appearanceOf(player: ReplicatedPlayer): Appearance {
-  return {
-    preset: player.preset,
-    skinTone: player.skinTone,
-    hairStyle: player.hairStyle,
-    hairColour: player.hairColour,
-    eyeColour: player.eyeColour,
-    outfit: player.outfit,
-  };
+/** The appearance of a replicated player. Never throws: unreadable looks become the default look. */
+export function appearanceOf(player: ReplicatedPlayer): AppearanceConfig {
+  return decodeLook(player.look ?? "").appearance;
 }
 
 export function resolveServerUrl(): string {
@@ -162,7 +152,7 @@ export class GameConnection {
     this.room?.send(ClientMessage.CreateCharacter, input);
   }
 
-  updateAppearance(appearance: Appearance): void {
+  updateAppearance(appearance: AppearanceConfig): void {
     this.room?.send(ClientMessage.UpdateAppearance, { appearance });
   }
 

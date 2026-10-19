@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 // The client is served by Vite in development. `host: true` exposes it on the
@@ -16,5 +17,12 @@ export default defineConfig({
   build: {
     target: "es2022",
     sourcemap: true,
+    rolldownOptions: {
+      // The game, plus the character lab developer page (not linked from the game).
+      input: {
+        main: fileURLToPath(new URL("index.html", import.meta.url)),
+        lab: fileURLToPath(new URL("lab.html", import.meta.url)),
+      },
+    },
   },
 });

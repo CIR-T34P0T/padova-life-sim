@@ -1,33 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
-  APPEARANCE_CATALOGUE,
   DEFAULT_APPEARANCE,
   PROFILE_VERSION,
+  cloneAppearance,
   isAdult,
   parseAppearance,
   parseNewCharacter,
-  sanitizeStoredAppearance,
   upgradeProfileData,
   type ProfileUpgrade,
   type StoredProfileData,
 } from "../src/index.ts";
 
-const valid = { displayName: "Giulia", ageCategory: "adult", appearance: { ...DEFAULT_APPEARANCE } };
-
-describe("appearance catalogue", () => {
-  it("offers both female and male presets and a range of skin tones", () => {
-    expect(APPEARANCE_CATALOGUE.presets.map((p) => p.id)).toEqual(["female", "male"]);
-    expect(APPEARANCE_CATALOGUE.skinTones.length).toBeGreaterThanOrEqual(8);
-  });
-
-  it("has unique ids in every list and a valid default", () => {
-    for (const list of Object.values(APPEARANCE_CATALOGUE)) {
-      const ids = list.map((o) => o.id);
-      expect(new Set(ids).size).toBe(ids.length);
-    }
-    expect(parseAppearance(DEFAULT_APPEARANCE)).toEqual({ ok: true, value: DEFAULT_APPEARANCE });
-  });
-});
+const valid = { displayName: "Giulia", ageCategory: "adult", appearance: cloneAppearance(DEFAULT_APPEARANCE) };
 
 describe("age categories", () => {
   it("distinguishes adults from non-adults", () => {
@@ -73,30 +57,23 @@ describe("parseNewCharacter", () => {
   });
 });
 
-describe("parseAppearance", () => {
-  it("rejects unknown option ids and missing fields, naming the field", () => {
-    expect(parseAppearance({ ...DEFAULT_APPEARANCE, hairColour: "neon-green" })).toEqual({ ok: false, reason: "invalid_appearance", field: "hairColour" });
-    const { outfit: _drop, ...missing } = DEFAULT_APPEARANCE;
-    expect(parseAppearance(missing)).toEqual({ ok: false, reason: "invalid_appearance", field: "outfit" });
-    expect(parseAppearance({ ...DEFAULT_APPEARANCE, preset: ["female"] })).toMatchObject({ ok: false, field: "preset" });
+describe("parseAppearance (profile wrapper)", () => {
+  it("names the invalid field with a dotted path", () => {
+    const bad = cloneAppearance(DEFAULT_APPEARANCE) as unknown as { hair: Record<string, unknown> };
+    bad.hair.colour = "neon-green";
+    expect(parseAppearance(bad)).toEqual({ ok: false, reason: "invalid_appearance", field: "hair.colour" });
     expect(parseAppearance([])).toMatchObject({ ok: false, reason: "invalid_appearance" });
+    expect(parseAppearance(DEFAULT_APPEARANCE)).toEqual({ ok: true, value: DEFAULT_APPEARANCE });
   });
 });
 
-describe("stored data safety", () => {
-  it("replaces retired or corrupt appearance options with defaults and reports it", () => {
-    const result = sanitizeStoredAppearance({ ...DEFAULT_APPEARANCE, hairStyle: "mohawk-retired", eyeColour: null });
-    expect(result.changed).toBe(true);
-    expect(result.replaced.sort()).toEqual(["eyeColour", "hairStyle"]);
-    expect(parseAppearance(result.appearance).ok).toBe(true);
-    expect(sanitizeStoredAppearance({ ...DEFAULT_APPEARANCE, skinTone: "skin-7" })).toMatchObject({ changed: false });
-  });
-
-  const stored = (version: number): StoredProfileData => ({
+describe("stored data upgrades", () => {
+  const legacy = { preset: "male", skinTone: "skin-6", hairStyle: "bun", hairColour: "teal", eyeColour: "green", outfit: "hoodie-navy" };
+  const stored = (version: number, appearance: unknown = version >= 3 ? cloneAppearance(DEFAULT_APPEARANCE) : { ...legacy }): StoredProfileData => ({
     profileVersion: version,
     displayName: "Giulia",
     ageCategory: "adult",
-    appearance: { ...DEFAULT_APPEARANCE },
+    appearance,
   });
 
   it("leaves current-version data unchanged", () => {
@@ -108,13 +85,38 @@ describe("stored data safety", () => {
     expect(result).toMatchObject({ ok: true, upgraded: true, data: { profileVersion: PROFILE_VERSION, traits: [] } });
   });
 
+  it("upgrades a version 2 (M5) flat appearance to an appearance config that keeps the look", () => {
+    const result = upgradeProfileData(stored(2));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.profileVersion).toBe(3);
+    expect(parseAppearance(result.data.appearance).ok).toBe(true);
+    expect(result.data.appearance).toMatchObject({
+      body: { frame: "masculine" },
+      skin: { tone: 0.72 },
+      hair: { style: "top-bun", colour: "teal" },
+      face: { eyeColour: "green" },
+      outfit: { top: "hoodie", topColour: "navy", full: "none" },
+    });
+  });
+
+  it("upgrades corrupt version 2 appearance data to a valid default-based config", () => {
+    const result = upgradeProfileData(stored(2, { preset: 7, skinTone: "skin-99", hairStyle: null }));
+    expect(result.ok && parseAppearance(result.data.appearance).ok).toBe(true);
+    expect(upgradeProfileData(stored(2, null))).toMatchObject({ ok: true, data: { appearance: DEFAULT_APPEARANCE } });
+  });
+
   it("runs upgrade steps one version at a time", () => {
-    // Hypothetical future: v2 adds an accessory, v3 renames a hair colour.
+    // Hypothetical: v2 adds an accessory, v3 renames a hair colour.
+    type Flat = Record<string, unknown>;
     const upgrades: Record<number, ProfileUpgrade> = {
-      1: (d) => ({ ...d, profileVersion: 2, appearance: { ...d.appearance, accessory: "none" } }),
-      2: (d) => ({ ...d, profileVersion: 3, appearance: { ...d.appearance, hairColour: d.appearance.hairColour === "dark-brown" ? "chestnut" : d.appearance.hairColour } }),
+      1: (d) => ({ ...d, profileVersion: 2, appearance: { ...(d.appearance as Flat), accessory: "none" } }),
+      2: (d) => {
+        const a = d.appearance as Flat;
+        return { ...d, profileVersion: 3, appearance: { ...a, hairColour: a.hairColour === "dark-brown" ? "chestnut" : a.hairColour } };
+      },
     };
-    const result = upgradeProfileData(stored(1), upgrades, 3);
+    const result = upgradeProfileData(stored(1, { hairColour: "dark-brown" }), upgrades, 3);
     expect(result).toMatchObject({ ok: true, upgraded: true, data: { profileVersion: 3, appearance: { accessory: "none", hairColour: "chestnut" } } });
   });
 

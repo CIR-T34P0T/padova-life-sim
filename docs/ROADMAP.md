@@ -11,7 +11,7 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M3 | Interaction system | Tested | Select objects and players; contextual menu (desktop radial, mobile sheet); server-validated walk-to-then-act (bench sit/stand, desk study/sit, greet) |
 | M4 | Identity and persistence | Tested (persistence verified) | Temporary guest identity, PostgreSQL with migrations, versioned character profile, appearance and position restored after reload and server restart |
 | M5 | Life simulation | Tested (persistence verified) | Server game clock and offline rules; five needs; mood with reasons; five skills; four traits; money ledger with server-validated café purchases; character panel; the complete café → eat → study → reload loop |
-| M6 | Characters | Planned | VRM avatars, idle/walk/sit animations, presets and colours; pipeline spike first |
+| M6 | Characters | Tested (persistence verified); Stage-1 procedural art | Versioned appearance config; procedural anime-inspired characters for every option (skin tones, 17 hair styles, face, body, wardrobe); character creator with live 3D preview; saved, upgraded from M5, replicated. Authored (artist-made) models not available yet (D-027) |
 | M7 | A first job | Planned | Café shift pays a wage into the M5 ledger; skills start to matter (e.g. pay or eligibility) |
 
 After M7: **playable multiplayer prototype**. Later phases: sleep and beds
@@ -87,46 +87,68 @@ Not yet **verified** by the owner: real phone, Windows, sign-off.
 
 Not yet **verified**: real phone, Windows, play-testing of the balance, and the product owner's sign-off.
 
-## Current state (handoff, 2026-10-18)
+## M6 diverse modular characters: acceptance criteria
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| 1. Visibly distinct characters across a broad range of skin tones and appearances | Tested, visually checked | Continuous tone slider (9 named stops, 3 undertones); 17 presets spanning very fair to deep brown; character lab screenshots of every preset, tone stop and undertone checked by eye; e2e picture of diverse players together |
+| 2. Hairstyles with genuinely different textures and silhouettes | Tested, visually checked | 17 styles across straight, wavy, curly, coily, tightly coiled; every style is its own geometry; e2e: every style produces a different preview image |
+| 3. Facial and body customisation within the model's capabilities | Implemented, visually checked | Face shape, eyes, brows, nose, lips, cheekbones, jaw, chin, forehead; body frame, six builds, height and proportions; slider ranges clamped (lab renders every slider at 0 and 1). Procedural model: no rig, so no facial expressions |
+| 4. Free combination, no ethnicity restriction | Tested | No ethnicity field anywhere (unit + boundary tests); every option combines with every other; randomiser can produce every option of every field |
+| 5. Survives save, reload, reconnection | Persistence verified | Integration (save, reload, network drop, M5 upgrade) on PGlite; database tests on PGlite and PostgreSQL 16; e2e reload |
+| 6. Others see the correct appearance | Tested | Integration and e2e: decoded `look` equals the saved config on every client |
+| 7. Missing assets / invalid configs fail safely | Tested (one path untested) | Strict validation names the field; stored data repaired with a notice; unreadable looks draw the default; newer profiles read-only. No WebGL → explanatory message instead of an empty creator (implemented, not tested) |
+| 8. Desktop and mobile interfaces usable | Tested (emulation) | e2e desktop creator and a 390×844 touch phone; real phone not tested |
+| 9. Movement, collision, animation, interactions still work | Tested | Full existing e2e and integration suites re-run; walk, sit, study, greet poses on the new characters (collision radius unchanged) |
+| 10. Automated checks pass; assets manually verified | Tested; visual check by Claude only | See TESTING.md results log. There are no authored assets: the procedural characters were checked in lab screenshots, not yet by the product owner |
+
+Not yet **verified**: the product owner's own look at the characters, a real
+phone, and Windows.
+
+## Current state (handoff, 2026-10-19)
 
 Read this first when starting a new session.
 
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
-M0–M5 implemented and covered by automated tests (150 unit/integration
-tests, 9 browser tests; see `docs/TESTING.md` for the latest results).
+M0–M6 implemented and covered by automated tests (179 unit/integration
+tests, 14 browser tests; see `docs/TESTING.md` for the latest results).
 Characters and their life data are saved in PostgreSQL (embedded PGlite in
-development). Still placeholders: avatars built from primitives, greybox
-world, minimal profile forms, a box for the café counter.
+development). Characters are procedural Stage-1 art (D-027), not
+artist-made models. Still placeholders: greybox world, a box for the café counter.
 
-**What a player can do today:** create a character (name, look, up to two
-personality traits); walk, sit, sketch on benches, study at desks, buy an
-espresso/cornetto/panino at the café, wash up at the fountain, greet other
-players; watch needs, mood (with reasons), skills and money in the character
-panel; come back later, even after a server restart, to the same character
-with the same needs, skills, money and purchase history.
+**What a player can do today:** create a character in the character creator
+(name, a look built from presets or from scratch with a live 3D preview, up
+to two personality traits) and change the look later; walk, sit, sketch on
+benches, study at desks, buy an espresso/cornetto/panino at the café, wash
+up at the fountain, greet other players; watch needs, mood (with reasons),
+skills and money in the character panel; come back later, even after a
+server restart, to the same character with the same look, needs, skills,
+money and purchase history.
 
-**Genuinely persistent:** account (guest), character profile, appearance,
-traits, last position, needs, skills, mood events, wallet and every money
-transaction. **Temporary:** activity, seats, pending actions (including a
-meal in progress), cooldowns, online status; the guest identity itself lives
-only in one browser. The world clock is derived from real time, not stored.
+**Genuinely persistent:** account (guest), character profile, appearance
+config, traits, last position, needs, skills, mood events, wallet and every
+money transaction. **Temporary:** activity, seats, pending actions
+(including a meal in progress), cooldowns, online status; the guest identity
+itself lives only in one browser; looks saved in the creator live only in
+that browser. The world clock is derived from real time, not stored.
 
 **Open items, in priority order:**
 
 | # | Item | Status | Owner |
 | --- | --- | --- | --- |
-| 1 | Run the game on the product owner's Windows PC (`git pull`, `npm install`, `npm run dev`), create a character, play the café → study loop, reload | Planned (no report yet since M4) | Product owner |
-| 2 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–18) | Planned | Product owner |
-| 3 | Confirm `npm run dev` and the embedded database work on Windows; fix if not | Planned (untested on Windows) | Next session, from the owner's report |
+| 1 | Look at the M6 characters and creator on the Windows PC (`git pull`, `npm ci`, `npm run dev`), including the character lab, and say what to change in the art direction | Planned | Product owner |
+| 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
+| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–21) | Planned | Product owner |
 | 4 | Play-test the M5 balance (need rates, prices, allowance, study XP) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
 | 5 | Review the time model decisions D-021 (10 game minutes per real minute) and D-022 (offline cap) | Decided in M5 as instructed; owner may change the numbers | Product owner |
 | 6 | Decide on a real sign-in method to replace guest accounts, and on account deletion | Open decision (auth model needs approval) | Product owner, with options from Claude |
 | 7 | Decide the first real district | Open question, needed before real geometry | Product owner |
-| 8 | Decide the order of M6 (characters) and M7 (first job) | Open; Claude recommends M7 first (below) | Product owner |
+| 8 | Decide whether to commission or license authored character models (requirements in ASSET_PIPELINE.md) or keep improving the procedural ones | Open; procedural characters are enough to continue | Product owner |
 
-**Recommended next task:** items 1–4, a real-device play-test of M5 on the
-owner's Windows PC and phone. It checks the remaining platform risk (Windows
-has never run the game) and gives the first human feedback on the balance.
-The next engineering milestone after that, recommended: **M7, a first job**
-(a café shift that pays into the M5 ledger and uses a skill), because it
-completes the earn → spend loop; M6 (avatars) changes visuals, not gameplay.
+**Recommended next task:** item 1, the product owner's look at the new
+characters on Windows (and a phone), because art direction is the owner's
+call and changes there are cheapest now. The next engineering milestone
+after that, recommended: **M7, a first job** (a café shift that pays into
+the M5 ledger and uses a skill), which completes the earn → spend loop.
+Character follow-ups that can wait: spread character builds over frames and
+add a lower-detail version for distant players before rooms get busier.

@@ -64,6 +64,13 @@ or auth model without the product owner's approval.
   Gameplay effects (needs, skills, money) plug in through `InteractionHooks`,
   implemented by `server/src/life/LifeSystem.ts`, and are defined as data in
   `shared/src/life/config.ts` (`ACTION_EFFECTS`, `CAFE_MENU`).
+- **Appearance is cosmetic and never about ethnicity** (D-029). The
+  appearance config (`shared/src/appearance/`) has no ethnicity, race or
+  heritage field, presets are named by look, and no gameplay rule reads
+  appearance (a test in `server/test/boundaries.test.ts` guards this).
+  New options are catalogue data plus renderer code in
+  `client/src/render/avatar/`; every option must change the drawn character
+  (or be reported as covered by `visibleLayers`).
 - **Input is device-agnostic.** `client/src/input` turns mouse/touch/keyboard
   into gestures; gameplay code never checks the device type.
 - Placeholders must be labelled as placeholders in code and docs.
