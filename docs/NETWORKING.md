@@ -104,7 +104,10 @@ The local player is rendered the same way (no prediction yet, see D-006).
 
 ## Join, leave, reconnection
 
-- Join: `joinOrCreate("plaza", { name })`. Unusable names become `Guest N`.
+- Join: `joinOrCreate("plaza", { guestToken? })` (see "Joining and identity").
+  The display name comes from the saved character profile, never from join
+  options. (The M2 walking skeleton joined with a typed name; that path is gone,
+  and the unused `JoinOptions { name? }` type in `protocol.ts` is left over from it.)
 - Deliberate leave (tab closed, navigation): consented leave, removed at once.
 - Unexpected drop (network loss): `onDrop` marks the player `connected=false`
   (shown semi-transparent) and holds the character for 20 s. The SDK retries

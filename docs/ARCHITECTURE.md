@@ -1,8 +1,10 @@
 # Architecture
 
-Status as of M6 (walking skeleton, contextual interactions, identity and
-persistence, life simulation, procedural characters and the character
-creator). Sections marked *planned* describe intent, not code.
+Status as of M6c (walking skeleton, contextual interactions, identity and
+persistence, life simulation, procedural characters, the title screen and
+creation flow, and the first district). Everything here describes code that
+exists, except sections and bullets marked **Proposed** or listed under "Not
+yet decided or built".
 
 ## Overview
 
@@ -218,7 +220,52 @@ half the screen in portrait, docked right in landscape. Opened by clicking
 yourself → "Character" or the top-right chip (`ui/hud.ts`: time, money,
 mood colour). Café options show prices and are greyed out when the player
 can't afford them; focus actions show "Too tired". The server re-checks
-everything. `ui/profilePanel.ts` gained a trait picker (up to two, optional).
+everything. Traits (up to two, optional) are picked on the name and
+personality step (`ui/screens/setupScreen.ts`; the M4–M6 `ui/profilePanel.ts`
+was replaced by the title screen flow in M6b).
+
+## From a player action to saved state (implemented)
+
+The same path for every action, shown with buying a panino. Which values
+are replicated, private or persistent is the table in `NETWORKING.md`
+"Model"; when each is written is `DATA_MODEL.md` "What is saved when".
+
+1. **Intent.** A tap becomes `interact {targetKind: "object", targetId:
+   "cafe-counter", action: "buy", itemId: "panino", requestId}`. The client
+   changes nothing but presentation (selection, menu); it never sends a
+   price, a result or a position.
+2. **Validation, before anything changes.** `parseInteract` checks the shape
+   (`shared/src/protocol.ts`); `validateObjectAction` checks the rules over
+   the server's own state (`shared/src/interactions.ts`); the
+   `checkStart` hook checks life rules (too tired, can't afford). A refusal
+   is an `action` message with a reason; nothing is reserved or charged.
+3. **Reservation and walking.** A standing spot (or seat) is reserved in the
+   replicated `state.seats`, a path is planned, and the server walks the
+   character there; everyone sees the movement through state patches.
+4. **Execution on arrival.** For the café, the `purchase` hook runs the
+   money transaction (`applyMoneyChange`: row lock, balance check, ledger row,
+   idempotent by `purchase:<requestId>`). It is **persistent at once**, before
+   any food is served. Then `activity` becomes `eating` (replicated).
+5. **Effects over time.** `LifeSystem` applies the effect to the in-memory
+   life (hunger, energy, mood event) in proportion to elapsed time; the owner
+   receives private `life` messages; other players see only "eating".
+6. **Completion or interruption.** `action` with `completed`, or
+   `cancelled`/`failed` with a reason; a payment interrupted before eating
+   starts is refunded with its own idempotent ledger row (D-025).
+7. **Saving.** Money was saved in step 4. Needs, skills, mood events and
+   position are saved together at the save points (leaving, back to the
+   title, eviction, room close, the 30 s autosave, after an action that gave
+   skill XP). Seats, activity and the pending action are never saved.
+
+**Rule for new systems** (the convention this pattern sets; nothing new is
+built by it): a new valuable change (a wage, a grade, a relationship step, an
+item) is an intent from the client, a pure rule in `shared/`, a server check
+over server state, and a write in a repository transaction scoped by the
+owning account, with an idempotency key when a repeat could pay or grant
+twice. Only what other players need to see is replicated; private values go
+to their owner in a direct message. Each system states when it saves:
+immediately for anything of value, at the save points for state that changes
+continuously.
 
 ## Multiplayer
 

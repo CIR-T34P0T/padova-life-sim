@@ -1,7 +1,9 @@
 # Decisions
 
 Significant technical decisions, newest last. Changing one needs the product
-owner's approval and a new entry explaining why.
+owner's approval and a new entry explaining why; the old entry stays, marked
+"Superseded by D-0xx". Decisions that are proposed but not yet approved are
+listed in ROADMAP.md ("Decisions waiting for the product owner"), not here.
 
 ## D-001 — TypeScript across client, server and shared rules (2026-10-17, approved)
 
@@ -164,6 +166,9 @@ Product owner can revisit; changing it is a rules change in
 
 ## D-020 — One character per account, for now (2026-10-17, M4)
 
+**Superseded by D-031** (2026-10-19): a guest profile now holds up to three
+characters; migration 0004 replaced the unique index. Kept for history.
+
 Enforced by a unique index on `characters.account_id`. Several characters per
 account later means dropping that index and adding a character picker; the
 tables already separate account and character.
@@ -273,7 +278,8 @@ product owner as data.
 Anime-inspired look: characters use `MeshToonMaterial` with a soft cel ramp
 (a light shadow tone and a short smooth step to the lit tone; a hard
 three-step ramp was tried first and left blotchy bands on rounded faces);
-the world keeps its standard materials. To keep draw calls low on phones,
+the world kept its standard materials until the world art pass, which moved
+it onto the same toon ramp (D-033). To keep draw calls low on phones,
 each body part that moves on its own (head, torso, each arm, each thigh,
 each shin) is one merged mesh with colours stored per vertex; blush and
 stubble are painted into the skin's vertex colours, so they need no extra

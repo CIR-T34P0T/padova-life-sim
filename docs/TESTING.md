@@ -487,8 +487,11 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 - `npm audit` reports 9 low/moderate advisories, all inside `@colyseus/auth`
   (pulled in by the SDK, unused by this project). The suggested `--force` fix
   would downgrade Colyseus to 0.15, so it was not applied. Recheck on Colyseus updates.
-- Client bundle is about 930 KB (259 KB gzipped), mostly Three.js, plus about
-  80 KB of fonts loaded once; code splitting is a later optimisation.
+- The game loads about 1 015 KB of JavaScript (290 KB gzipped) since the
+  world art pass: the main chunk 280 KB, a shared chunk with Three.js and the
+  characters 671 KB, the district 63 KB (production build of 2026-10-19), plus
+  38 KB of CSS and 81 KB of fonts loaded once. Further code splitting is a
+  later optimisation.
 
 ## Notes for running tests in Claude's cloud workspace
 

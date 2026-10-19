@@ -2,6 +2,7 @@
 
 Each milestone must end with something demonstrably working on desktop and phone.
 Statuses: planned · in progress · blocked · implemented · tested · verified.
+**Proposed** means designed for discussion and not approved or started.
 
 | # | Milestone | Status | Acceptance (summary) |
 | --- | --- | --- | --- |
@@ -14,18 +15,24 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M6 | Characters | Tested (persistence verified); Stage-1 procedural art | Versioned appearance config; procedural anime-inspired characters for every option (skin tones, 17 hair styles, face, body, wardrobe); character creator with live 3D preview; saved, upgraded from M5, replicated. Authored (artist-made) models not available yet (D-027) |
 | M6b | Title screen and character creation flow | Tested (persistence verified on PGlite and PostgreSQL 16); real phone and Windows not yet | Title screen (New life, Continue, Manage characters, Settings, Credits); up to 3 lives per guest profile (D-031); new life in three steps (name and personality → live 3D look in six categories → review and confirm); entering transition; edit a look from the title screen or the world without touching life data; original menu identity (D-032) |
 | M6c | World art pass: the first district | Tested (see acceptance below); Stage-1 procedural art; not yet seen by the product owner, on Windows or on a phone | The greybox becomes a fictional Padua-inspired university square: six detailed buildings (hall with walk-in porch and clock tower, library, portico you can walk through), market, café with tables, gardens, trees, lamps, paving; streets and skyline beyond; collision-first art checked by a test; buildings and trees that hide you fade (D-033, D-034) |
-| M7 | A first job | Planned | Café shift pays a wage into the M5 ledger; skills start to matter (e.g. pay or eligibility) |
+| M7 | A first job | Planned (details proposed below) | Café shift pays a wage into the M5 ledger; skills start to matter (e.g. pay or eligibility) |
+| M8 | University basics | Proposed | One fictional course: enrolment, a timetable in game time, lectures, an exam with a server-computed grade |
+| M9 | Relationships, public profiles and safety | Proposed | Public info panel for other players, relationships grown from shared actions, block and report, a private story log |
+| M10 | A place to live | Proposed | A rented room, sleep, comfort, a small furniture catalogue with server-validated placement |
+| M11 | NPCs with routines | Proposed | A few deterministic NPCs with game-time schedules using the same interaction points |
+| M12 | Sign-in, deployment and operations | Proposed; timing depends on when others should play | Real sign-in, account deletion, hosting with backups, HTTPS/WSS, monitoring, a load test |
 
-After M7: **playable multiplayer prototype**. Later phases: sleep and beds
-(with housing), cooking and an inventory, university schedules and exams,
-relationships and story log, housing and furnishing, NPC routines, more
-districts, moderation tools, deployment.
+After M7: **playable multiplayer prototype** (earn and spend). The order of
+M8–M12 is a proposal waiting for the product owner (see "Decisions waiting
+for the product owner"); each milestone's acceptance criteria and
+dependencies are in "Proposed milestones" below. More districts come after
+the systems that give them a purpose.
 
 ## M0–M2 walking skeleton: acceptance criteria
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
-| `npm install` + one dev command starts client and server | Tested on Linux only | Manual run of `npm run dev`: client served the page, server accepted a matchmaking request. Clean `npm ci` + `npm run check` from the packaged repo passed. Windows pending (open item 3) |
+| `npm install` + one dev command starts client and server | Tested on Linux only | Manual run of `npm run dev`: client served the page, server accepted a matchmaking request. Clean `npm ci` + `npm run check` from the packaged repo passed. Windows pending (open item 2) |
 | Two desktop browsers and one phone see each other move smoothly | Tested (phone = emulation) | e2e test; real phone pending (manual checklist in TESTING.md) |
 | Server rejects illegal moves (teleport, walls) | Tested | Integration tests: forged positions ignored, blocked targets rejected, speed capped |
 | Closing a tab removes the player for everyone | Tested | e2e final step |
@@ -149,7 +156,165 @@ real phone, and the art direction of the new menus.
 Not yet **verified** by the product owner: the look of the district on
 Windows and on a phone, and the frame rate on real hardware.
 
-## Current state (handoff, 2026-10-19)
+## Proposed milestones (not started)
+
+**Proposed, not approved.** Written so the next phases can be planned and
+compared; each is reviewed with the product owner and refined before it
+starts. Data sketches: DATA_MODEL.md "Proposed"; system design:
+GAME_DESIGN.md "Life simulation: proposed next steps". Every milestone also
+keeps the standing criteria: server-authoritative changes, owner-scoped
+persistence verified on PGlite and PostgreSQL, desktop and phone layouts,
+the full existing test suites green, docs updated, laptop test steps in the
+report.
+
+### M7 — A first job (café shifts)
+
+Depends on: M5 ledger, skills and interaction hooks; the M6c café kiosk.
+Needs a migration (the ledger's `category` CHECK has no `wage`) and
+employment tables.
+
+1. The café kiosk offers work when it is available (opening hours by game
+   time and free positions); unavailable options are not shown.
+2. A shift is a server-timed action at a standing spot, with progress and
+   Cancel like other actions; its effect on needs (energy, fun) is data in
+   `shared/src/life/config.ts`.
+3. A completed shift pays a wage through `applyMoneyChange` with one key per
+   shift: never paid twice, never from a client value, shown as "Wage" in
+   the ledger. Partial shifts follow the owner's decision.
+4. Skills matter: working trains communication, and communication level
+   changes pay or unlocks the next job grade.
+5. Limits: shifts per game day, not while too tired; two players can work at
+   once when there are two positions; others see the "working" activity.
+6. Employment and wage history survive reload, server restart and network
+   drops.
+7. The character panel shows the job, when a shift is possible and recent
+   wages, on desktop and phone.
+8. Tests: unit (pay, limits), integration (shift lifecycle, duplicate
+   requests, two players racing for a position), e2e (work a shift, see the
+   wage, reload).
+
+### M8 — University basics (one fictional course)
+
+Depends on: the game clock (D-021) and academic skill (M5); a place for
+lectures (decision Q10: at the hall's entrance without an interior, or an
+interior). M7 first is recommended so time and money compete.
+
+1. Enrol in one fictional course at the university hall (no real course
+   names, no implied affiliation).
+2. A weekly timetable in game time; a lecture can be attended only in its
+   slot and place, checked by the server.
+3. Attendance and study build progress; an exam at a scheduled time gives a
+   grade computed on the server from attendance, study and academic level.
+4. Neglect has visible but gentle consequences (a lower grade, a retake).
+5. Timetable, attendance and grades are private, shown in the panel, and
+   persistent.
+6. Tests include time-based rules at a fast time scale and refusals outside
+   the slot.
+
+### M9 — Relationships, public profiles and safety
+
+Depends on: the greet interaction (M3) and profiles (M4). Blocking and
+reporting are weak while anyone can make a new guest profile, so a sign-in
+decision (Q5) should come first or with it.
+
+1. Tapping another player opens a public panel: name, look, activity and
+   your relationship with them; never their needs, money or skills.
+2. Relationships grow from shared actions (greetings, a few new social
+   actions such as chatting or studying together) and keep a short history;
+   private to the two players.
+3. Block (they can't target you; their greetings no longer reach you,
+   enforced by the server) and report (stored with minimal context) from the
+   panel and the menu.
+4. A private story log records meaningful events written by the server
+   (first shift, exam result, new friend).
+5. Tests: other players never receive relationship data; blocks enforced on
+   the server; reports stored and owner-scoped.
+
+### M10 — A place to live: home, sleep and comfort
+
+Depends on: M7 (income for rent); an interiors architecture (Q10: entering a
+door moves the character to another area; Colyseus room transfer is not
+built yet, NETWORKING.md); an inventory design; the comfort decision (Q7).
+
+1. Rent a room in the student housing; rent is charged on a game-week
+   schedule through the ledger; non-payment follows the owner's decision (Q9).
+2. Entering and leaving the home works for everyone (others see you leave
+   the square), including after a reload or a drop.
+3. Sleep in a bed restores energy (server-timed; offline rules still hold);
+   comfort comes from furniture.
+4. Buy furniture from a small catalogue (ledger) and place it in allowed
+   spots, validated by the server and saved.
+5. Tests: area transfer, placement validation, rent idempotency, persistence.
+
+### M11 — NPCs with routines
+
+Depends on: places with purpose (M7, M8); the server's movement and
+interaction systems, used unchanged.
+
+1. A few NPCs (a barista, students) follow game-time schedules, walk with
+   the same movement rules and reserve seats and spots like players.
+2. Deterministic decisions (no AI service), cheap enough to measure: server
+   tick time with NPCs is recorded against a budget.
+3. NPCs react to a greeting; players can tell NPCs from players.
+4. Tests: schedules at a fast time scale, no two characters on one seat.
+
+### M12 — Sign-in, deployment and operations
+
+Depends on: owner decisions on the sign-in method (Q5), hosting and budget.
+Recommended before any test with people outside the project.
+
+1. A real sign-in method upgrades a guest profile without losing its
+   characters; account deletion removes all its data.
+2. Hosted behind HTTPS/WSS with managed PostgreSQL and backups that have
+   been restored at least once.
+3. Logs and basic monitoring; a load test with the room's player limit.
+4. Moderation of reports (from M9) has a working process.
+
+### Technical work that waits for a trigger
+
+| Work | Trigger |
+| --- | --- |
+| Menus that scroll or page | Before any object offers more than about five actions (likely M7 or M9) |
+| Character level of detail and builds spread over frames | Before rooms regularly hold more than about eight players, or if real phones stutter |
+| Interest management (send only what is near) | Before a second area (M10) or more than 16 players |
+| Client-side movement prediction | If players report the movement delay (D-006) |
+| Day/night lighting (lamps and windows lit) | When the owner prioritises it (Q12) |
+| Configurable key bindings | Any time; small (a Settings option) |
+| Frame-rate measurement on real hardware | As soon as the owner can report it (open items 1 and 3) |
+
+### Dependencies at a glance
+
+| Milestone | Needs first |
+| --- | --- |
+| M7 job | M5 ledger and skills, M6c café (done); ledger migration |
+| M8 university | M5 clock and skills (done); Q10 for an indoor lecture room |
+| M9 social | M3 greet, M4 profiles (done); Q5 sign-in recommended |
+| M10 home | M7 income; Q7, Q9, Q10; area transfer in networking |
+| M11 NPCs | M7 and M8 places |
+| M12 operations | Q5 and hosting decisions |
+
+## Decisions waiting for the product owner
+
+These need your approval before the work that depends on them starts. Each
+has a recommendation; nothing here has been implemented.
+
+| # | Decision | Recommendation | Why it matters |
+| --- | --- | --- | --- |
+| Q1 | Order of the proposed milestones | M7 → M8 → M9 → M10 → M11; M12 as soon as you want people outside the project to play | Decides what is built next |
+| Q2 | Arrival view: on a computer the shops' wall fills the right of the first view | Fade buildings very close to the camera (keeps the arrival points and also helps near walls everywhere); the alternative is moving the arrival points about 3 m north | First impression |
+| Q3 | Three lives per guest profile (D-031) | Keep three | Already built; one configuration value |
+| Q4 | Time scale and offline cap (D-021, D-022) | Keep until play-tests say otherwise | M8 timetables are set in game time |
+| Q5 | A real sign-in method and account deletion | Decide before M9 (blocks and reports need lasting identities) and before any public test | Changes the auth model (needs approval) |
+| Q6 | Authored character models: commission or license them, or keep the procedural ones; if authored, glTF (`.glb`) or VRM 1.0 | Keep procedural at least until after M8; if commissioning, glTF with one shared skeleton (Three.js loads it without a new dependency) unless the artist's tools favour VRM | Art budget and a possible new dependency (ASSET_PIPELINE.md "Proposed: loading authored avatars") |
+| Q7 | Add a comfort need | Add it in M10 with furniture of different comfort | The brief lists it; today every seat is the same |
+| Q8 | The daily allowance once jobs exist | Halve it in M7 and review after play-tests | Economy balance |
+| Q9 | What happens when rent can't be paid (no debt, D-023) | A notice and a mood event, then a move to a cheaper room | Housing (M10) |
+| Q10 | Interiors (homes, lecture rooms) | A written comparison before M10 (or M8 if lectures go indoors): a separate room per interior with transfer, or sub-areas of the district room | Networking change |
+| Q11 | Later districts: fictional or real streets | Fictional composites until verified references are collected | Accuracy and effort |
+| Q12 | Day/night lighting | After M7 | Art direction and night readability |
+| Q13 | Who reviews reports, and how long they are kept | Decide with Q5, before M9 | Player safety and privacy |
+
+## Current state (handoff, 2026-10-20)
 
 Read this first when starting a new session.
 
@@ -187,27 +352,20 @@ saved in the creator and device settings live only in that browser. The world cl
 | # | Item | Status | Owner |
 | --- | --- | --- | --- |
 | 1 | Look at the new district, the title screen, the creation flow and the characters on the Windows PC (`git pull`, `npm ci`, `npm run dev`) and a phone; say what to change in the art direction (world, menus, characters) and whether the frame rate feels smooth | Planned | Product owner |
-| 1b | Confirm D-031 (three lives per guest profile; set `maxCharactersPerAccount` to 1 to go back) | Implemented as asked by the title screen brief; owner may change the number | Product owner |
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
 | 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–32) | Planned | Product owner |
 | 4 | Play-test the M5 balance (need rates, prices, allowance, study XP) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
-| 5 | Review the time model decisions D-021 (10 game minutes per real minute) and D-022 (offline cap) | Decided in M5 as instructed; owner may change the numbers | Product owner |
-| 6 | Decide on a real sign-in method to replace guest accounts, and on account deletion | Open decision (auth model needs approval) | Product owner, with options from Claude |
-| 7 | The first district is a fictional composite of Padua's university and market squares (D-033). Decide whether later districts follow real streets (needs verified references) | Decided for now; owner may revisit | Product owner |
-| 7b | Day/night lighting that follows the game clock (lamps and windows lit at night) | Planned; the clock already shows night while the light stays afternoon | Claude, when prioritised |
-| 8 | Decide whether to commission or license authored character models (requirements in ASSET_PIPELINE.md) or keep improving the procedural ones | Open; procedural characters are enough to continue | Product owner |
+| 5 | Answer the decisions in "Decisions waiting for the product owner" (Q1–Q13); Q1 (milestone order) and Q2 (arrival view) before the next milestone | Open | Product owner, with recommendations from Claude |
 
-**Recommended next task:** item 1, the product owner's look at the
-district, the title screen, the creation flow and the characters on
-Windows (and a phone), because art direction is the owner's call and
-changes there are cheapest now; the world lab (`/world-lab.html`) shows
-every corner of the district quickly. The next engineering milestone
-after that, recommended: **M7, a first job** (a café shift that pays into
-the M5 ledger and uses a skill), which completes the earn → spend loop.
-Follow-ups that can wait: spread character builds over frames and add a
-lower-detail version for distant players before rooms get busier; precompile
-the world's shaders while the title screen is open (entering takes about
-4 s with software rendering, 2.4 s of it the first world frame); stop
-sending the shared room state to sessions at the title screen (interest
-management); deleting a whole guest profile; day/night lighting (item 7b);
-per-object level of detail for the district if real phones need it.
+**Recommended next task:** items 1 and 5: the product owner looks at the
+district, the title screen, the creation flow and the characters on Windows
+(and a phone), because art direction is the owner's call and changes there
+are cheapest now (the world lab, `/world-lab.html`, shows every corner of
+the district quickly), and answers at least Q1 (milestone order) and Q2
+(arrival view). The next engineering milestone, recommended: **M7, a first
+job** (criteria above), which completes the earn → spend loop.
+Follow-ups not covered by "Technical work that waits for a trigger":
+precompile the world's shaders while the title screen is open (entering
+takes about 4 s with software rendering, 2.4 s of it the first world frame);
+deleting a whole guest profile (with Q5); per-object level of detail for the
+district if real phones need it.

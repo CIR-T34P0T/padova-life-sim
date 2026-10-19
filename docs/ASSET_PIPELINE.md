@@ -51,6 +51,49 @@ Every interactive element is at least 44 px tall on touch screens.
 
 ## Characters (M6)
 
+**Supported avatar format today (implemented).** The game loads **no avatar
+files**. The only character format is the appearance config
+(`shared/src/appearance/`, D-028): a versioned JSON document of option ids
+and 0–1 sliders. Every client turns it into a 3D character with the
+procedural builder in `client/src/render/avatar/` (D-027). There is no glTF,
+VRM or FBX loader in the project.
+
+**How characters load today (implemented).**
+- **Other players:** each player's look arrives once as the replicated
+  `look` string; the client decodes it (`decodeLook`, never throws) and
+  builds the character on the main thread when that player first appears
+  (23–132 ms each on the cloud machine, see "Measured cost"). A later look
+  change rebuilds only the parts whose inputs changed.
+- **When:** avatars are built only once this client is in the world (not
+  while it sits at the title screen); the creator and menu portraits build
+  their own preview characters on demand, and starting-look portraits are
+  drawn as they scroll into view.
+- **Nothing is downloaded,** so there is no loading screen or cache for
+  characters; garment pattern textures are drawn on small canvases on first
+  use and shared.
+- **Failure handling:** an unreadable or newer look draws the default look;
+  a body part that fails to build is drawn from the default look and
+  reported (ARCHITECTURE.md).
+
+**Proposed: loading authored avatars (not built; needs approval).** If
+artist-made models replace the procedural builder (ROADMAP decision Q6), the
+recommended approach keeps the appearance config as the contract:
+- One shared humanoid skeleton in glTF 2.0 binary (`.glb`), loaded with
+  Three.js's own `GLTFLoader` (part of the `three` package already in the
+  project, MIT). VRM 1.0 files would need `@pixiv/three-vrm` (MIT; npm
+  version 3.5.5 declares support for `three` ≥ 0.137; not installed or
+  tested here); choose one format before commissioning art.
+- One file per option id (body base, each hair style, each garment),
+  fetched **on demand** when a look needs it, cached per id, and shared by
+  every character that uses it; the title screen preloads the base body
+  and the most common pieces.
+- While a piece downloads, or if it fails, the character shows the
+  procedural part for that option, so a missing file never breaks a look.
+- Compression (Meshopt geometry, KTX2 textures) evaluated against the mobile
+  budget below; files served by the game itself with long-lived caching.
+- The same budgets, naming and licence rules as "Requirements for authored
+  character assets" below.
+
 **What exists.** Characters are assembled in code from parametric pieces: a
 body (torso, arms, legs) shaped by frame, build and proportion values; a head
 deformed by face shape and sliders; anime-style eyes, brows, nose and lips
@@ -94,9 +137,9 @@ representative player device, see "Not measured" below):
 | Textures | Patterns: 128 × 128 canvases (about 85 KB each with mipmaps), created on first use; no image downloads |
 | Full build of one character (JavaScript, this machine) | 23 – 132 ms, 48 ms on average over the 17 presets; the first build on a page is the slowest |
 | Piazza with 4 diverse characters (e2e, one of four browsers) | 121 draw calls and 152 000 triangles per frame including the world and shadows; 2.3 ms of JavaScript per frame; about 10 fps because four browsers shared two CPUs in software rendering (not a meaningful frame rate) |
-| Client bundle | 880 KB (245 KB gzipped) in total, up from 769 KB (208 KB) in M5; the lab page is a separate 7 KB entry |
+| Client bundle | 880 KB (245 KB gzipped) at M6, up from 769 KB (208 KB) in M5; the lab page is a separate 7 KB entry. Current size (after the title screen and the district): see TESTING.md "Known issues" |
 | Rebuild after one change in the creator | head only for hair, face or headwear changes; torso + arms for a top; every part for body sliders |
-| Loading | Nothing to download: characters are generated on demand; preset thumbnails are drawn one per frame when the Presets tab first opens |
+| Loading | Nothing to download: characters are generated on demand; starting-look portraits are drawn one at a time as they scroll into view (since M6b) and cached |
 
 **Not measured yet:** frame rate and memory on a real phone or a normal
 laptop GPU, and build times on those CPUs. Expect builds to be several
@@ -140,6 +183,39 @@ The first district is built in code from a small modular kit, like the
 characters. Nothing was downloaded or licensed: every model, texture and
 sign is original and generated at runtime. It is **Stage-1 procedural art**
 (consistent and complete, but not artist-made production assets).
+
+**Art direction (implemented in the first district; the standard for new areas)**
+
+- **Feel:** warm, colourful and inviting, contemporary student life in a
+  historic Italian centre; stylised, not photoreal. Simple, chunky shapes
+  that read at the game camera's distance (about 11 m), soft toon shading
+  shared with the characters (D-030, D-033), no ink outlines.
+- **Padua as inspiration, not a replica:** plastered façades in cream, ochre,
+  apricot, pink and sage; green shutters and wrought iron; Istrian-stone
+  trims; trachyte paving; terracotta roofs; porticoes; copper domes and a
+  brick bell tower on the skyline. Places are fictional composites with
+  generic names ("Palazzo degli Studi"); real landmarks appear only as
+  generic silhouettes; no real shop names, logos or university insignia
+  (the game must not imply affiliation). A district modelled on real streets
+  would need verified references and be marked as real in data.
+- **Palette:** one palette for the whole world (`render/world/palette.ts`),
+  grouped as plasters, stone and trachyte, brick and roofs, shutters and
+  ironwork, glass, foliage and flowers, plus the interface accents (lapis,
+  gold, Spritz orange) used sparingly for signs, banners and awnings so the
+  world and the menus belong together (D-032).
+- **Lighting:** a fixed sunny afternoon: one warm directional sun (shadows
+  from a 2048 px shadow map with Three.js's default filtering on the high
+  profile, none on phones) and
+  a warm sky / earth hemisphere fill; a gradient sky dome with clouds; warm
+  distance haze from 55 m to 150 m that hides the outer ring. Day/night
+  lighting is **proposed** (ROADMAP decision Q12): the clock already shows
+  night while the light stays afternoon.
+- **Readability rules for new work:** what can be used looks usable (seats,
+  counters and desks at real heights, a clear front side); what blocks
+  movement is visibly solid and fills its collision box; the edge of the
+  walkable area is something you can see (planters, kerbs), never an
+  invisible line; signs and text stay legible on a phone; every new piece
+  passes the art-against-collision test.
 
 **Where things are**
 

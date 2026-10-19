@@ -7,8 +7,10 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 ## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district (M0–M6, title screen and world art pass)
 
-What exists today is a deliberately plain, end-to-end slice that proves the
-architecture. It is **not** the game yet.
+What exists today is an early, end-to-end slice: one district, one room,
+the first life-simulation loop and character creation. It proves the
+architecture; it is **not** the full game yet. Planned work and its order are
+in `docs/ROADMAP.md`.
 
 | Feature | Status |
 | --- | --- |
@@ -21,7 +23,7 @@ architecture. It is **not** the game yet.
 | Server-authoritative movement and validation | Multiplayer functional, tested |
 | Join / leave / brief-disconnect reconnection | Multiplayer functional, tested |
 | Click/tap objects and players for contextual actions (desktop radial menu, mobile bottom sheet) | Multiplayer functional, tested |
-| Bench: sit / sketch / stand · Study desk: sit / study · Café counter: buy food · Fountain: wash up · Other player: greet | Multiplayer functional, tested |
+| Bench: sit / sketch / stand · Study desk and café table: sit / study · Café counter: buy food · Fountain: wash up · Other player: greet | Multiplayer functional, tested |
 | Action progress, cancel, and explanations when refused | Multiplayer functional, tested |
 | Saved character profile (name, adult age category, appearance, position) in PostgreSQL | Persistence verified (tested on embedded PGlite and PostgreSQL 16) |
 | Temporary guest identity (one browser = one guest profile with up to 3 characters; no sign-in) | Multiplayer functional, tested; temporary by design (D-017, D-031) |
@@ -103,8 +105,8 @@ The client runs on port 5173 and the game server on port 2567.
 
 - **Walk:** click/tap the ground, or use WASD/arrow keys (desktop) or the joystick (touch).
 - **Interact:** click/tap a bench, a study desk (in front of the university hall,
-  north-west), the café counter (east of where you arrive), the fountain or
-  another player, then pick an action from the menu.
+  north-west), the café kiosk or one of its tables (east of where you arrive),
+  the fountain or another player, then pick an action from the menu.
 - **Your character:** click/tap yourself → **Character**, or the time/money
   chip at the top right. The panel shows your needs, mood (and why), skills,
   money with recent purchases, and what you're doing.

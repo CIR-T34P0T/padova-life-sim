@@ -94,7 +94,9 @@ or auth model without the product owner's approval.
 ## Starting a new session
 
 1. `git status` and `git pull` (repo: `CIR-T34P0T/padova-life-sim`, branch `main`).
-2. Read `docs/ROADMAP.md` → "Current state": open items and the next task.
+2. Read `docs/ROADMAP.md` → "Current state" (open items, the next task) and
+   "Decisions waiting for the product owner" (don't build what depends on an
+   unanswered one).
 3. Read `docs/TESTING.md` → known issues, and how to run tests in Claude's cloud
    workspace (Playwright needs `CHROMIUM_PATH` there). Don't edit files under
    `client/` or `shared/` while browser tests run: Vite reloads the page.
@@ -107,7 +109,19 @@ or auth model without the product owner's approval.
 3. Run `npm run check` (typecheck + tests). For gameplay or networking
    changes also run `npm run test:e2e`.
 4. Update docs in the same change when behaviour changes. One source of
-   truth per topic: README (setup/status), docs/* (design and decisions).
+   truth per topic, so extend the home below instead of starting a new file:
+   - setup, commands, feature status → README;
+   - gameplay rules, the creation screen flow, desktop and mobile
+     interaction requirements, proposed life-sim extensions → GAME_DESIGN;
+   - modules, the action → server → saved-state path → ARCHITECTURE;
+   - the character profile schema, tables, proposed tables → DATA_MODEL;
+   - messages, replication, who owns which state → NETWORKING;
+   - avatar format and loading, world art direction, asset standards and
+     licences → ASSET_PIPELINE;
+   - milestones, acceptance criteria, dependencies, decisions waiting →
+     ROADMAP; approved decisions → DECISIONS; test results → TESTING.
+   Mark anything designed but not built as **Proposed**, and never describe
+   a proposal, a placeholder or an untested path as done.
 5. Report honestly: what was tested, the actual results, known limitations.
 6. End every report to the product owner with step-by-step instructions for
    testing the change on their Windows laptop (PowerShell commands, what to

@@ -1,7 +1,10 @@
 # Game design
 
 Summary of the product owner's vision (full brief in the claude.ai Project).
-This file records design intent; implementation status is in the README.
+This file records design intent. Sections say whether they describe what is
+**implemented** (with the milestone that built it) or what is **proposed**
+(designed, not built, and open to the product owner's changes). The README
+holds the feature status table.
 
 ## Pitch
 
@@ -105,6 +108,36 @@ fresco-like sky over lit porticoes, D-032) with **New life**, **Continue**,
   animation (follows the device's reduced-motion setting by default),
   controls reminder.
 
+**Screen flow (implemented, M6b; `client/src/ui/flow.ts`).** Square brackets
+are the requests sent to the server; nothing is sent before them.
+
+```
+Title ─┬─ New life ─► 1 Name & personality ─► 2 Look ─► 3 Review ─► [createCharacter] ─► Welcome ─► World
+       │               (Back keeps choices)    ("Change" on the review jumps back to that category)
+       ├─ Continue ───────────────────────────────────────────────► [enterWorld] ─► Welcome ─► World
+       ├─ Manage characters ─┬─ Play ─────────────────────────────► [enterWorld] ─► Welcome ─► World
+       │                     ├─ Edit look ─► Look ─► Review ─► [updateAppearance] ─► Manage ("Look saved")
+       │                     ├─ Delete ─► type the name ─► [deleteCharacter] ─► Manage ("… was deleted")
+       │                     └─ New life (only while a place is free; otherwise "All 3 lives are in use")
+       ├─ Settings ─► Back
+       └─ Credits ─► Back
+World ── yourself or the panel ─► Edit look ─► Look ─► Review ─► [updateAppearance] ─► World
+World ── panel ─► Back to title ─► [leaveWorld] ─► Title
+```
+
+- **Refusals go back to where they can be fixed:** a bad name returns to
+  step 1; other creation or look errors appear in the creator; a character
+  that can't be entered returns to the screen it was chosen from; a delete
+  error appears in the confirmation dialog.
+- **No answer within 15 s** shows "The server didn't answer. Please try
+  again." instead of waiting forever.
+- **Cancel** in the creator asks before discarding unsaved changes.
+- **Another window takes over** (close code 4100): "Playing in another
+  window" with *Play here instead*. **Connection lost** while playing: the
+  character is already saved; the button returns to the title screen.
+- The title screen is the lobby: joining lists the profile's characters and
+  places nobody in the world (D-031).
+
 ## World
 
 Start with one compact, dense district and expand by connected districts.
@@ -133,24 +166,50 @@ Everything you can use: benches (sit, sketch), study desks and café tables
 (sit, study), the café counter (buy), the fountain (wash up). The porch,
 gardens and portico are places to walk and meet; doors don't open yet.
 
-## Interaction model (Sims-inspired, original UI)
+## Interaction model and device requirements (Sims-inspired, original UI)
 
 - The world is the main interface: click or tap a character, object or place
   to get a contextual menu of the actions valid right now.
 - Choosing an action validates it on the server, walks the character to the
   interaction point, plays it, updates state and shows the result.
-- Desktop: mouse to select, keyboard to move, mouse to orbit the camera.
-- Mobile: tap to select, optional joystick, gestures for the camera, large touch
-  targets, landscape preferred.
-- Reference screenshots supplied: a radial menu around the target (desktop
-  life-sim) and a card list with costs/durations (mobile life-sim).
-- **Implemented in M3** with an original look: terracotta pill options fanned
-  above the target on desktop; a bottom sheet with large buttons on touch.
-  Objects so far: benches (sit, stand) and study desks (sit, study). Players:
-  greet. Only currently valid actions are shown; the server re-checks them.
-- **Added in M5:** benches also offer *Sketch*; the café counter sells food
-  and drinks (with prices in the menu); the fountain offers *Wash up*.
-  Clicking yourself opens *Character* (needs, mood, skills, money).
+- Reference screenshots supplied by the owner: a radial menu around the
+  target (desktop life-sim) and a card list with costs and durations
+  (mobile life-sim). Our menus are original: terracotta pill options fanned
+  above the target on desktop, a bottom sheet with large buttons on touch.
+
+**What can be used today (implemented):** benches (sit, sketch, stand up),
+study desks and café tables (sit, study), the café counter (buy, with
+prices), the fountain (wash up), other players (greet). Clicking yourself
+opens *Character* and *Edit look* (standing) or the seat's actions plus
+*Character* (seated). Only valid actions are shown; the server re-checks
+every one.
+
+**Desktop and mobile requirements** (from the owner's brief, project context
+§11–14). Both kinds of device are first-class; mobile is not a squeezed
+desktop layout.
+
+| Requirement | Desktop | Touch (phones, tablets) | Status |
+| --- | --- | --- | --- |
+| Select characters, objects and places by pointing at them | Left-click | Tap | Implemented (M3); tested on desktop and in phone emulation |
+| Contextual menu near the target with only valid actions; closes or updates on a new selection | Radial fan (becomes a column for long labels) | Bottom sheet, docked right in landscape | Implemented (M3); tested |
+| Menus scroll or page when many actions are available | — | — | **Not built:** at most three options exist today (the café); needed before objects with more actions |
+| Walk by pointing at the ground, with pathfinding | Click | Tap | Implemented (M1) |
+| Direct movement | WASD or arrow keys | Optional on-screen joystick | Implemented (M1). Key bindings are fixed; configurable bindings are **proposed** (a Settings option) |
+| Camera control | Drag to orbit, wheel to zoom | One-finger drag, two-finger pinch | Implemented (M1) |
+| Selecting never confused with turning the camera | ≤ 8 px and < 450 ms is a tap | Same; two fingers never tap | Implemented (ARCHITECTURE "Input") |
+| The page never scrolls or zooms during play | — | `touch-action: none`, no page zoom | Implemented |
+| Feedback: hover, selection highlight, action progress with Cancel, an explanation when refused | Hover highlight and pointer cursor | Selection highlight (no hover needed) | Implemented (M3) |
+| Nothing needs hover, right-click or a keyboard | Every action has a click path | Every action has a tap path | Implemented; hover only previews (e.g. starting looks) |
+| Large touch targets | — | Menu items ≥ 44 px; action-sheet buttons 56 px | Implemented; tested in emulation |
+| Essential controls within thumb reach | — | Sheet and joystick at the bottom; status chips at the top | Implemented; not yet checked on a real phone |
+| Portrait and landscape | — | Both; landscape preferred for the 3D view | Implemented for the title screens, creator and world; tested in emulation |
+| Your own character: info panel and actions | Click yourself → Character | Tap yourself | Implemented for needs, mood, skills, money and current action (M5); inventory and relationships don't exist yet |
+| Another character: public information and social actions | Click → menu | Tap → menu | **Partial:** name and activity tag, *Greet* only. A public info panel and more social actions are **proposed** (M9) |
+| Private information stays private | — | — | Implemented (D-024): life data goes only to its owner |
+| Drag or place objects | — | — | **Not built:** comes with housing (proposed M10) |
+| Quality settings for slower devices | Settings → Graphics | *Automatic* picks Performance on touch | Implemented (M6b, M6c) |
+| Accessibility: readable text, contrast, reduced motion | — | — | **Partial:** contrast-checked colours (D-032) and a reduced-motion setting; no screen-reader or colour-blindness review yet |
+| Verified on real devices (Windows, Android, iPhone/iPad) | — | — | **Not yet:** automated tests use Chromium on Linux and phone emulation; manual checklist in TESTING.md |
 
 ## Time model (decided for M5, D-021 and D-022)
 
@@ -248,9 +307,8 @@ from experience points: level *n* needs 50 × n × (n + 1) XP in total (100,
 | Fitness | walking: 0.1 XP per metre |
 | Cooking | nothing yet; kitchens come with housing |
 
-Planned unlocks (not built): academic level gates exam preparation,
-communication helps job interviews, cooking unlocks home recipes, fitness
-unlocks running.
+Planned unlocks (not built) are in "Life simulation: proposed next steps"
+below.
 
 ### Personality traits
 
@@ -272,8 +330,9 @@ outcomes stay deterministic and testable.
   amount, balance after, item, reason). Repeating a request never charges twice.
 - Income: **€100 starting allowance**; **€15 daily allowance** once per game
   day while playing (no back pay). Jobs come in M7.
-- Expenses: café purchases. The café (a placeholder outdoor bar counter in
-  the open piazza, east of where players arrive) sells **Espresso €1.50** (+15 energy, +5 fun), **Cornetto €1.80**
+- Expenses: café purchases. The café kiosk (in the open square, east of
+  where players arrive; a kiosk with a canopy since the world art pass)
+  sells **Espresso €1.50** (+15 energy, +5 fun), **Cornetto €1.80**
   (+20 hunger, +5 fun) and **Panino €4.50** (+45 hunger, +5 energy).
 - Food is eaten straight away after paying; there is no inventory yet. If the
   order is abandoned while the payment is still being processed, it is refunded.
@@ -285,6 +344,25 @@ Enter the world → open the character panel → walk to the café → buy a pan
 skill rises) → see the changes in the panel → reload and find needs, skills,
 money and mood events as they were.
 
+## Life simulation: proposed next steps (not built)
+
+**Proposed, not implemented.** How the M5 systems are expected to grow, so
+that milestones can be planned against one picture. Numbers will be tuning
+values; items marked *owner decision* are listed in ROADMAP.md "Decisions
+waiting for the product owner". Principles that stay: nothing kills or
+injures a character, there is no game over, absence never creates a crisis
+(D-022), and appearance never affects gameplay (D-029).
+
+| System | Today (implemented) | Proposed next | Milestone (proposed) |
+| --- | --- | --- | --- |
+| Needs | Hunger, energy, hygiene, social, fun | **Comfort**, which the owner's brief lists (*owner decision*: add it with furniture of different comfort, rather than now when every seat is a bench or chair); **sleep** in a bed as the main energy source; showers at home for hygiene (the fountain stays a quick wash) | M10 |
+| Mood | Score from needs plus recent events, with reasons | New events from new systems (shift done, exam passed or failed, new friend, rent paid); mood visible on the character (poses first; faces need expressions the procedural model lacks) | M7–M10 |
+| Skills | Five skills, levels 0–10, nothing unlocked | Communication raises café pay or unlocks the second job grade (M7); academic level improves exam results (M8); cooking unlocks home recipes (M10); fitness unlocks running (needs a movement design: speed, energy cost, server limits) | M7, M8, M10 |
+| Personality | Four traits, chosen at creation, fixed | Keep four until a new trait has a distinct, testable effect; traits stay fixed after creation | — |
+| Money in | €100 start, €15 per game day played | **Wages** from shifts, paid per completed shift through the ledger (M7). *Owner decision:* keep, reduce or stop the daily allowance once jobs exist | M7 |
+| Money out | Café food and drinks | Rent and bills with housing, charged on a game-week schedule from the ledger; furniture and groceries into an inventory. With no debt (D-023), a payment that can't be made needs a gentle consequence (*owner decision*: e.g. a notice and mood event, then a cheaper room) | M10 |
+| Money between players | None | Not planned: gifts or trades would need anti-exploit design (duplication, laundering through alt characters) before they exist | — |
+
 ## Open design questions
 
 1. ~~**Time in a shared world.**~~ Decided above (D-021, D-022); sleep and
@@ -293,4 +371,8 @@ money and mood events as they were.
    university and market squares (D-033). A district modelled on real
    streets (with verified references, e.g. the Portello area) is still
    possible when the world grows.
-3. **Character customisation depth vs art budget** — decided after the VRM spike in M6.
+3. ~~**Character customisation depth vs art budget.**~~ No VRM spike was
+   run: M6 chose procedural characters built from the appearance config
+   (D-027), so depth is limited by renderer code, not an art budget. Whether
+   to commission or license authored models is still open (ROADMAP
+   decision Q6; requirements in ASSET_PIPELINE.md).
