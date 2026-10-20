@@ -13,7 +13,7 @@ import type { WorldLayout } from "@padova/shared";
 import { gradientMap } from "./avatar/materials.ts";
 import type { QualityProfile } from "./quality.ts";
 import { cloudGeometry, skyGeometry } from "./world/backdrop.ts";
-import { CLOCK_FACE } from "./world/buildings.ts";
+import { BUILDING_BATCH, CLOCK_FACE } from "./world/buildings.ts";
 import { buildDistrict, fadeGroupOf, fadeVolumes } from "./world/district.ts";
 import { pavingTexture, PAVING_TILE_METRES } from "./world/ground.ts";
 import { P } from "./world/palette.ts";
@@ -24,6 +24,13 @@ const SELECTED_GLOW = new THREE.Color(P.terracotta);
 const HOVER_GLOW = new THREE.Color("#f2b89c");
 /** Opacity of a building or canopy while it hides your character. */
 const FADED_OPACITY = 0.16;
+/**
+ * A building also fades while the camera is this close to it (metres), so a
+ * camera standing beside a wall doesn't show a screen-filling façade (D-035:
+ * on arrival the camera is 3 m from the shops). Buildings only; canopies
+ * fade only when they hide your character.
+ */
+const NEAR_CAMERA_FADE_METRES = 3.5;
 /** Label shown when tapping beyond the edge of the walkable area. */
 const OUTSIDE_LABEL = "Beyond the piazza (not open yet)";
 
@@ -34,7 +41,7 @@ export interface WorldStats {
   meshes: number;
   triangles: number;
   materials: number;
-  /** Fade groups currently see-through because they hide your character. */
+  /** Fade groups currently see-through: they hide your character, or (buildings) the camera is very close. */
   faded: string[];
 }
 
@@ -50,7 +57,7 @@ export interface WorldScene {
   interactableMeshes: Map<string, THREE.Mesh>;
   /** Makes one object glow as selected and/or another as hovered (null clears). */
   highlight(selectedId: string | null, hoveredId: string | null): void;
-  /** What a tap can hit right now: ground and boxes, minus overhangs of faded buildings. */
+  /** What a tap can hit right now: ground and boxes, minus faded (see-through) buildings and their overhangs. */
   pickTargets(): THREE.Object3D[];
   /** Per frame: fades what hides your character, moves the sky and the clock hands. */
   update(camera: THREE.Camera, focus: { x: number; z: number } | null, dtSeconds: number, gameMinute: number | null): void;
@@ -73,6 +80,8 @@ interface FadeState {
   materials: THREE.Material[];
   volumes: THREE.Box3[];
   opacity: number;
+  /** Buildings also fade when the camera is very close to them. */
+  building: boolean;
 }
 
 export function buildWorldScene(world: WorldLayout, quality: QualityProfile, options: WorldSceneOptions = {}): WorldScene {
@@ -136,7 +145,7 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     const fadeMaterial = (group: string, base: THREE.Material): THREE.Material => {
       let state = fades.get(group);
       if (!state) {
-        state = { materials: [], volumes: volumes.get(group) ?? [], opacity: 1 };
+        state = { materials: [], volumes: volumes.get(group) ?? [], opacity: 1, building: group.startsWith("building:") };
         fades.set(group, state);
       }
       const clone = base.clone();
@@ -251,6 +260,9 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     const owner = interactableIds.has(obstacle.id) ? obstacle.id : obstacle.partOf && interactableIds.has(obstacle.partOf) ? obstacle.partOf : undefined;
     if (owner) mesh.userData.interactableId = owner;
     if (interactableIds.has(obstacle.id)) interactableMeshes.set(obstacle.id, mesh);
+    // A see-through building lets taps through to what is visible behind it.
+    const group = BUILDING_BATCH[obstacle.id];
+    if (group) mesh.userData.fadeGroup = group;
   }
   // Overhangs: the portico's upper floors (not walkable ground, though over it).
   const columns = world.obstacles.filter((o) => o.kind === "arcade");
@@ -301,6 +313,7 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     }
     return false;
   };
+  const nearCamera = (box: THREE.Box3) => box.distanceToPoint(eye) < NEAR_CAMERA_FADE_METRES;
   const isFaded = (group: string) => (fades.get(group)?.opacity ?? 1) < 0.6;
 
   let hadFocus = false;
@@ -315,7 +328,7 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     const step = focus && !hadFocus ? 1 : 1 - Math.exp(-Math.min(dt, 0.1) * 10);
     hadFocus = focus !== null;
     for (const state of fades.values()) {
-      const target = focus && state.volumes.some(hides) ? FADED_OPACITY : 1;
+      const target = focus && (state.volumes.some(hides) || (state.building && state.volumes.some(nearCamera))) ? FADED_OPACITY : 1;
       if (Math.abs(state.opacity - target) < 0.002) continue;
       state.opacity += (target - state.opacity) * step;
       if (Math.abs(state.opacity - target) < 0.01) state.opacity = target;

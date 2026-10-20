@@ -218,12 +218,14 @@ playing another life of the same profile (4100).
 players, one at full detail (`?quality=high`) and one at the light level:
 the district is built at both levels within its triangle budgets (the
 build time, meshes, triangles and draw calls are logged as `[world perf]`);
-from beside the café kiosk, tapping a plane tree's trunk is refused with
+on arrival the shops beside the camera are faded and ground seen through
+them can be tapped (D-035); from beside the café kiosk, tapping a plane tree's trunk is refused with
 "Plane tree: you can't walk there."; a café table offers Study and Sit,
 the character walks over and sits on one of its chairs, and the other
 player sees the seat taken; walking into the portico fades the houses above
 (`building:portico`), the walkway is walked end to end behind the columns,
-and stepping out brings them back. Every walk target is checked to be on
+and stepping well away brings them back (near the portico the
+camera's 3.5 m rule keeps them faded). Every walk target is checked to be on
 screen and not hidden before it is tapped, and the camera is left to
 settle after each walk.
 
@@ -318,6 +320,8 @@ removes the player for the others. Screenshots are saved to `test-results/`.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-20 (near-camera fade, D-035) | typecheck + build + unit + integration | Pass; 216/216 | No server or shared change; client typecheck and production build pass |
+| 2026-10-20 (near-camera fade) | e2e | 19/19 pass (final, by file) | The district test gained an arrival step (the shops beside the camera are faded and ground seen through them can be tapped); two of its later checks moved because the portico now also fades when the camera is within 3.5 m of it (2/2 alone). Full suite: 18/19; the phone character-panel test failed once because the panel redrew its money section during a scroll (a test race, unrelated to this change), now retried; then 3/3. Visual check of the arrival view at 1366×800 and 844×390 |
 | 2026-10-19 (M6c, world art pass) | typecheck + build | Pass | shared, server, client (including `client/test`); production build with three entries (game, character lab, world lab); the district code is its own 63 KB chunk (23 KB gzipped) |
 | 2026-10-19 (M6c) | unit + integration | 216/216 pass | Includes the new layout tests (`shared/test/world.test.ts`) and art-against-collision tests (`client/test/world.test.ts`), and every existing server test on the new layout. One earlier full run had one failure in the life-loop test that did not repeat (4/4 alone, then the full suite passed twice). The database and persistence code did not change in this milestone, so the PostgreSQL runs were not repeated |
 | 2026-10-19 (M6c) | e2e | 19/19 pass (final, by file) | First full run at full detail: the four-browser creator test timed out (a third software-rendered browser waited over 60 s at the welcome screen), so test browsers now default to the light detail level (`VITE_DEFAULT_QUALITY=low`; see notes below). Second full run: all 18 existing tests pass in the new district; the new district test failed on its own test route (the café kiosk, then a portico column, hid the spot it tapped). Fixed in the test (a route checked by probing every point from the arrival area, on-screen checks, waiting for the camera, a choice of spots between the columns); then 3/3 consecutive passes |
@@ -472,10 +476,10 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   - A faded building shows its nearest surface at 16 % opacity; when the
     camera is inside a building (near the edges, or under the portico) the
     view looks busy. No camera collision yet.
-  - On arrival the camera stands in the street south of the square, 3 m
-    from the shops, so their wall fills the right of a computer screen
-    until you walk or turn. Options for the owner: fade buildings very close
-    to the camera, or move the arrival points about 3 m north.
+  - Buildings within 3.5 m of the camera fade (D-035), so the shops no
+    longer fill the first view on a computer. On a phone held sideways, the
+    wider view still shows a strip of the shops' wall (5 m away) at the right
+    edge on arrival; a wider fade distance would fade buildings too often.
   - Frame rate on a real graphics card or phone is not measured; on the
     cloud machine (software rendering) a full-detail full-window frame takes
     hundreds of milliseconds, which is why the browser tests default to the

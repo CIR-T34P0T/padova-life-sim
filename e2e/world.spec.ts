@@ -97,6 +97,16 @@ test("the district is built, solid props refuse taps by name, café tables work 
     console.log(`[world perf] build ${stats.buildMs.toFixed(0)} ms, ${stats.meshes} meshes, ${stats.triangles} triangles; render ${JSON.stringify(await alice.evaluate(() => (window as any).__padova.renderStats()))}`);
   });
 
+  await test.step("on arrival the shops beside the camera are see-through and let taps pass (D-035)", async () => {
+    // The first player arrives at (0, 13); the camera stands 3 m from the shops.
+    const self = await me(alice);
+    expect([self.x, self.z]).toEqual([0, 13]);
+    await expect.poll(async () => (await worldStats(alice)).faded, { timeout: 10_000 }).toContain("building:shops");
+    // Ground seen through the faded shops can be tapped (it hit the shops' box before).
+    const { pick } = await pickGround(alice, 11, 12);
+    expect(pick).toMatchObject({ kind: "ground" });
+  });
+
   await test.step("tapping a tree is refused and says what it is", async () => {
     // From the arrival area the shops hide this corner; from beside the café
     // kiosk the plane tree is in clear view.
@@ -131,8 +141,10 @@ test("the district is built, solid props refuse taps by name, café tables work 
 
   await test.step("walking into the portico fades the houses above you, and leaving brings them back", async () => {
     await walkTo(alice, 11, 6);
+    await expect.poll(async () => (await worldStats(alice)).faded, { timeout: 10_000 }).not.toContain("building:portico");
+    // From here on the camera is within 3.5 m of the floors over the walkway,
+    // so they fade before you are under them (the near-camera rule, D-035).
     await walkTo(alice, 15.5, 3);
-    expect((await worldStats(alice)).faded).not.toContain("building:portico");
     // Into the walkway behind the columns, between two of them.
     await walkToAny(alice, [[18.5, 2], [18.5, 1.5], [18.5, 2.5], [18.3, 1], [18.3, 3]]);
     await expect.poll(async () => (await worldStats(alice)).faded, { timeout: 10_000 }).toContain("building:portico");
@@ -140,6 +152,9 @@ test("the district is built, solid props refuse taps by name, café tables work 
     // The walkway runs end to end behind the columns.
     await walkTo(alice, 18.5, -8);
     await walkTo(alice, 14, -10);
+    // A little further west: at x = 14 the camera is still within 3.5 m of the
+    // floors over the walkway, so they stay faded (the near-camera rule, D-035).
+    await walkToAny(alice, [[12, -10], [11.5, -10], [12, -11]]);
     await expect.poll(async () => (await worldStats(alice)).faded, { timeout: 10_000 }).not.toContain("building:portico");
   });
 });

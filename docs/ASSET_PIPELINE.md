@@ -75,7 +75,7 @@ VRM or FBX loader in the project.
   a body part that fails to build is drawn from the default look and
   reported (ARCHITECTURE.md).
 
-**Proposed: loading authored avatars (not built; needs approval).** If
+**Proposed: loading authored avatars (not built; the owner likes the idea and asked for a plainer explanation when M8 starts, D-035).** If
 artist-made models replace the procedural builder (ROADMAP decision Q6), the
 recommended approach keeps the appearance config as the contract:
 - One shared humanoid skeleton in glTF 2.0 binary (`.glb`), loaded with

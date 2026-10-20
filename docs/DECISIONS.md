@@ -2,8 +2,9 @@
 
 Significant technical decisions, newest last. Changing one needs the product
 owner's approval and a new entry explaining why; the old entry stays, marked
-"Superseded by D-0xx". Decisions that are proposed but not yet approved are
-listed in ROADMAP.md ("Decisions waiting for the product owner"), not here.
+"Superseded by D-0xx". Questions put to the product owner are
+listed in ROADMAP.md ("Decisions for the product owner"); their answers are
+recorded here (D-035).
 
 ## D-001 — TypeScript across client, server and shared rules (2026-10-17, approved)
 
@@ -448,3 +449,41 @@ spawn point when it next enters (the existing check in `PlazaRoom.spawn`).
 A shared test now checks that no walkable pocket is cut off, the porch and
 portico are reachable, every street is closed and no two boxes overlap
 (`shared/test/world.test.ts`).
+
+## D-035 — The product owner's answers for the next phase (2026-10-20)
+
+Answers to the questions in ROADMAP.md "Decisions for the product owner",
+given on 2026-10-20:
+
+- **Q1 approved, milestone order:** M7 first job → M7b day and night (see
+  Q12) → M8 university basics → M9 relationships and safety → M10 a place
+  to live → M11 NPCs. M12 (sign-in, deployment) comes as soon as people
+  outside the project should play, and before any public test.
+- **Q2 approved, arrival view:** buildings fade while the camera is very
+  close to them (within 3.5 m), not only when they hide your character, so
+  the first view on a computer is no longer a wall; and a faded building
+  lets taps through to what is visible behind it. Implemented in
+  `client/src/render/worldScene.ts` (the arrival points stay where they were).
+- **Q3, three lives per guest profile:** kept "for now" (D-031).
+- **Q5 approved:** the real sign-in method is decided before M9 (blocking
+  and reporting need lasting identities) and before any public test; options
+  will be presented then.
+- **Q6, authored character models:** the owner likes the idea and asked for
+  a plainer explanation of the options when M8 starts. Until then the
+  procedural characters stay (D-027).
+- **Q7 approved:** a comfort need arrives in M10, with furniture of
+  different comfort.
+- **Q8 approved:** the daily allowance halves (€15 → €7.50 per game day)
+  when jobs arrive in M7.
+- **Q9 approved:** rent that can't be paid gives a notice and a mood event,
+  then a move to a cheaper room; still no debt (D-023).
+- **Q10 approved:** a written comparison of ways to build interiors comes
+  before M10 (or before M8 if lectures move indoors).
+- **Q11 approved:** later districts stay fictional composites until verified
+  references for real streets are collected (D-033).
+- **Q12 approved ("definitely"):** day and night lighting is built right
+  after M7, as M7b.
+- **Q4 not answered:** the time scale and offline cap stay as implemented
+  (D-021, D-022) until play-tests suggest a change.
+- **Q13 deferred:** who reviews reports and how long they are kept is raised
+  again, explained more simply, before M9.

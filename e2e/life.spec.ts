@@ -232,9 +232,13 @@ test("mobile: the character panel is a bottom sheet under half the screen", asyn
     await expect(page.locator("#joystick")).toBeHidden();
     await expect(page.locator("#character-panel")).toContainText("Sociable");
     await expect(page.locator("#character-panel")).toContainText("Creative");
-    // The sheet scrolls to reach the money section.
-    await page.getByTestId("balance").scrollIntoViewIfNeeded();
-    await expect(page.getByTestId("balance")).toBeInViewport();
+    // The sheet scrolls to reach the money section. The panel redraws that
+    // section when a `life` update arrives (up to twice a second), so retry if
+    // the element is replaced mid-scroll.
+    await expect(async () => {
+      await page.getByTestId("balance").scrollIntoViewIfNeeded({ timeout: 2_000 });
+      await expect(page.getByTestId("balance")).toBeInViewport({ timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
     await page.screenshot({ path: "test-results/m5-phone-panel.png" });
   });
 

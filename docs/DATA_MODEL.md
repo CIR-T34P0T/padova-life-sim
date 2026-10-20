@@ -332,7 +332,7 @@ money changes or refusals. Other players see only the public activity
 **Proposed, not implemented.** Sketches that show how the next systems
 would fit the rules above, so their milestones can be estimated; each is
 designed properly, and may change, when its milestone is planned (ROADMAP.md
-"Proposed milestones"). None of these tables exists.
+"Planned milestones"). None of these tables exists.
 
 | Milestone (proposed) | Data | Notes |
 | --- | --- | --- |

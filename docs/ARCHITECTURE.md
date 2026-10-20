@@ -50,11 +50,12 @@ the client, `tsx` runs it on the server.
     menu anchors use; chairs carry their table's id (`partOf`), the
     portico's upper floors have an extra tap box, and the ground beyond the
     edge answers taps with "Beyond the piazza (not open yet)";
-  - `pickTargets()` is what a tap can hit (ground and boxes, minus the
-    overhangs of faded buildings);
+  - `pickTargets()` is what a tap can hit: ground and boxes, minus faded
+    buildings and their overhangs, so a see-through building lets taps
+    through to what is visible behind it (D-035);
   - `update(camera, you, dt, gameMinute)` runs each frame: buildings and
-    tree canopies that hide your character (or that the camera is inside)
-    fade to 16 % opacity, the sky dome follows the camera, and the hall's
+    tree canopies that hide your character fade to 16 % opacity, and so do
+    buildings the camera is inside or within 3.5 m of (D-035), the sky dome follows the camera, and the hall's
     clock hands show the shared game time;
   - the district is built just after the title screen appears
     (`{ defer: true }`); `ready` / `isReady()` let entering the world wait for it.

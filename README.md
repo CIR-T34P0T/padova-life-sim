@@ -16,7 +16,7 @@ in `docs/ROADMAP.md`.
 | --- | --- |
 | The first district: a fictional, Padua-inspired university square (university hall with a walk-in porch and clock tower, library, portico you can walk through, market, café, gardens, trees, lamps; streets and skyline beyond) | Locally functional, tested; **Stage-1 procedural art, not artist-made models** (D-033) |
 | What you see matches what you bump into (art drawn inside the collision boxes, checked by a test) | Tested |
-| Buildings and trees that hide your character fade out | Locally functional, tested |
+| Buildings and trees that hide your character fade out, and so do buildings right beside the camera (taps pass through faded buildings) | Locally functional, tested |
 | Third-person camera (drag to orbit, wheel/pinch to zoom) | Locally functional |
 | Click/tap-to-move with server pathfinding | Multiplayer functional, tested |
 | Keyboard (WASD/arrows) and on-screen joystick movement | Multiplayer functional, tested |
