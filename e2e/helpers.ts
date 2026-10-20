@@ -41,10 +41,10 @@ export async function creatorLook(page: Page): Promise<any> {
 }
 
 /** Waits until the title screen has this profile's characters from the server. */
-export async function waitForTitle(page: Page): Promise<void> {
+export async function waitForTitle(page: Page, timeoutMs = 30_000): Promise<void> {
   // Generous timeout: the first page load compiles on demand under Vite and
   // test machines may render WebGL in software.
-  await page.waitForFunction(() => (window as any).__flow?.lobby().status === "ready" && (window as any).__flow.screen() === "title", null, { timeout: 30_000 });
+  await page.waitForFunction(() => (window as any).__flow?.lobby().status === "ready" && (window as any).__flow.screen() === "title", null, { timeout: timeoutMs });
 }
 
 /**

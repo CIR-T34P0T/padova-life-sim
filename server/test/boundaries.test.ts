@@ -14,6 +14,19 @@ describe("appearance boundaries (D-029)", () => {
     }
   });
 
+  it("no gameplay module on the server or in the interaction rules reads appearance (audit 2026-10-20)", () => {
+    const serverSrc = join(import.meta.dirname, "../src");
+    const files = [
+      ...readdirSync(join(serverSrc, "life")).map((file) => join(serverSrc, "life", file)),
+      join(serverSrc, "InteractionSystem.ts"),
+      join(sharedSrc, "interactions.ts"),
+    ];
+    for (const file of files) {
+      // Appearance reaches the server only as the profile's config and the replicated `look` string.
+      expect(readFileSync(file, "utf8"), file).not.toMatch(/appearance|decodeLook|encodeLook|\.look\b|skin/i);
+    }
+  });
+
   it("the appearance model stores no ethnicity, race or heritage field", () => {
     const schema = readFileSync(join(sharedSrc, "appearance/schema.ts"), "utf8");
     const spec = schema.slice(schema.indexOf("export const APPEARANCE_SPEC"), schema.indexOf("export const DEFAULT_APPEARANCE"));

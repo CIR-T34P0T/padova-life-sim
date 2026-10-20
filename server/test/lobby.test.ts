@@ -8,6 +8,7 @@ import {
   APPEARANCE_PRESETS,
   CLOSE_SIGNED_IN_ELSEWHERE,
   ClientMessage,
+  ServerMessage,
   DEFAULT_APPEARANCE,
   NEEDS_CONFIG,
   decodeLook,
@@ -172,6 +173,64 @@ describe("title screen and several lives", () => {
     await waitFor(() => again.room.state.players.get(again.room.sessionId) !== undefined, 3000, "replicated");
     await sleep(200);
     expect([...again.room.state.players.values()].filter((p: any) => p.name === "Vera")).toHaveLength(1);
+  });
+
+  it("creates one character and one guest profile even if Begin is pressed twice", async () => {
+    // First visit: two create requests back to back (a double click).
+    const visitor = track(await connect(context.server.url));
+    const input = newCharacter("Doppio");
+    visitor.room.send(ClientMessage.CreateCharacter, input);
+    visitor.room.send(ClientMessage.CreateCharacter, input);
+    await waitFor(() => visitor.lastProfile()?.status === "ready", 8000, "ready");
+    await waitFor(() => visitor.errors.length === 1, 3000, "second press refused");
+    expect(["busy", "in_world"]).toContain(visitor.errors[0]!.reason);
+    await sleep(300);
+    expect(visitor.identities).toHaveLength(1); // one guest token, issued once
+    const rows = async (name: string) =>
+      (await context.server.db.query("SELECT account_id FROM characters WHERE display_name = $1", [name])).rows as { account_id: string }[];
+    expect(await rows("Doppio")).toHaveLength(1);
+
+    // Adding a second life to the same profile: a double click adds one, not two.
+    await backToTitle(visitor);
+    visitor.room.send(ClientMessage.CreateCharacter, newCharacter("Doppio B"));
+    visitor.room.send(ClientMessage.CreateCharacter, newCharacter("Doppio B"));
+    await waitFor(() => visitor.lastProfile()?.status === "ready" && visitor.lastProfile()?.profile?.displayName === "Doppio B", 8000, "second life ready");
+    await waitFor(() => visitor.errors.length === 2, 3000, "second press refused again");
+    await sleep(300);
+    const second = await rows("Doppio B");
+    expect(second).toHaveLength(1);
+    expect(second[0]!.account_id).toBe((await rows("Doppio"))[0]!.account_id);
+    expect(visitor.identities).toHaveLength(1);
+    expect([...visitor.room.state.players.values()].filter((p: any) => p.name.startsWith("Doppio"))).toHaveLength(1);
+  });
+
+  it("ignores gameplay messages from a session at the title screen (audit 2026-10-20)", async () => {
+    const watcher = track(await joinWithNewCharacter(context.server.url, "Wally"));
+    const first = await joinWithNewCharacter(context.server.url, "Tina");
+    const characterId = first.lastProfile()!.profile!.characterId;
+    await backToTitle(first);
+    const rejected: unknown[] = [];
+    first.room.onMessage(ServerMessage.Rejected, (payload: unknown) => rejected.push(payload));
+    const actionsBefore = first.actions.length;
+    // Everything a player in the world could send, from the title screen.
+    first.room.send(ClientMessage.MoveTo, { x: 2, z: 2 });
+    first.room.send(ClientMessage.MoveDirection, { dx: 1, dz: 0 });
+    first.room.send(ClientMessage.Stop);
+    first.room.send(ClientMessage.Interact, { targetKind: "object", targetId: "bench-1", action: "sit" });
+    first.room.send(ClientMessage.Interact, { targetKind: "object", targetId: "cafe-counter", action: "buy", itemId: "espresso", requestId: "req_title_0001" });
+    first.room.send(ClientMessage.CancelAction);
+    await sleep(800);
+    // Nothing appeared, moved, was reserved, answered or charged.
+    expect(playerIn(watcher, first.room.sessionId)).toBeUndefined();
+    expect([...watcher.room.state.seats.keys()]).toEqual([]);
+    expect(first.actions.length).toBe(actionsBefore);
+    expect(rejected).toEqual([]);
+    const ledger = await context.server.db.query("SELECT description FROM wallet_transactions WHERE character_id = $1", [characterId]);
+    expect(ledger.rows.map((row: any) => row.description)).not.toContain("Espresso");
+    // And the session still works normally.
+    await enterWorld(first, characterId);
+    await waitFor(() => playerIn(watcher, first.room.sessionId)?.name === "Tina", 3000, "Tina in the world");
+    track(first);
   });
 
   it("keeps the title screen through a brief network drop", async () => {

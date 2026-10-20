@@ -207,11 +207,6 @@ export interface RejectedPayload {
   reason: string;
 }
 
-/** @deprecated Names come from the saved character profile since M4. */
-export interface JoinOptions {
-  name?: string;
-}
-
 export type Parsed<T> = { ok: true; value: T } | { ok: false; reason: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

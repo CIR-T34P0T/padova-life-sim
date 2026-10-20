@@ -236,6 +236,29 @@ describe("character profiles", () => {
     expect([...gina.room.state.players.values()].filter((p: any) => p.name === "Gina")).toHaveLength(1);
   });
 
+  it("removes a dropped player who never returns once the reconnection window ends, saved and free to play again", async () => {
+    const watcher = track(await joinWithNewCharacter(context.server.url, "Wanda"));
+    const ivo = await joinWithNewCharacter(context.server.url, "Ivo");
+    const sessionId = ivo.room.sessionId;
+    const characterId = ivo.lastProfile()!.profile!.characterId;
+    ivo.room.send(ClientMessage.MoveTo, { x: 3, z: 14 });
+    await waitFor(() => {
+      const seen = playerIn(watcher, sessionId);
+      return seen && Math.hypot(seen.x - 3, seen.z - 14) < 0.1 && !seen.moving;
+    }, 8000, "Ivo walked");
+    // A drop the client never recovers from (a phone switched off): no automatic reconnection.
+    ivo.room.reconnection.enabled = false;
+    ivo.room.connection.close(4010, "simulated drop, no return");
+    await waitFor(() => playerIn(watcher, sessionId)?.connected === false, 3000, "shown as dropped");
+    await waitFor(() => playerIn(watcher, sessionId) === undefined, (GAME_CONFIG.reconnectSeconds + 6) * 1000, "removed when the window ends");
+    const saved = (await context.server.db.query<{ pos_x: number; pos_z: number }>("SELECT pos_x, pos_z FROM character_state WHERE character_id = $1", [characterId])).rows[0]!;
+    expect(Math.hypot(saved.pos_x - 3, saved.pos_z - 14)).toBeLessThan(0.1);
+    // The account is free again: the same guest token plays the character, once.
+    const back = track(await connectAndPlay(context.server.url, ivo.guestToken, characterId));
+    expect(back.lastProfile()!.profile!.characterId).toBe(characterId);
+    await waitFor(() => [...watcher.room.state.players.values()].filter((p: any) => p.name === "Ivo").length === 1, 3000, "exactly one Ivo");
+  }, (GAME_CONFIG.reconnectSeconds + 25) * 1000);
+
   it("saves a seated character at the spot it stands up to", async () => {
     const hana = await joinWithNewCharacter(context.server.url, "Hana");
     const characterId = hana.lastProfile()!.profile!.characterId;

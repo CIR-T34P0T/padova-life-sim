@@ -351,8 +351,16 @@ Read this first when starting a new session.
 
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
 M0–M6, M6b (title screen and creation flow) and M6c (the first district)
-implemented and covered by automated tests (216 unit/integration tests, 19
-browser tests; see `docs/TESTING.md` for the latest results).
+implemented and covered by automated tests (see `docs/TESTING.md` for the
+counts and latest results). An integration audit on 2026-10-20 checked every
+feature against the code, ran the whole player journey with two clients,
+and loaded a real M5-era database with today's server; its matrix
+(verified / not verified / partial / missing / blocked) is in TESTING.md
+"Integration audit". It found no functional bug; it added regression tests
+for gaps (the whole journey with two clients, double-clicked Begin,
+gameplay messages from the title screen, the client/server state contract,
+the reconnection window ending, a wider appearance boundary), checked that
+the production build loads and plays, and removed an unused leftover type.
 Characters and their life data are saved in PostgreSQL (embedded PGlite in
 development). Characters (D-027) and the district (D-033) are procedural
 Stage-1 art generated in code, not artist-made models. No greybox remains.

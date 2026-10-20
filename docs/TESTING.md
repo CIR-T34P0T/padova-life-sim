@@ -94,9 +94,17 @@ visibility rules (full outfit hides top and bottom, headwrap/headscarf hide
 hair, hats keep long hair below them, hair clips need hair); M4 options all
 map to valid configs in the old skin-tone order.
 
-**Boundaries (`server/test/boundaries.test.ts`, M6):** no life-simulation
-rule mentions appearance (looks have no gameplay effect) and the appearance
-schema has no ethnicity, race, heritage or nationality field.
+**Boundaries (`server/test/boundaries.test.ts`, M6, widened in the
+2026-10-20 audit):** no life-simulation rule mentions appearance (looks have
+no gameplay effect); neither do the server's life system
+(`server/src/life/`), the interaction system or the shared interaction
+rules; and the appearance schema has no ethnicity, race, heritage or
+nationality field.
+
+**Client ↔ server state contract (`client/test/contract.test.ts`, audit
+2026-10-20):** the client's `ReplicatedPlayer` interface has exactly the
+fields of the server's `PlayerState` schema (the compiler can't check this,
+because the client reads Colyseus state through its own interface).
 
 **Life simulation through the real room (15 tests, `server/test/life.test.ts`,
 M5)** — real WebSocket clients and servers with faster tuning: entering with
@@ -159,7 +167,10 @@ decoded `look` equals the saved config) and kept; invalid appearance refused
 naming the field (`skin.tone`, `body.height`, `v`); one player can never change another's profile
 (forged ids in the payload are ignored); the newest session **in the world**
 wins and the older one is saved and closed (4100), while a second window
-that only opens the title screen disconnects nobody; a network drop keeps the character; a seated
+that only opens the title screen disconnects nobody; a network drop keeps the character;
+**a dropped player who never returns is removed for everyone when the 20 s
+reconnection window ends, with the position saved, and the same guest token
+then plays the character exactly once** (audit 2026-10-20); a seated
 character is saved where it would stand up; retired appearance options are
 repaired on load (only the broken fields fall back, one readable notice) and
 saved; **an M5 character (version 2, flat columns, no document) is upgraded
@@ -199,12 +210,17 @@ there are no invisible walls; every clickable object and chair has its own
 highlightable mesh and every building has fade volumes; triangle budgets
 (220 000 high, 110 000 low).
 
-**Title screen and several lives through the real room (10 tests,
+**Title screen and several lives through the real room (12 tests,
 `server/test/lobby.test.ts`):** create lives from the title screen up to
 three (same guest token), the fourth refused, any of them can be entered and
 others see the right name and look; each life keeps its own needs and money;
 back to the title and in again at the same spot, and the character still
-moves; pressing Continue twice enters once (`busy`/`in_world`); a network
+moves; pressing Continue twice enters once (`busy`/`in_world`); **pressing
+Begin twice creates one character and one guest profile**, on a first visit
+and when adding a life (audit 2026-10-20); **gameplay messages from a
+session at the title screen (move, stop, interact, buy, cancel) are
+ignored**: nothing appears, is reserved, answered or charged, and the
+session still enters normally (audit 2026-10-20); a network
 drop at the title screen keeps the session; **changing the look from the
 title screen and in the world leaves needs, wallet, ledger, skills, traits
 and position untouched** (database rows compared); deleting only from the
@@ -213,6 +229,22 @@ another window, removing its rows; another profile can't see, play, change
 or delete a character (`character_not_found`); malformed title-screen
 requests refused; a window entering the world takes over from a window
 playing another life of the same profile (4100).
+
+**End to end, the whole player journey (`e2e/journey.spec.ts`, audit
+2026-10-20)** — two clients, one run: launch; create a customised character
+with a trait; a second player sees exactly that look; walk (the other player
+sees the arrival); wash at the fountain (hygiene up, "Freshened up" mood,
+the other player sees "washing") and sketch on a bench (creativity XP, seen
+as "sketching"); walk away; reload → Continue: same position, look, skills,
+traits, needs (within drift), money and mood event; a simulated network drop
+reconnects into the same character with no duplicate; an appearance change
+reaches the other player and touches nothing else; closing the browser
+removes the character for the other player, and returning with the same
+guest identity in a new browser context brings back one character with the
+new look and the same state, and the title screen still lists one life.
+Throughout, no page error, failed request or HTTP error (missing file) is
+allowed on any client. Money checks allow for a daily allowance paid if a
+game day starts mid-test.
 
 **End to end, the district (`e2e/world.spec.ts`, world art pass)** — two
 players, one at full detail (`?quality=high`) and one at the light level:
@@ -316,10 +348,115 @@ CDP); clicking a solid, non-interactive object (a market stall) shows
 feedback and does not move; closing a tab
 removes the player for the others. Screenshots are saved to `test-results/`.
 
+## Integration audit (2026-10-20)
+
+A check of what is really built for M3–M6c, made before M7. Labels:
+**Verified** = covered by automated tests that ran and passed in this audit
+(Chromium on Linux, phones in emulation); **Implemented, not verified** =
+the code exists but no automated test covers it; **Partial**; **Missing**;
+**Blocked** = needs something unavailable here (the product owner's devices,
+art, a decision). "Verified" here is automated evidence only: the roadmap's
+owner sign-off and real-device checks are separate and still open.
+
+| Milestone | Feature | Label | Code | Evidence |
+| --- | --- | --- | --- | --- |
+| M3 | Select objects and players by click/tap, with highlights | Verified | `client/src/interaction/interactionController.ts`, `render/worldScene.ts` | `e2e/interactions.spec.ts`, `walking-skeleton.spec.ts` |
+| M3 | Contextual menu: radial (mouse), bottom sheet (touch); Escape and outside taps close it | Verified | `client/src/ui/actionMenu.ts` | `interactions.spec.ts` |
+| M3 | Radial menu turning into a column for long labels; action sheet docked right in landscape | Implemented, not verified | `actionMenu.ts`, `styles.css` | — |
+| M3 | Server validation (target, action, distance, free seat, self, offline, cooldown, reachability) | Verified | `shared/src/interactions.ts`, `server/src/InteractionSystem.ts` | `shared/test/interactions.test.ts`, `server/test/interactions.test.ts` |
+| M3 | Walk-to-then-act lifecycle, seat reservation, races, cancel, forged completion ignored | Verified | `InteractionSystem.ts` | `server/test/interactions.test.ts`, `interactions.spec.ts` |
+| M3 | Bench (sit, sketch, stand), desk and café table (sit, study), greet | Verified | same | integration tests; `world.spec.ts` (café table); `journey.spec.ts` (sketch) |
+| M3 | Menus that scroll or page; doors; running; sleeping | Missing | — | Planned (GAME_DESIGN requirements table, M10) |
+| M3 | Public info panel for another player | Partial | name and activity tag only | Proposed for M9 |
+| M4 | Guest identity: hashed token, checked before joining, 4401 for unknown tokens | Verified | `server/src/identity/guestIdentity.ts`, `PlazaRoom.onAuth` | `server/test/profiles.test.ts`, `persistence.spec.ts` |
+| M4 | Versioned profile with upgrades 1 → 2 → 3, newer versions read-only | Verified | `shared/src/profile.ts`, `server/src/profiles/ProfileService.ts` | `shared/test/profile.test.ts`, `profiles.test.ts`; real M5 database loaded by today's server (see below) |
+| M4 | Owner-scoped SQL; ids sent by clients never trusted | Verified | `profileRepository.ts`, `lifeRepository.ts` | `database.test.ts`, `lifeDatabase.test.ts`, `lobby.test.ts`, `profiles.test.ts` |
+| M4 | Migrations 0001–0004 up, down, up; CLI status and migrate | Verified | `server/src/db/migrate.ts`, `server/migrations/` | `database.test.ts` on PGlite and PostgreSQL 16; `db:status`/`db:migrate` on a fresh on-disk database (idempotent) |
+| M4 | Saved position, 30 s autosave, seated characters saved where they stand up | Verified | `PlazaRoom.ts`, `LifeService.ts` | `profiles.test.ts`, `journey.spec.ts` |
+| M4 | Newest session wins (4100); a title-screen-only window disconnects nobody | Verified | `profiles/sessionRegistry.ts` | `profiles.test.ts`, `persistence.spec.ts` |
+| M4 | Reconnecting within 20 s resumes the same session | Verified | `PlazaRoom.onDrop/onReconnect` | `plaza.test.ts`, `title-flow.spec.ts`, `journey.spec.ts` |
+| M4 | Removal after the 20 s reconnection window expires: saved, removed for everyone, playable again exactly once | Verified (test added in this audit) | `PlazaRoom.ts` | `profiles.test.ts` |
+| M4 | Guest-creation limit per IP; character deletion with typed name | Verified | `ProfileService.ts`, `PlazaRoom.ts` | `profiles.test.ts`, `lobby.test.ts`, `title-flow.spec.ts` |
+| M4 | Real sign-in, account deletion | Missing (by design, D-017) | — | Decided before M9 (D-035, Q5) |
+| M4 | The owner's own saved database on Windows | Blocked (not reachable from the cloud workspace) | — | The upgrade path from a real M5 database was checked instead |
+| M5 | Server world clock, replicated; clients never time the world | Verified | `shared/src/life/clock.ts` | `shared/test/life.test.ts`, `server/test/life.test.ts` |
+| M5 | Five needs with rates and gentle consequences; offline catch-up capped | Verified | `needs.ts`, `server/src/life/LifeSystem.ts` | `shared/test/life.test.ts`, `server/test/life.test.ts` |
+| M5 | Mood from needs and events, with reasons | Verified | `mood.ts` | unit and integration tests; `journey.spec.ts` ("Freshened up") |
+| M5 | Five skills, XP curve, trait and mood multipliers | Verified (cooking has no source yet) | `skills.ts` | unit and integration tests; `life.spec.ts`, `journey.spec.ts` |
+| M5 | Skills unlocking anything | Missing | — | Planned from M7 |
+| M5 | Four traits chosen at creation | Verified | `traits.ts`, `setupScreen.ts` | `life.spec.ts`, `journey.spec.ts` |
+| M5 | Money ledger: idempotent, row-locked, never negative; café purchases; allowances | Verified | `lifeRepository.ts` (`applyMoneyChange`) | `lifeDatabase.test.ts` on both databases, `server/test/life.test.ts`, `life.spec.ts` |
+| M5 | Life data private to its owner | Verified | `LifeSystem.ts` (`life` message) | `server/test/life.test.ts` |
+| M5 | Character panel on desktop and phone (portrait) | Verified | `client/src/ui/characterPanel.ts` | `life.spec.ts` |
+| M5 | Character panel docked right on a phone in landscape | Implemented, not verified | `styles.css` | — |
+| M5 | Comfort need, sleep, cooking source | Missing | — | Approved for M10 (D-035) |
+| M6 | Versioned appearance config, strict and lenient validation, look strings | Verified | `shared/src/appearance/` | `appearance.test.ts`, `profiles.test.ts` |
+| M6 | Skin tones, undertones, 17 hair styles, face and body options, clothing, accessories | Verified (every hair style, top and eye shape compared as images; others checked by eye in the lab) | `client/src/render/avatar/` | `creator.spec.ts`; character lab screenshots |
+| M6 | No ethnicity field; appearance never affects gameplay | Verified | schema; gameplay modules | `boundaries.test.ts` (widened in this audit), `appearance.test.ts` |
+| M6 | Look replicated to other players, only changed parts rebuilt | Verified | `character.ts`, `PlayerState.look` | `creator.spec.ts`, `persistence.spec.ts`, `journey.spec.ts` |
+| M6 | Per-character geometry budgets | Verified | — | `creator.spec.ts` (four browsers) |
+| M6 | Default part when a body part can't be built; message without WebGL | Implemented, not verified | `character.ts`, `creator.ts` | — |
+| M6 | Facial expressions, fingers, artist-made models | Missing (Stage-1 procedural art, D-027) | — | Options explained when M8 starts (Q6) |
+| M6b | Title screen (New life, Continue, Manage characters, Settings, Credits), up to three lives | Verified | `client/src/ui/flow.ts`, `ui/screens/` | `title-flow.spec.ts`, `lobby.test.ts` |
+| M6b | New life in three steps; nothing saved before the review | Verified | `flow.ts`, `ui/creator.ts` | `title-flow.spec.ts`, `journey.spec.ts` |
+| M6b | Six categories; turn, zoom, randomise, reset, undo/redo, compare, look codes | Verified | `ui/creator.ts`, `shared/src/appearance/categories.ts` | `creator.spec.ts`, `title-flow.spec.ts`, `categories.test.ts` |
+| M6b | Editing a look from the title screen or the world; Cancel asks first; life data untouched | Verified | `flow.ts`, `PlazaRoom.ts` | `lobby.test.ts`, `title-flow.spec.ts`, `journey.spec.ts` |
+| M6b | Begin or Continue pressed twice | Verified (Begin added in this audit) | `PlazaRoom.exclusive` | `lobby.test.ts` |
+| M6b | Gameplay messages (move, stop, interact, buy, cancel) from a session at the title screen are ignored: nothing appears, is reserved, answered or charged | Verified (test added in this audit) | `PlazaRoom.acceptIntent`, `InteractionSystem` | `lobby.test.ts` |
+| M6b | Settings stored per browser and applied | Verified | `ui/settings.ts` | `title-flow.spec.ts` |
+| M6b | Phone portrait and landscape: screens fit, touch turns and pinches the preview | Verified (emulation) | `styles.css`, `creator.ts` | `title-flow.spec.ts`, `creator.spec.ts` |
+| M6b | "The server didn't answer" after 15 s; "Connection lost" screen | Implemented, not verified | `flow.ts` | — |
+| M6c | District built within budgets at both detail levels | Verified | `client/src/render/world/`, `worldScene.ts` | `client/test/world.test.ts`, `world.spec.ts` |
+| M6c | Art inside the collision boxes; every box visibly filled | Verified | same | `client/test/world.test.ts` |
+| M6c | Layout: no cut-off pockets, porch and portico reachable, streets closed | Verified | `shared/src/world.ts` | `shared/test/world.test.ts` |
+| M6c | Fading (hiding you, or right beside the camera), taps through faded buildings | Verified | `worldScene.ts` | `world.spec.ts` |
+| M6c | Frame rate on a real graphics card or phone; the owner's look at the art | Blocked (needs the owner's devices) | — | ROADMAP open items 1 and 3 |
+| M6c | Day and night; per-object level of detail; camera collision | Missing | — | Day and night approved as M7b |
+| All | Mouse and keyboard; touch (tap, joystick, pinch) | Verified (Chromium; phones in emulation) | `client/src/input/` | `walking-skeleton.spec.ts`, `interactions.spec.ts`, `title-flow.spec.ts` |
+| All | Client and server types agree | Verified | shared TypeScript types; client mirror of the player state | `npm run typecheck` (all three packages); `client/test/contract.test.ts` (new) |
+| All | Every message validated on the server | Verified | parsers in `shared/src/protocol.ts` used by every `onMessage` handler; unknown types ignored | `plaza.test.ts`, `interactions.test.ts`, `lobby.test.ts`, `profiles.test.ts` |
+| All | Files load: no missing files, failed requests or page errors | Verified | fonts and code bundled; nothing downloaded at runtime | `journey.spec.ts` health checks (development server) |
+| All | The production build loads and plays: all four font weights, creating a character, the full district, both developer pages | Verified by a scripted check, not part of the suite | `npm run build -w client` served by `vite preview` | Audit run 2026-10-20: no page errors, no HTTP errors (see "Results log") |
+| All | Real phones, Windows, Firefox, Safari | Blocked (not available here) | — | Manual checklist below |
+| All | Lint | Not run: no linter is configured in the project | — | Recommendation in "Known issues" |
+
+**The player journey (all ten steps)** ran in one browser test,
+`e2e/journey.spec.ts`, with two clients: launch → create and customise →
+save and enter → walk and use objects → wash (needs, mood) and sketch
+(skill) → saved → reload and network drop keep everything → a second
+player sees the same look, movement and actions → an appearance change
+reaches them → leave and return with the same guest identity: one
+character, same state. Every step uses features that exist; nothing was
+skipped. In its first full-suite run it failed once: the skills read after
+the reload did not equal the ones read before it. The "before" snapshot
+was taken the moment the character stopped walking, but the server sends
+`life` at most every 500 ms, so the last fitness XP from the walk had not
+reached the client yet; the saved value was the higher, correct one (the
+upgrade check below shows the same effect: the M5 client's last update said
+2.6 XP, the database 2.7). No progress was lost. The test now waits until
+the life data stops changing before comparing, and prints both values if
+they ever differ. Later it failed once at its final step (a third page
+opening the title screen took over 30 s while another heavy check shared
+the CPU); that wait is now 90 s.
+
+**Upgrading a real older database.** The M5 version (commit `f61da63`) was
+exported to a scratch folder and run against a fresh on-disk database; its
+server created a character (profile version 2, M4-style appearance), bought
+an espresso and saved a walk. Today's server, started on the same database,
+applied migrations 0003 and 0004, listed the character on the title screen,
+upgraded it to profile version 3 with the same look (frame, skin, hair,
+eyes, outfit), and kept its trait, balance (€113.50), ledger row and
+position. The repository itself was not changed by this check.
+
 ## Results log
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-20 (integration audit) | typecheck + build | Pass | shared, server, client (including `client/test`); no linter is configured, so none ran |
+| 2026-10-20 (integration audit) | unit + integration | 246/246 pass | With `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15 (221 tests, 25 database tests repeated on PostgreSQL). New: double-clicked Begin, title-screen gameplay messages ignored, reconnection window ending, client/server player contract, wider appearance boundary. Each new test also passed on its own first |
+| 2026-10-20 (integration audit) | e2e | 20/20 pass (one full run) | Includes the new journey test. Before the final run the journey test ran 3 times alone: 2 passed, 1 failed at its last step (a third page's title screen took over 30 s while a production-build check shared the CPU; wait raised to 90 s). Its earlier full-suite failure (skills read before a reload vs after) was a stale snapshot, not lost data (see "Integration audit"). Journey, persistence and title-screen specs also on PostgreSQL 16.15 (`E2E_DATABASE_URL`): 9/9; rows checked with SQL (one character per name, no repeated ledger keys, skills saved) |
+| 2026-10-20 (integration audit) | upgrade from a real M5 database | Pass | M5 server (commit `f61da63`) on a fresh on-disk PGlite: a profile-version-2 character with an espresso and a walk; today's server on the same files: migrations 0003 and 0004 applied, character listed, upgraded to version 3 with the same look, trait, balance, ledger and position. Run twice (the first run's second half was interrupted), passed both times it completed |
+| 2026-10-20 (integration audit) | production build, scripted | Pass | `npm run build -w client`, served by `vite preview` with a game server: all four font weights loaded, a character created (afro hair) and the district built (47 meshes, full detail); world lab rendered in 1.8 s, character lab (every hair style) in 77 s with the CPU shared; no page errors, no HTTP errors |
 | 2026-10-20 (near-camera fade, D-035) | typecheck + build + unit + integration | Pass; 216/216 | No server or shared change; client typecheck and production build pass |
 | 2026-10-20 (near-camera fade) | e2e | 19/19 pass (final, by file) | The district test gained an arrival step (the shops beside the camera are faded and ground seen through them can be tapped); two of its later checks moved because the portico now also fades when the camera is within 3.5 m of it (2/2 alone). Full suite: 18/19; the phone character-panel test failed once because the panel redrew its money section during a scroll (a test race, unrelated to this change), now retried; then 3/3. Visual check of the arrival view at 1366×800 and 844×390 |
 | 2026-10-19 (M6c, world art pass) | typecheck + build | Pass | shared, server, client (including `client/test`); production build with three entries (game, character lab, world lab); the district code is its own 63 KB chunk (23 KB gzipped) |
@@ -488,6 +625,10 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     parts have tap boxes), so tapping a canopy walks to the ground behind it.
   - Saved characters standing where a new prop now is are moved to a spawn
     point on their next visit (by design; not covered by its own test).
+- **No linter is configured** (no ESLint or similar); strict TypeScript
+  type-checking is the only static check. Adding a linter is a new
+  development dependency and would need its own small change (recommended
+  before the codebase grows much further, not done in the audit).
 - `npm audit` reports 9 low/moderate advisories, all inside `@colyseus/auth`
   (pulled in by the SDK, unused by this project). The suggested `--force` fix
   would downgrade Colyseus to 0.15, so it was not applied. Recheck on Colyseus updates.
