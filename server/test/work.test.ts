@@ -46,7 +46,7 @@ function useWorkServer(port: number, tuning: TuningOverrides = {}, db?: () => Pr
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const stateOf = (viewer: ProfileClient, sessionId: string): any => viewer.room.state.players.get(sessionId);
+const stateOf = (viewer: ProfileClient, sessionId: string): any => viewer.room.state.players?.get(sessionId);
 const characterIdOf = (client: ProfileClient) => client.profiles.find((p) => p.profile)!.profile!.characterId;
 const seatOwner = (viewer: ProfileClient, seatId: string): string | undefined => viewer.room.state.seats.get(seatId);
 

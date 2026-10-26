@@ -267,6 +267,15 @@ export class LifeSystem {
 
   // ── Work (M7) ───────────────────────────────────────────────────────────
 
+  /** The character jumped (through a door, M7c): walking distance counts from here. */
+  resetDistance(sessionId: string): void {
+    const life = this.lives.get(sessionId);
+    const runtime = this.deps.runtimes.get(sessionId);
+    if (!life || !runtime) return;
+    life.lastX = runtime.character.x;
+    life.lastZ = runtime.character.z;
+  }
+
   /** The character's job, or null. */
   jobOf(sessionId: string): JobId | null {
     return this.lives.get(sessionId)?.work.jobId ?? null;

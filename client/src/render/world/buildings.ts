@@ -356,7 +356,7 @@ function hall({ sink, detail, layout }: Ctx): void {
     deco.push(front.box(porchMid - 0.2, porchMid + 0.2, archSpring + archR - 0.1, archSpring + archR + 0.42, 0.06, 0.2, P.stone)); // keystone
   }
   const back = new Frame({ x: pW, z: zPorch }, "south");
-  doorAt(back, (pE - pW) / 2, 2.1, 3.9, { arched: true, wood: P.woodDark, frame: P.stone, fanlight: true }, detail, low[porch.id]!);
+  // The portal itself is the "hall-door" obstacle in front of this wall (M7c, props.ts), so it can be tapped and highlighted.
   // Wall lanterns either side of the portal and one hanging in the porch (above head height).
   for (const u of [0.45, pE - pW - 0.45]) lantern(back.point(u, 2.75, 0.32), deco, detail, true);
   lantern(new THREE.Vector3((pW + pE) / 2, 3.8, (zPorch + zFront) / 2), deco, detail, false);
@@ -500,7 +500,7 @@ function library({ sink, detail, layout }: Ctx): void {
   }
   centres.forEach((u, k) => {
     if (k === mid) {
-      doorAt(f, u, 1.9, 3.8, { arched: true, wood: P.shutterDark, frame: P.stone, fanlight: true }, detail, low);
+      // The entrance is the "library-door" obstacle in front of this bay (M7c, props.ts).
       windowAt(f, u, ground + 0.7, { width: 1.4, height: 2.6, frame: P.stone, balcony: "iron", depth: 0.1, pediment: "triangle" }, detail, deco);
     } else {
       windowAt(f, u, 0.95, { width: 1.35, height: 3.4, arched: true, frame: P.stone, glass: P.glassLight, depth: 0.1 }, detail, low);

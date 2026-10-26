@@ -7,7 +7,7 @@
 // The e2e server's clock is shifted so the café is open (playwright.config.ts).
 
 import { devices, expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { continueFromTitle, createCharacter } from "./helpers.ts";
+import { afterFrames, continueFromTitle, createCharacter } from "./helpers.ts";
 
 interface LifeView {
   gameMinute: number;
@@ -48,31 +48,45 @@ const reachesGameView = (page: Page, x: number, y: number) =>
 
 /** Clicks (or taps) the ground at a world point and waits until the character stops there. */
 async function walkTo(page: Page, x: number, z: number, touch = false) {
-  const point = await page.evaluate(([px, pz]) => (window as any).__padova.worldToScreen(px, pz), [x, z] as const);
-  expect(await page.evaluate(([sx, sy]) => (window as any).__padova.pickAt(sx, sy), [point.x, point.y] as const)).toMatchObject({ kind: "ground" });
-  expect(await reachesGameView(page, point.x, point.y), `ground (${x}, ${z}) should not be covered by UI`).toBe(true);
-  if (touch) await page.touchscreen.tap(point.x, point.y);
-  else await page.mouse.click(point.x, point.y);
-  await expect.poll(async () => {
+  // Aim only once the camera has stopped following the character: two reads
+  // a few drawn frames apart (see afterFrames).
+  const read = () => page.evaluate(([px, pz]) => (window as any).__padova.worldToScreen(px, pz) as { x: number; y: number }, [x, z] as const);
+  let aim = { x: 0, y: 0 };
+  let picked = { x, z };
+  await expect(async () => {
+    const first = await read();
+    await afterFrames(page);
+    aim = await read();
+    expect(Math.hypot(aim.x - first.x, aim.y - first.y), "camera still moving").toBeLessThan(1);
+    const pick = await page.evaluate(([sx, sy]) => (window as any).__padova.pickAt(sx, sy), [aim.x, aim.y] as const);
+    expect(pick).toMatchObject({ kind: "ground" });
+    expect(await reachesGameView(page, aim.x, aim.y), `ground (${x}, ${z}) should not be covered by UI`).toBe(true);
+    picked = { x: pick.point.x, z: pick.point.z };
+  }).toPass({ timeout: 15_000 });
+  if (touch) await page.touchscreen.tap(aim.x, aim.y);
+  else await page.mouse.click(aim.x, aim.y);
+  await expect(async () => {
     const self = await me(page);
-    return Math.hypot(self.x - x, self.z - z) < 0.5 && !self.moving;
-  }, { timeout: 20_000 }).toBe(true);
+    const where = `walking to (${picked.x.toFixed(2)}, ${picked.z.toFixed(2)}), at (${self.x.toFixed(2)}, ${self.z.toFixed(2)})`;
+    expect(Math.hypot(self.x - picked.x, self.z - picked.z), where).toBeLessThan(0.5);
+    expect(self.moving, where).toBe(false);
+  }).toPass({ timeout: 20_000 });
 }
 
 /** Screen point for the café counter once the camera has stopped gliding; checked to pick the counter. */
 async function counterPoint(page: Page) {
   const read = () => page.evaluate(() => (window as any).__padova.targetScreenPoint("object", "cafe-counter"));
-  let point = await read();
-  await expect.poll(async () => {
-    const next = await read();
-    const still = Math.hypot(next.x - point.x, next.y - point.y) < 1;
-    point = next;
-    return still;
-  }, { timeout: 10_000, intervals: [250] }).toBe(true);
-  expect(point?.visible, "the café counter should be on screen").toBe(true);
-  const aim = { x: point.x, y: point.y + 4 };
-  expect(await page.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [aim.x, aim.y] as const)).toMatchObject({ kind: "object", id: "cafe-counter" });
-  expect(await reachesGameView(page, aim.x, aim.y), "the café counter should not be covered by UI").toBe(true);
+  let aim = { x: 0, y: 0 };
+  await expect(async () => {
+    const first = await read();
+    await afterFrames(page);
+    const point = await read();
+    expect(Math.hypot(point.x - first.x, point.y - first.y), "camera still moving").toBeLessThan(1);
+    expect(point?.visible, "the café counter should be on screen").toBe(true);
+    aim = { x: point.x, y: point.y + 4 };
+    expect(await page.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [aim.x, aim.y] as const)).toMatchObject({ kind: "object", id: "cafe-counter" });
+    expect(await reachesGameView(page, aim.x, aim.y), "the café counter should not be covered by UI").toBe(true);
+  }).toPass({ timeout: 15_000 });
   return aim;
 }
 

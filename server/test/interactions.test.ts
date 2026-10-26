@@ -77,7 +77,7 @@ function useServer(port: number, tuning: TuningOverrides) {
     const players: TestPlayer[] = [];
     for (const name of names) players.push(await join(name));
     await waitFor(
-      () => players.every((p) => players.every((other) => p.room.state.players.get(other.id) !== undefined)),
+      () => players.every((p) => players.every((other) => p.room.state.players?.get(other.id) !== undefined)),
       4000,
       "everyone sees everyone",
     );
@@ -88,7 +88,7 @@ function useServer(port: number, tuning: TuningOverrides) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const stateOf = (observer: TestPlayer, id: string): any => observer.room.state.players.get(id);
+const stateOf = (observer: TestPlayer, id: string): any => observer.room.state.players?.get(id);
 const seatOwner = (observer: TestPlayer, seatId: string): string | undefined => observer.room.state.seats.get(seatId);
 const interact = (p: TestPlayer, targetKind: "object" | "player", targetId: string, action: string) =>
   p.room.send(ClientMessage.Interact, { targetKind, targetId, action });

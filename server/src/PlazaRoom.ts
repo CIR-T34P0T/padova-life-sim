@@ -1,10 +1,11 @@
 import { Room, ServerError, type AuthContext, type Client, type Deferred } from "@colyseus/core";
+import { StateView } from "@colyseus/schema";
 import {
   CLOSE_SIGNED_IN_ELSEWHERE,
   ClientMessage,
   ERROR_INVALID_GUEST_TOKEN,
   GAME_CONFIG,
-  NavGrid,
+  PLAZA_AREA,
   ServerMessage,
   confirmNameMatches,
   encodeLook,
@@ -19,12 +20,14 @@ import {
   parseNewCharacter,
   stepCharacter,
   type AppearanceConfig,
+  type DoorLink,
   type IdentityPayload,
   type JoinOptionsWithIdentity,
   type ProfileErrorPayload,
   type ProfilePayload,
   type RejectedPayload,
 } from "@padova/shared";
+import { AreaWorlds } from "./areas.ts";
 import { InteractionSystem } from "./InteractionSystem.ts";
 import type { LifeService, LoadedLife } from "./life/LifeService.ts";
 import { LifeSystem, type GameClock } from "./life/LifeSystem.ts";
@@ -62,7 +65,6 @@ interface AuthResult {
   ip: string | undefined;
 }
 
-const AREA = "plaza";
 
 /**
  * The single shared piazza. Authoritative over every player's identity,
@@ -79,7 +81,8 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   private readonly sessions = new Map<string, Session>();
   private readonly reconnections = new Map<string, Deferred<Client>>();
   private tuning: RoomTuning = DEFAULT_TUNING;
-  private nav!: NavGrid;
+  /** The square and the indoor rooms, each with its layout and navigation grid (M7c). */
+  private areas!: AreaWorlds;
   private interactions!: InteractionSystem;
   private life!: LifeSystem;
   private lifeService!: LifeService;
@@ -97,7 +100,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     const offset = this.tuning.clockOffsetMinutes;
     this.gameClock = { scale, minute: () => gameMinuteAt(Date.now(), scale, offset) };
     this.registry = services.sessions;
-    this.nav = new NavGrid(this.tuning.world, GAME_CONFIG.navCellSize, GAME_CONFIG.playerRadius, GAME_CONFIG.maxPathExpansions);
+    this.areas = new AreaWorlds(this.tuning.world);
     this.state = new PlazaState();
     this.state.gameMinute = Math.floor(this.gameClock.minute());
     const send = (sessionId: string, type: string, payload: unknown) => this.clients.getById(sessionId)?.send(type, payload);
@@ -113,7 +116,8 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     this.interactions = new InteractionSystem({
       state: this.state,
       runtimes: this.runtimes,
-      nav: this.nav,
+      area: (sessionId) => this.areas.of(this.runtimes.get(sessionId)?.area ?? PLAZA_AREA),
+      enterArea: (sessionId, link) => this.enterArea(sessionId, link),
       tuning: this.tuning,
       send,
       now: () => Date.now(),
@@ -175,6 +179,8 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       removal: null,
     };
     this.sessions.set(client.sessionId, session);
+    // Each client sees only the players in its own area, and nobody at the title screen (M7c).
+    client.view = new StateView();
     await this.sendLobby(client, session);
     log.info("plaza", `${session.accountId ? "guest" : "anonymous visitor"} ${client.sessionId} joined the lobby; ${this.clients.length} connected`);
   }
@@ -200,6 +206,8 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   override onReconnect(client: Client): void {
     const player = this.state.players.get(client.sessionId);
     if (player) player.connected = true;
+    if (!client.view) client.view = new StateView();
+    this.refreshViews();
     log.info("plaza", `${client.sessionId} reconnected`);
   }
 
@@ -289,7 +297,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       const result = await this.profiles.create(
         parsed.value,
         session.accountId,
-        { area: AREA, x: spawnPoint.x, z: spawnPoint.z, rotation: Math.PI },
+        { area: PLAZA_AREA, x: spawnPoint.x, z: spawnPoint.z, rotation: Math.PI },
         { startingBalanceCents: this.tuning.startingBalanceCents, gameMinute: this.gameClock.minute() },
       );
       if (result === "too_many_characters") return this.profileError(client, { action: "createCharacter", reason: "too_many_characters" });
@@ -442,10 +450,12 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   /** Places a loaded character in the world, at its saved position when that is still valid. */
   private spawn(client: Client, session: Session, loaded: LoadedCharacter, life: LoadedLife | null): void {
     const saved = loaded.state;
-    const position =
-      saved && saved.area === AREA && isPositionWalkable(this.tuning.world, saved.x, saved.z, GAME_CONFIG.playerRadius)
-        ? { x: saved.x, z: saved.z, rotation: saved.rotation }
-        : { ...this.nextSpawnPoint(), rotation: Math.PI };
+    // Back in the area and spot where the character was saved, if that area still
+    // exists and the spot is still walkable; otherwise at the square's spawn points.
+    const savedArea = saved && this.areas.has(saved.area) ? this.areas.of(saved.area) : null;
+    const resume = saved && savedArea && isPositionWalkable(savedArea.layout, saved.x, saved.z, GAME_CONFIG.playerRadius);
+    const area = resume ? savedArea.id : PLAZA_AREA;
+    const position = resume ? { x: saved.x, z: saved.z, rotation: saved.rotation } : { ...this.nextSpawnPoint(), rotation: Math.PI };
     const player = new PlayerState();
     player.name = loaded.profile.displayName;
     player.x = position.x;
@@ -457,8 +467,10 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     player.activity = "idle";
     player.seatId = "";
     player.targetId = "";
+    player.area = area;
     this.state.players.set(client.sessionId, player);
     this.runtimes.set(client.sessionId, {
+      area,
       character: { x: position.x, z: position.z, rotation: position.rotation, intent: { kind: "idle" } },
       intentWindowStart: 0,
       intentsInWindow: 0,
@@ -470,7 +482,54 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     session.lastSaved = { x: position.x, z: position.z };
     if (life) this.life.attach(client.sessionId, loaded.owner, life);
     else log.error("plaza", `no life data for ${client.sessionId}; needs, skills and money are unavailable`);
-    log.info("plaza", `${loaded.profile.displayName} (${client.sessionId}) entered; ${this.state.players.size} in the world`);
+    this.refreshViews();
+    log.info("plaza", `${loaded.profile.displayName} (${client.sessionId}) entered (${area}); ${this.state.players.size} in the world`);
+  }
+
+  /**
+   * Shows each client exactly the players in its own area (M7c). Called when
+   * someone enters the world, changes area or reconnects; removals from the
+   * player map reach every view by themselves.
+   */
+  private refreshViews(): void {
+    for (const client of this.clients) {
+      const view = client.view;
+      if (!view) continue;
+      const mine = this.runtimes.get(client.sessionId)?.area;
+      this.state.players.forEach((player, sessionId) => {
+        const visible = mine !== undefined && this.runtimes.get(sessionId)?.area === mine;
+        if (visible) view.add(player);
+        else view.remove(player);
+      });
+    }
+  }
+
+  /**
+   * Moves a character through a door (M7c), called by the interaction system
+   * once the character has reached the door: to the spot in front of the
+   * linked door in the other area, facing away from it. False if the door
+   * leads nowhere (nothing changes).
+   */
+  private enterArea(sessionId: string, link: DoorLink): boolean {
+    const runtime = this.runtimes.get(sessionId);
+    const player = this.state.players.get(sessionId);
+    const arrival = this.areas.arrival(link);
+    if (!runtime || !player || !arrival) return false;
+    runtime.area = arrival.area;
+    runtime.character.x = arrival.x;
+    runtime.character.z = arrival.z;
+    runtime.character.rotation = arrival.rotation;
+    runtime.character.intent = { kind: "idle" };
+    player.area = arrival.area;
+    player.x = arrival.x;
+    player.z = arrival.z;
+    player.rotation = arrival.rotation;
+    player.moving = false;
+    // Going through a door is not walking: no fitness for the jump.
+    this.life.resetDistance(sessionId);
+    this.refreshViews();
+    log.info("plaza", `${sessionId} went to ${arrival.area}`);
+    return true;
   }
 
   /**
@@ -502,7 +561,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     const runtime = this.runtimes.get(sessionId);
     if (!session?.owner || !runtime) return;
     const standing = this.interactions.standingPosition(sessionId) ?? { x: runtime.character.x, z: runtime.character.z };
-    const state = { area: AREA, x: standing.x, z: standing.z, rotation: runtime.character.rotation };
+    const state = { area: runtime.area, x: standing.x, z: standing.z, rotation: runtime.character.rotation };
     const life = this.life.snapshot(sessionId);
     try {
       await this.lifeService.saveAll(session.owner, state, life);
@@ -534,7 +593,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     for (const [sessionId, runtime] of this.runtimes) {
       const player = this.state.players.get(sessionId);
       if (!player) continue;
-      const result = stepCharacter(this.tuning.world, runtime.character, dt, this.tuning.walkSpeed, GAME_CONFIG.playerRadius);
+      const result = stepCharacter(this.areas.of(runtime.area).layout, runtime.character, dt, this.tuning.walkSpeed, GAME_CONFIG.playerRadius);
       if (result.moved) {
         player.x = runtime.character.x;
         player.z = runtime.character.z;
@@ -558,7 +617,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     // and only change any state once the move is known to be possible.
     const start = this.interactions.standingPosition(client.sessionId);
     if (!start) return;
-    const path = this.nav.findPath(start, parsed.value);
+    const path = this.areas.of(runtime.area).nav.findPath(start, parsed.value);
     if (!path.ok) return this.reject(client, ClientMessage.MoveTo, path.reason);
     this.interactions.onMovementIntent(client.sessionId, true);
     runtime.character.intent = { kind: "path", waypoints: path.waypoints };

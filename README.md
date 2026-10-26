@@ -5,7 +5,7 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night (M0–M7b)
+## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms (M0–M7c)
 
 What exists today is an early, end-to-end slice: one district, one room,
 the first life-simulation loop, character creation and a first job. It proves the
@@ -37,6 +37,7 @@ in `docs/ROADMAP.md`.
 | Money: balance, server-validated purchases, allowances and wages, transaction history, no debt | Multiplayer functional, persistence verified |
 | First job at the café kiosk: ask about work, 90-second shifts behind the counter (two staff spots), wage paid once per completed shift, two grades by communication level, opening hours 06:00–23:00 game time, 4 shifts per game day, quit from the character panel | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16; desktop and phone emulation); numbers not yet play-tested |
 | Shared world clock (10 game minutes per real minute) and capped offline progression | Multiplayer functional, tested |
+| Indoor rooms: the university hall's lecture room and the library's reading room, through their doors; you see only the players in the same room; you come back inside after a reload | Multiplayer functional, persistence verified on PGlite (tested on desktop and phone emulation); **Stage-1 procedural art** (D-039) |
 | Day and night: sun and moon, sky, haze, stars, lit windows, lanterns and pools of lamplight follow the shared game clock; every player sees the same time of day; characters stay easy to see at night | Multiplayer functional, tested (world lab at chosen times, the game at night on desktop and phone emulation); **Stage-1 procedural art** (D-037) |
 | Character panel (your needs, mood, skills, work, money, current action) and top-right time/money chip | Locally functional, tested (desktop and phone emulation) |
 | Sleep/beds, cooking, inventory, more jobs, university courses | Not started (see docs/ROADMAP.md) |
@@ -129,6 +130,10 @@ The client runs on port 5173 and the game server on port 2567.
 - **Stand up:** click/tap yourself while seated, or just walk away.
 - **Cancel:** the Cancel button on the action bar, or Escape.
 - **Camera:** drag to turn; mouse wheel or pinch to zoom.
+- **Indoors:** tap the university hall's door (in its porch, north-west) or
+  the library's door (north-east) → **Go in**. Inside you can study or sit
+  at the desks; you only see the people in the same room. Tap the room's
+  door → **Go out to the square**.
 - **Time of day:** the clock chip shows game time (a game day lasts 2 h 24 min
   of real time). Dawn, day, dusk and night follow it for everyone: at night
   the lamps and many windows light up. It's only the look: nothing in the

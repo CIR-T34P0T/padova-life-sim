@@ -503,6 +503,100 @@ function bikeRack(o: Obstacle, ctx: PropCtx): void {
   ctx.sink.add(batchFor(o, ctx), o.id, g);
 }
 
+// ── Indoor rooms and doors (M7c) ───────────────────────────────────────────────
+
+/** A door portal: stone jambs and lintel filling the box, two wooden leaves set back in it. */
+function door(o: Obstacle, ctx: PropCtx): void {
+  const { f, length, depth } = frameOf(o, o.facing ?? "south");
+  const indoor = ctx.layout.obstacles.some((other) => other.kind === "wall");
+  const frame = indoor ? P.wood : P.stone;
+  const wood = indoor ? P.woodLight : P.woodDark;
+  const top = Math.min(o.height, indoor ? 2.9 : 3.9);
+  const leafTop = top - 0.32;
+  const g: THREE.BufferGeometry[] = [
+    f.box(0, 0.18, 0, top, -depth, 0, frame),
+    f.box(length - 0.18, length, 0, top, -depth, 0, frame),
+    f.box(0, length, leafTop, top, -depth, 0, frame),
+    f.box(0.18, length - 0.18, 0, 0.04, -depth, 0, P.stoneShade), // threshold
+    f.box(0.18, length / 2 - 0.01, 0.04, leafTop, -depth + 0.04, -depth + 0.13, wood),
+    f.box(length / 2 + 0.01, length - 0.18, 0.04, leafTop, -depth + 0.04, -depth + 0.13, wood),
+  ];
+  if (ctx.detail === "high") {
+    for (const side of [-1, 1]) {
+      const c = length / 2 + side * (length / 4 - 0.05);
+      for (const [a, b] of [[0.3, leafTop * 0.45], [leafTop * 0.52, leafTop - 0.2]] as const) {
+        g.push(f.box(c - length / 8 + 0.05, c + length / 8 - 0.05, a, b, -depth + 0.13, -depth + 0.15, P.woodDark));
+      }
+    }
+    g.push(f.box(length / 2 - 0.14, length / 2 - 0.06, leafTop * 0.47, leafTop * 0.5, -depth + 0.13, -depth + 0.17, P.gold));
+    g.push(f.box(length / 2 + 0.06, length / 2 + 0.14, leafTop * 0.47, leafTop * 0.5, -depth + 0.13, -depth + 0.17, P.gold));
+  }
+  ctx.sink.add(batchFor(o, ctx), o.id, g);
+}
+
+/** An inside wall: plaster, a wooden skirting on the room side, a cornice. Its own batch, so it can fade. */
+function wall(o: Obstacle, ctx: PropCtx): void {
+  const { f, length, depth } = frameOf(o, o.facing ?? "south");
+  const g: THREE.BufferGeometry[] = [
+    f.box(0, length, 0, o.height, -depth, 0, P.plasterCream),
+    f.box(0, length, 0, 0.14, -0.02, 0, P.woodDark),
+  ];
+  if (ctx.detail === "high") g.push(f.box(0, length, o.height - 0.12, o.height - 0.04, -0.03, 0, P.stone));
+  ctx.sink.add(`building:${o.id}`, o.id, g);
+}
+
+/** A wooden lectern facing the room. */
+function lectern(o: Obstacle, ctx: PropCtx): void {
+  const { f, length, depth } = frameOf(o, o.facing ?? "south");
+  const g: THREE.BufferGeometry[] = [
+    f.box(0, length, 0, 0.08, -depth, 0, P.woodDark),
+    f.box(0.08, length - 0.08, 0.08, 1.0, -depth + 0.08, -0.06, P.wood),
+    f.box(0, length, 1.0, o.height, -depth, 0, P.woodDark),
+  ];
+  if (ctx.detail === "high") g.push(f.box(length / 2 - 0.2, length / 2 + 0.2, o.height, o.height + 0.03, -depth + 0.15, -0.15, P.cream)); // notes
+  ctx.sink.add(batchFor(o, ctx), o.id, g);
+}
+
+/** A wall-mounted blackboard with a wooden frame and a chalk tray. */
+function board(o: Obstacle, ctx: PropCtx): void {
+  const { f, length, depth } = frameOf(o, o.facing ?? "south");
+  const g: THREE.BufferGeometry[] = [
+    f.box(0, length, 0.85, 0.95, -depth, 0, P.wood), // chalk tray
+    f.box(0, length, 0.95, o.height, -depth, -depth * 0.4, P.wood),
+    f.box(0.08, length - 0.08, 1.02, o.height - 0.08, -depth * 0.4, -depth * 0.2, "#2f4a3c"),
+  ];
+  if (ctx.detail === "high") {
+    // A few chalk lines (fictional notes).
+    for (let k = 0; k < 4; k++) g.push(f.box(0.5, 0.5 + 1.2 + (k % 3) * 0.7, 1.6 + k * 0.22, 1.62 + k * 0.22, -depth * 0.2, -depth * 0.15, P.cream));
+  }
+  ctx.sink.add(batchFor(o, ctx), o.id, g);
+}
+
+/** Bookshelves: a wooden case with shelves of coloured book spines. */
+function shelf(o: Obstacle, ctx: PropCtx): void {
+  const { f, length, depth } = frameOf(o, o.facing ?? "south");
+  const g: THREE.BufferGeometry[] = [
+    f.box(0, length, 0, o.height, -depth, -depth + 0.04, P.woodDark), // back
+    f.box(0, 0.05, 0, o.height, -depth, 0, P.wood),
+    f.box(length - 0.05, length, 0, o.height, -depth, 0, P.wood),
+  ];
+  const shelves = 5;
+  const spines: ColourInput[] = [P.terracotta, P.lapisLight, P.olive, P.gold, P.burgundy, P.cream, P.shutter];
+  const step = ctx.detail === "high" ? 0.07 : 0.35;
+  let n = hash(o.id);
+  for (let k = 0; k <= shelves; k++) {
+    const v = (o.height * k) / shelves;
+    g.push(f.box(0.05, length - 0.05, v, v + 0.03, -depth, 0, P.wood));
+    if (k === shelves) break;
+    for (let u = 0.08; u < length - 0.1; u += step) {
+      n = (n * 1103515245 + 12345) >>> 0;
+      const h = (o.height / shelves) * (0.6 + ((n >>> 8) % 30) / 100);
+      g.push(f.box(u, Math.min(u + step - 0.01, length - 0.08), v + 0.03, v + 0.03 + h, -depth + 0.06, -0.04, spines[n % spines.length]!));
+    }
+  }
+  ctx.sink.add(batchFor(o, ctx), o.id, g);
+}
+
 function noticeboard(o: Obstacle, ctx: PropCtx): void {
   const { f, length, depth } = frameOf(o, o.facing ?? "south");
   const g: THREE.BufferGeometry[] = [];
@@ -563,6 +657,21 @@ export function buildProps(sink: Sink, layout: WorldLayout, detail: Detail): voi
         break;
       case "noticeboard":
         noticeboard(o, ctx);
+        break;
+      case "door":
+        door(o, ctx);
+        break;
+      case "wall":
+        wall(o, ctx);
+        break;
+      case "lectern":
+        lectern(o, ctx);
+        break;
+      case "board":
+        board(o, ctx);
+        break;
+      case "shelf":
+        shelf(o, ctx);
         break;
       case "building":
       case "arcade":

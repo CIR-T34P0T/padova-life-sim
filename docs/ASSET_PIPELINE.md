@@ -241,6 +241,7 @@ sign is original and generated at runtime. It is **Stage-1 procedural art**
 | `render/world/backdrop.ts` | City blocks around the square, the streets beyond the openings (each ending at a building), landmarks, sky dome (repainted with the time of day) and clouds, the night sky (stars and moon) |
 | `render/world/daylight.ts` | The light at any game minute: sun or moon direction, colours and strengths, sky, haze, cloud tint, lamp level, stars, the characters' night lift (pure, unit-tested) |
 | `render/nightShading.ts` | The two shader additions and their shared uniforms: glow for world materials, lift for character materials |
+| `render/world/district.ts` → `buildInterior` | An indoor room (M7c): the props of its layout (walls, door, furniture) and a rug; the floor is the ground plane |
 | `render/world/signs.ts` | The sign atlas (one canvas, fictional names only) |
 | `render/world/district.ts` | Assembles everything as owned pieces; fade volumes |
 
@@ -309,9 +310,22 @@ without a server, from preset viewpoints (`?view=overview|game|hall|porch|
 library|portico|cafe|market|fountain|street|south|skyline`), with
 `?collision` (every collision box as a wireframe, orange for clickable
 objects), `?quality=low` (phone detail), `?people` (a few characters for
-scale) and `?time=HH:MM` (the light at that time of day, default 10:10;
-e.g. `06:30`, `19:40`, `23:00`). It shows the time, build time, triangles and
+scale), `?time=HH:MM` (the light at that time of day, default 10:10;
+e.g. `06:30`, `19:40`, `23:00`) and `?area=hall/lecture-room` or
+`?area=library/reading-room` (an indoor room, M7c). It shows the time, build time, triangles and
 draw calls on screen.
+
+**Indoor rooms (M7c, D-039):** each room is a layout of its own with
+plaster walls 3.4 m high (kind `wall`, with a wooden skirting), a wooden
+door in the south wall, a warm wooden floor and furniture from the same kit
+(study desks with chairs, a lectern, a blackboard, bookshelves with
+coloured spines). Rooms use a fixed warm indoor light and no sky. The walls
+and door on the camera's side fade while the camera is outside the room
+(cutaway). The square's doors are thin portals in front of the hall's porch
+and the library's entrance, drawn in their own batches so they can be
+highlighted. Measured in the world lab with five or six characters: about
+80–90 draw calls; the lecture room's own geometry is about 3 600 triangles,
+the reading room's about 23 000 (the book spines). No windows inside yet.
 
 **Known visual limitations:** flat-shaded, faceted tree canopies; no
 interiors behind windows and doors; lit windows are a flat warm colour

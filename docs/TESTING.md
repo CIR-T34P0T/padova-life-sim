@@ -5,7 +5,7 @@
 | Command | Scope | Needs |
 | --- | --- | --- |
 | `npm run typecheck` | All packages, strict TypeScript | — |
-| `npm test` | `shared/test` unit tests, `client/test` (the district art against the collision layout, in Node) and `server/test` integration tests | — (starts its own servers on ports 2611–2635, each with an in-memory PGlite database) |
+| `npm test` | `shared/test` unit tests, `client/test` (the district art against the collision layout, in Node) and `server/test` integration tests | — (starts its own servers on ports 2611–2636, each with an in-memory PGlite database) |
 | `TEST_DATABASE_URL=… npm test` | The same, plus every database test repeated on a real PostgreSQL server | A PostgreSQL user allowed to create databases; each test creates and drops a throwaway database |
 | `npm run check` | Both of the above | — |
 | `npm run test:e2e` | Playwright, real server + real client + several browsers | A Chromium (`npx playwright install chromium`, or `CHROMIUM_PATH`). The test server uses an in-memory database (never `.data/`) and a raised guest-creation limit |
@@ -184,6 +184,30 @@ checked by the life tests); two employees on the two staff spots, a
 third told `busy`, a customer still served meanwhile; hiring at night but
 shifts refused while closed; job, today's shifts and wage kept across a
 server restart on the same database.
+
+**Areas and indoor rooms (15 tests, `shared/test/areas.test.ts`, M7c):** the
+square and the two rooms exist and unknown ids (including `toString`) are
+not areas; every door links to a door in another area that leads straight
+back (two pairs); arriving puts you on walkable ground in front of the
+linked door, facing away; object and seat ids are unique across all areas;
+per room: a floor inside its walls with every object on or around it, no
+overlapping boxes, closed (nothing walkable outside the walls), every seat
+and the way out reachable from the arrival point, desks offer study and sit
+and the door offers *Go out to the square* (busy when both spots are
+taken); the square's doors offer *Go in* and are reachable from the spawn.
+
+**Indoor rooms through the real room (6 tests, `server/test/areas.test.ts`,
+M7c)** — real servers, databases and WebSocket clients: going in through the
+hall's door puts you inside in front of the room's door, and **players in
+different areas stop receiving each other** (then see each other again when
+both are inside); studying at a lecture desk inside works; going back out
+puts you in front of the hall's door, and two doors give under 2 fitness XP
+(the jump isn't walking); the library's door leads to the reading room and
+back; greeting a player, or using an object, in another area is refused
+(`unknown_target`); **the room is saved** (the stored row checked; coming
+back puts you inside at the same spot; an unknown saved area puts you on the
+square); a dropped player stays in the room and both players see each other
+again after the reconnection.
 
 **Work database (9 tests, `server/test/workDatabase.test.ts`, M7)** —
 migration 0005 down and up again with no job data, the ledger accepting
@@ -398,6 +422,22 @@ screen height, hides the joystick, scrolls to the money section; closing
 restores the joystick; the chip toggles the panel. Since M7 the café menu
 also lists *Ask about work*.
 
+**Indoor room art against collision (20 tests, `client/test/interiors.test.ts`,
+M7c)** — five checks for each room at both detail levels: nothing solid below head height
+outside its box, decoration only flat (the rug) or above head height, every
+box visibly filled, every clickable object with its own mesh, every wall a
+fade volume, every piece a glow strength, and a small triangle budget.
+
+**End to end, indoor rooms (`e2e/interiors.spec.ts`, M7c)** — desktop with two
+players: the hall's door shows "University hall" with *Go in*; going in draws
+the lecture room ("Lecture room", an indoor scene); the two players stop
+seeing each other ("1 player here"); a lecture desk inside offers Study and
+studying works; the second player comes in and they see each other again; a
+reload comes back inside, drawn from the first frame; the room's door leads
+out in front of the hall ("Back on the square"). Phone (Pixel 7 emulation):
+the door's sheet shows *Go in* at least 48 px tall; inside, tapping the
+room's door and *Go out to the square* works by touch.
+
 **End to end, day and night (`e2e/daylight.spec.ts`, M7b)** — the world lab
 (no server) at 12:00, 19:40 and 23:00: the phase, lamps and stars follow the
 time; night costs at most 2 draw calls and under 2 000 triangles more than
@@ -555,6 +595,10 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-26 (M7c) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server); no linter is configured |
+| 2026-10-26 (M7c) | unit + integration | 317/317 pass | In-memory PGlite: 41 new tests (15 area and door rules, 6 server area tests through the real room, 20 room art-against-collision checks). While writing them, 9 existing server tests failed because a client at the title screen now has no `players` map until its character exists (each client sees only its own area); the tests now read it as optional, no game change. No migration and no SQL change (the area goes into the existing `character_state.area` column through the same save as before), so the PostgreSQL runs were not repeated: the saved area is verified on PGlite only |
+| 2026-10-26 (M7c) | e2e | 26/26 pass (final full run, 40.6 min) | Includes the two new indoor-room tests. The first full run was 25/26: the phone work test tapped the ground while the camera still glided after a walk (the character stopped 0.8 m from the aimed point). Cause: the tests checked for a still camera with two reads 250 ms apart, which can fall inside one slow software-rendered phone frame. They now read a few drawn frames apart (`afterFrames`, see notes below); then both phone tests 3/3 each, then the full run. The indoor desktop test had needed retries while aiming at objects right after a walk or a door (same cause) |
+| 2026-10-26 (M7c) | visual check (Claude, screenshots) | Pass with known limitations | World lab (`?area=`, before the wall cutaway was added): lecture room at both detail levels, reading room at full detail, both doors from the square. In the game, from the final e2e run: the lecture room on desktop (1280×720) and Pixel 7 emulation, with the camera-side wall see-through and the student at a desk visible. The reading room was not looked at in the game (its desk and door are exercised by the server tests and the art by the room tests). Stage-1 art (plain walls, no windows); in phone portrait the room fills only the middle third of the screen. Not yet seen by the product owner |
 | 2026-10-26 (M7b) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server); no linter is configured |
 | 2026-10-26 (M7b) | unit + integration | 276/276 pass | In-memory PGlite: 18 new tests (12 day/night rules, 5 night glow in the district test, 1 boundary). No database or server code changed in this milestone, so the PostgreSQL runs were not repeated |
 | 2026-10-26 (M7b) | e2e | 23/24 in one full run, then the failing test passed 3/3 alone | Includes the two new day/night tests. The failure was the district test aiming at a café table while the camera still glided (the tap point hit the ground). It passed twice alone unchanged; it now waits until the table's screen position is steady, and passed again |
@@ -715,9 +759,17 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     window can play a character whose saves then fail (logged). Both checks
     run before the delete, so this needs two windows acting within
     milliseconds.
+- **Indoor rooms (M7c):** only two rooms so far (the other buildings get
+  theirs with their uses, D-039); no windows inside; Stage-1 art. The seat
+  map is still sent to every client (seat ids and session ids only). A faded
+  room door stays tappable, so tapping a character standing just behind it
+  from the camera's side selects the door; turn the camera to reach them.
+  In phone portrait the room fills only the middle third of the screen;
+  pinch to zoom in.
 - **World art pass limitations:**
-  - The district is Stage-1 procedural art (D-033): no interiors behind
-    doors and windows, faceted tree canopies, still water, colour-striped
+  - The district is Stage-1 procedural art (D-033): only the hall and the
+    library doors lead inside (M7c); no interiors behind the other doors
+    and windows, faceted tree canopies, still water, colour-striped
     roof tiles. Not yet seen by the product owner.
   - Day and night (M7b) are Stage-1 too: lit windows are flat warm colour
     with nothing behind them, lamplight is painted on the ground (lamps
@@ -772,6 +824,13 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 - Don't edit files under `client/` or `shared/` while the browser tests run:
   the test client is Vite's dev server, which reloads the page on a change and
   makes the running test fail (seen once during the title screen milestone).
+- Before a test clicks or taps a screen point, it checks that the camera has
+  stopped by reading the point twice a few drawn frames apart
+  (`afterFrames` in `e2e/helpers.ts`), not a fixed time apart. Under
+  software rendering, phone emulation above all, one frame can take longer
+  than 250 ms, so two reads 250 ms apart could fall in the same frame and
+  "see" a still camera while it was still gliding (the tap then landed
+  0.8 m off, M7c).
 
 ## Manual test checklist (real devices)
 
@@ -889,3 +948,12 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 39. At night, check your character, other players, name tags and menus are
     as easy to see as by day, on the computer and on the phone, and that the
     frame rate feels the same as by day.
+40. **Indoor rooms (M7c):** walk to the university hall's porch (north-west)
+    and tap its door → **Go in**: a short fade, then the lecture room with
+    rows of desks, a blackboard and a lectern. Tap a desk → Study.
+41. In a second window (InPrivate) or on the phone, stay on the square: you
+    can't see the player who went in ("1 player here"). Go in too: you see
+    each other again.
+42. Reload inside the room and press Continue: you are back inside. Tap the
+    room's door → **Go out to the square**: you stand in front of the hall.
+    Try the library's door (north-east) too: the reading room.

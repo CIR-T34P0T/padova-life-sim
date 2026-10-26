@@ -48,6 +48,8 @@ export interface PendingAction {
 
 /** Server-only data per player. Never sent to clients. */
 export interface PlayerRuntime {
+  /** The area the character is in (M7c): "plaza" or an indoor room's id. */
+  area: string;
   character: MovingCharacter;
   intentWindowStart: number;
   intentsInWindow: number;

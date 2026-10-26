@@ -99,7 +99,7 @@ export async function joinWithNewCharacter(
   client.room.send(ClientMessage.CreateCharacter, { displayName, ageCategory: "adult", appearance, traits });
   await waitFor(() => client.lastProfile()?.status === "ready" || client.errors.length > 0, 8000, `character ${displayName} ready`);
   if (client.errors.length) throw new Error(`createCharacter failed: ${JSON.stringify(client.errors)}`);
-  await waitFor(() => client.room.state.players.get(client.room.sessionId) !== undefined, 4000, "own player replicated");
+  await waitFor(() => client.room.state.players?.get(client.room.sessionId) !== undefined, 4000, "own player replicated");
   return Object.assign(client, { guestToken: client.identities[0]!.guestToken });
 }
 
@@ -116,7 +116,7 @@ export async function enterWorld(client: ProfileClient, characterId?: string): P
     "entered the world",
   );
   if (client.errors.length > errorsBefore) throw new Error(`enterWorld failed: ${JSON.stringify(client.errors.slice(errorsBefore))}`);
-  await waitFor(() => client.room.state.players.get(client.room.sessionId) !== undefined, 4000, "own player replicated");
+  await waitFor(() => client.room.state.players?.get(client.room.sessionId) !== undefined, 4000, "own player replicated");
   return client;
 }
 

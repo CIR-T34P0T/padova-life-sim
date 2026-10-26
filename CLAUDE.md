@@ -83,6 +83,13 @@ or auth model without the product owner's approval.
   `client/test/world.test.ts` checks both. A new prop is an obstacle (stable
   id, kind, label) plus a builder; a new clickable object reuses an
   interactable kind. Look at changes in `client/world-lab.html`.
+- **Indoor rooms are areas** (D-039): a room is a layout in
+  `shared/src/interiors.ts`, listed in `shared/src/areas.ts`, with a pair of
+  linked doors; ids stay unique across areas. The server keeps each
+  character in one area (movement, collision, interactions per area) and
+  sends each client only its area's players (`StateView`). A building gets a
+  room when it has a use, one room per use. Check rooms with
+  `world-lab.html?area=<id>`.
 - **The title screen is the lobby** (D-031). Joining lists the account's
   characters (up to `PROFILE_CONFIG.maxCharactersPerAccount`); a character
   enters the world only through `enterWorld` (an id the server checks against

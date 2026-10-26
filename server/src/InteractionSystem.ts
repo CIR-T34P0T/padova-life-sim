@@ -18,7 +18,6 @@
 import { randomUUID } from "node:crypto";
 import {
   INTERACTION_CONFIG,
-  NavGrid,
   ServerMessage,
   chooseSeat,
   facingTowards,
@@ -35,6 +34,7 @@ import {
   type CancelReason,
   type GreetedPayload,
   type InteractPayload,
+  type DoorLink,
   type InteractionFailure,
   type JobId,
   type PathFailure,
@@ -43,6 +43,7 @@ import {
   type Seat,
   type Vec2,
 } from "@padova/shared";
+import type { AreaWorld } from "./areas.ts";
 import { log } from "./log.ts";
 import type { PendingAction, PlayerRuntime } from "./runtime.ts";
 import type { PlayerState, PlazaState } from "./schema.ts";
@@ -88,7 +89,10 @@ const NO_HOOKS: InteractionHooks = {
 export interface InteractionDeps {
   state: PlazaState;
   runtimes: Map<string, PlayerRuntime>;
-  nav: NavGrid;
+  /** The layout and navigation grid of the area this player is in (M7c). */
+  area: (sessionId: string) => AreaWorld;
+  /** Moves a player through a door into the linked area (M7c); false if it leads nowhere. */
+  enterArea: (sessionId: string, link: DoorLink) => boolean;
   tuning: RoomTuning;
   /** Sends a message to one connected client; silently skips absent clients. */
   send: (sessionId: string, type: string, payload: unknown) => void;
@@ -106,7 +110,7 @@ const PATH_FAILURE_TO_REASON: Record<PathFailure, InteractionFailure> = {
 /** Seated timed actions: begin at the seat, return to "sitting" afterwards. */
 const SEATED_TIMED: readonly ActionId[] = ["study", "sketch"];
 /** Actions done at a standing spot, which is free again as soon as they end. */
-const STANDING: readonly ActionId[] = ["buy", "wash", "ask_work", "work"];
+const STANDING: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter"];
 
 export class InteractionSystem {
   private nextActionId = 1;
@@ -132,7 +136,8 @@ export class InteractionSystem {
   }
 
   private requestObjectAction(sessionId: string, request: InteractPayload, { player, runtime }: Context): void {
-    const { world, maxInteractionDistance } = this.deps.tuning;
+    const world = this.deps.area(sessionId).layout;
+    const { maxInteractionDistance } = this.deps.tuning;
     const item = findInteractable(world, request.targetId);
     if (!item) return this.reject(sessionId, request, "unknown_target");
     const check = validateObjectAction(
@@ -170,7 +175,7 @@ export class InteractionSystem {
     if (player.seatId) this.standUp(sessionId);
     const seat = chooseSeat(item, this.deps.state.seats, this.actorView(sessionId), request.action);
     if (!seat) return this.reject(sessionId, request, seatIsStanding(item.seats[0]) ? "busy" : "no_free_seat");
-    const path = this.deps.nav.findPath(runtime.character, seat.approach);
+    const path = this.deps.area(sessionId).nav.findPath(runtime.character, seat.approach);
     if (!path.ok) return this.reject(sessionId, request, PATH_FAILURE_TO_REASON[path.reason]);
 
     this.deps.state.seats.set(seat.id, sessionId);
@@ -180,7 +185,9 @@ export class InteractionSystem {
   }
 
   private requestPlayerAction(sessionId: string, request: InteractPayload, { player, runtime }: Context): void {
-    const targetPlayer = this.deps.state.players.get(request.targetId);
+    // Only players in the same area exist for you (M7c).
+    const sameArea = this.deps.runtimes.get(request.targetId)?.area === runtime.area;
+    const targetPlayer = sameArea ? this.deps.state.players.get(request.targetId) : undefined;
     const targetView = targetPlayer
       ? { id: request.targetId, x: targetPlayer.x, z: targetPlayer.z, connected: targetPlayer.connected }
       : null;
@@ -215,7 +222,7 @@ export class InteractionSystem {
 
       if (pending.targetKind === "player") {
         const targetPlayer = this.deps.state.players.get(pending.targetId);
-        if (!targetPlayer) {
+        if (!targetPlayer || this.deps.runtimes.get(pending.targetId)?.area !== runtime.area) {
           this.fail(sessionId, "target_left");
           continue;
         }
@@ -263,7 +270,7 @@ export class InteractionSystem {
     const runtime = this.deps.runtimes.get(sessionId);
     const player = this.deps.state.players.get(sessionId);
     if (!runtime || !player) return null;
-    const seated = player.seatId ? findSeat(this.deps.tuning.world, player.seatId) : null;
+    const seated = player.seatId ? findSeat(this.deps.area(sessionId).layout, player.seatId) : null;
     return seated ? { ...seated.seat.approach } : { x: runtime.character.x, z: runtime.character.z };
   }
 
@@ -288,7 +295,7 @@ export class InteractionSystem {
   /** Reached the interaction point: sit down, or stand at the spot. */
   private arrive(sessionId: string, pending: PendingAction): void {
     const context = this.context(sessionId);
-    const found = findSeat(this.deps.tuning.world, pending.seatId);
+    const found = findSeat(this.deps.area(sessionId).layout, pending.seatId);
     if (!context || !found) return this.fail(sessionId, "blocked");
     const { player, runtime } = context;
     const { seat } = found;
@@ -304,6 +311,7 @@ export class InteractionSystem {
       this.beginAtSeat(sessionId, pending);
       return;
     }
+    if (pending.action === "enter") return this.goThrough(sessionId, pending);
     if (pending.action === "buy") return this.pay(sessionId, pending);
     if (pending.action === "ask_work") return this.hire(sessionId, pending);
     if (pending.action === "work") {
@@ -312,6 +320,14 @@ export class InteractionSystem {
       if (refused) return this.fail(sessionId, refused);
     }
     this.beginTimed(sessionId, pending);
+  }
+
+  /** At a door (M7c): the action completes, then the character is moved into the linked area. */
+  private goThrough(sessionId: string, pending: PendingAction): void {
+    const link = findInteractable(this.deps.area(sessionId).layout, pending.targetId)?.door;
+    if (!link) return this.fail(sessionId, "action_not_available");
+    this.complete(sessionId, pending);
+    if (!this.deps.enterArea(sessionId, link)) log.error("interact", `door ${pending.targetId} leads nowhere (${link.to}/${link.door})`);
   }
 
   /** At the seat: sitting completes at once; studying and sketching run on server timers. */
@@ -406,9 +422,10 @@ export class InteractionSystem {
     const from = { x: runtime.character.x, z: runtime.character.z };
     const to = { x: targetPlayer.x, z: targetPlayer.z };
     if (Math.hypot(to.x - from.x, to.z - from.z) <= INTERACTION_CONFIG.greetRange) return "in_range";
-    const spot = greetApproachPoint(this.deps.tuning.world, from, to);
+    const area = this.deps.area(sessionId);
+    const spot = greetApproachPoint(area.layout, from, to);
     if (!spot) return "unreachable";
-    const path = this.deps.nav.findPath(from, spot);
+    const path = area.nav.findPath(from, spot);
     if (!path.ok) return "unreachable";
     pending.goal = spot;
     runtime.character.intent = { kind: "path", waypoints: path.waypoints };
@@ -507,7 +524,7 @@ export class InteractionSystem {
     const context = this.context(sessionId);
     if (!context || !context.player.seatId) return;
     const { player, runtime } = context;
-    const seated = findSeat(this.deps.tuning.world, player.seatId);
+    const seated = findSeat(this.deps.area(sessionId).layout, player.seatId);
     if (this.deps.state.seats.get(player.seatId) === sessionId) this.deps.state.seats.delete(player.seatId);
     player.seatId = "";
     player.activity = "idle";

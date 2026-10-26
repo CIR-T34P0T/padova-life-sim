@@ -26,6 +26,11 @@ export const PlayerState = schema(
     seatId: t.string(),
     /** Session id of the player being greeted while activity is "greeting"; otherwise "". */
     targetId: t.string(),
+    /**
+     * The area the character is in (M7c): "plaza" or a room id. A client only
+     * receives the players in its own area, so this tells it which area to draw.
+     */
+    area: t.string(),
   },
   "PlayerState",
 );
@@ -35,7 +40,11 @@ export const PlazaState = schema(
   {
     /** The world clock (D-021): current game minute, kept by the server. Clients only display it. */
     gameMinute: t.uint32(),
-    players: t.map(PlayerState),
+    /**
+     * Filtered per client (StateView, M7c): each client receives only the
+     * players in its own area, and none at the title screen.
+     */
+    players: t.map(PlayerState).view(),
     /**
      * seatId → session id of the player sitting there OR walking to it. Lets
      * every client show only seats that are actually free.

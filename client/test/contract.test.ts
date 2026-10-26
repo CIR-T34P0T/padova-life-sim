@@ -21,6 +21,7 @@ const CLIENT_FIELDS = {
   activity: true,
   seatId: true,
   targetId: true,
+  area: true,
 } satisfies Record<keyof ReplicatedPlayer, true>;
 
 /** Field names of a Colyseus schema class (its decorator metadata). */

@@ -396,65 +396,54 @@ creator tells the player; other parts and other players are unaffected.
 `SessionRegistry` per game server and registers them under a key passed in room options
 (`services.ts`), so rooms never receive live objects through options.
 
-## Proposed: indoor rooms (comparison for Q10, 2026-10-26)
+## Indoor rooms (M7c, D-038, D-039)
 
-**Proposed, not built; waits on the product owner's approval (ROADMAP Q14).**
-The owner decided that lectures happen in an indoor room and that every
-building, now and later, has at least one indoor room, workplaces and homes
-included (D-038). This compares the ways to build that.
+**Built:** the square and two rooms (the hall's lecture room, the library's
+reading room) as **areas inside the one server room** (option C of the
+comparison recorded in D-039; the other options were rooms modelled in place
+inside the 4.5–6 m deep shells, or one Colyseus room per interior).
 
-**What exists today:** the six buildings are shells with no inside, 4.5–6 m
-deep; navigation is one flat grid per layout (one floor); everyone is in one
-Colyseus room (`plaza`); a character's saved state already has an `area`
-column (always `"plaza"`); the installed `@colyseus/schema` 5 has
-`StateView`, which sends each client only part of the shared state.
-
-| | A. Rooms inside the buildings, in place | B. A separate server room per interior | C. Areas inside the one server room (**recommended**) |
-| --- | --- | --- | --- |
-| How it works | Rooms modelled inside the real building footprints; walls and roof cut away when you're inside | Each interior is its own Colyseus room; a door makes the client leave the square's room and join the interior's | Each interior is its own small layout (an "area") in the same server room; a door moves your character to the interior's entrance; you only see and receive the players in your area |
-| Good | Seamless: no loading, others see you go in | Strong isolation; scales across processes later | Reuses the layout format, collision, navigation and interaction system per area; one connection, one session, so reconnection, saving and the title screen don't change; interiors can be larger inside than the shell, and of any shape |
-| Bad | Rooms must fit 4.5–6 m deep shells; no upper floors (navigation is one floor); every building heavier to draw all the time; walls of the square's buildings would have to change | Moving between rooms means leaving and rejoining: session hand-over, reconnection, saving and the newest-session rule all get harder, and a drop at the door is a new failure case; more server work for every small room | A short transition at each door (a fade); the square and interiors aren't visible from each other; one server room holds everyone (fine until there are many players; splitting by district later is a known step) |
-| Cost | Large (redo six buildings, cutaway system) and still limited | Large (networking and session work) | Medium (about the size of M7), then each interior is mostly art and data |
-
-**Recommended: C.** In more detail:
-
-- **Data (`shared/`):** areas are layouts in the same collision-first format
-  (D-033), with a stable id (`plaza`, `hall/lecture-room`, …). A **door** is
-  an interactable (kind `door`, action *Enter* or *Go outside*) that links to
-  an entry point in another area; it follows the usual lifecycle: validate,
-  walk to the door, then the server moves you on arrival.
-- **Server:** one navigation grid and collision check per area; each
-  character's runtime knows its area; interactions and seats are looked up
-  in that area; the saved `area` column stores where you are, so you come
-  back inside the room you left (a removed or unknown area falls back to the
-  square's spawn points, like a blocked position today).
-- **Replication:** a client receives only the players in its own area
-  (`StateView`), so being indoors costs others nothing and doesn't reveal
-  who is where. The first step checks `StateView` with Colyseus 0.18 in a
-  small spike; if it can't do this, the fallback is an `area` field on each
-  player, hidden on the client, written down as a temporary limitation.
-- **Client:** the scene of your area is built when you enter it (interiors
-  are small) behind a short fade; the square stays built but isn't drawn
-  while you're inside (phones may free it). The camera works as today; the
-  walls on the camera's side fade like buildings do now.
-- **Art:** the same kit and palette, collision first, Stage-1 procedural.
-  Interiors are allowed to be bigger than the shell (common in games), so
-  a lecture room can seat a class.
-- **Homes** (M10) use the same areas, one copy per household
-  (`home:<id>`), private unless invited; nothing about homes is built before
-  M10.
-- **Day and night:** interiors use their own indoor light; windows show the
-  time of day.
-- **Not affected:** money, needs, jobs, the ledger and the title screen.
-
-**Proposed order (Q14):** M7c *Indoor rooms: the foundation* (areas, doors,
-area-scoped replication, saving the area; the hall's lecture room and the
-library's reading room, using desks and chairs that already work) before
-M8, which then holds lectures in the lecture room. The other buildings get
-their rooms with the milestone that gives them a use (shops with a second
-workplace, the homes in M10), or in one interiors pass right after M7c if
-the owner prefers every building open sooner (rooms then use the existing
-sit and study actions until their purpose arrives).
+- **Data (`shared/`):** `areas.ts` lists the areas (`plaza`,
+  `hall/lecture-room`, `library/reading-room`), each a layout in the same
+  collision-first format as the square (D-033); rooms are built in
+  `interiors.ts` (walls are obstacles of kind `wall`; desks, chairs, a
+  lectern, a board and shelves). A **door** is an interactable of kind
+  `door` with a `door` link (`to` area, `door` id there, the menu wording);
+  doors come in linked pairs, and `doorArrival` puts you in front of the
+  linked door, facing away from it. Object and seat ids are unique across
+  all areas (tested), because seats share one map in the server state.
+- **Server:** `server/src/areas.ts` builds one layout and navigation grid
+  per area; `PlayerRuntime.area` says where each character is; movement,
+  collision, pathfinding, seats and interactions use that area
+  (`InteractionDeps.area(sessionId)`). The door action follows the usual
+  lifecycle (validate, walk to a spot in front of the door, then on arrival
+  `enterArea` moves the character); greetings and object actions only reach
+  the same area. Going through a door resets the walking distance, so the
+  jump gives no fitness.
+- **Replication:** the player map is filtered per client with a Colyseus
+  `StateView` (`t.map(PlayerState).view()`): each client receives only the
+  players in its own area, and nobody while at the title screen (the map is
+  then absent on the client). `refreshViews()` runs when someone enters the
+  world, changes area or reconnects. The seat map is not filtered (it holds
+  seat ids and session ids only).
+- **Saving:** `character_state.area` (exists since 0001) stores the area;
+  a character comes back in the room and spot it was saved in, or at the
+  square's spawn points if that area no longer exists or the spot is
+  blocked.
+- **Client:** one scene per area (`Game.scenes`); the square is built after
+  the title screen appears, a room when first entered. `buildWorldScene`'s
+  interior mode draws the room from `buildInterior` (the props of its
+  layout and a rug), uses the room's floor as the ground, a fixed warm
+  indoor light, no sky, haze or day/night. When your own player's `area`
+  changes, the game moves the avatars to that scene, hides the players of
+  the area you left until the server removes them, snaps the camera and
+  covers the cut with a short fade. Walls and the room's door on the
+  camera's side are cut away (they fade while the camera is outside the
+  room on their side); the faded door stays tappable, because it is the
+  way out. The interaction controller reads the current area's layout.
+- **Not built yet:** rooms for the other buildings (each arrives with its
+  use, one room per use: D-039), homes (M10, one private copy per
+  household), windows inside rooms, and filtering the seat map.
 
 ## Not yet decided or built
 

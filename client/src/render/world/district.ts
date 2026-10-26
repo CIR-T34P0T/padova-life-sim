@@ -7,7 +7,7 @@ import type { WorldLayout } from "@padova/shared";
 import { buildBackdrop } from "./backdrop.ts";
 import { BUILDING_BATCH, buildBuildings } from "./buildings.ts";
 import { buildGround } from "./ground.ts";
-import { Sink, type Detail } from "./kit.ts";
+import { Sink, flatRect, type Detail } from "./kit.ts";
 import { buildProps } from "./props.ts";
 
 export function buildDistrict(layout: WorldLayout, detail: Detail): Sink {
@@ -16,6 +16,15 @@ export function buildDistrict(layout: WorldLayout, detail: Detail): Sink {
   buildBuildings(sink, layout, detail);
   buildProps(sink, layout, detail);
   buildBackdrop(sink, layout, detail);
+  return sink;
+}
+
+/** Floor details of an indoor room (M7c, D-039): every prop of its layout, walls included, plus a runner rug from the door. */
+export function buildInterior(layout: WorldLayout, detail: Detail, floor: { minX: number; maxX: number; minZ: number; maxZ: number }): Sink {
+  const sink = new Sink();
+  buildProps(sink, layout, detail);
+  // A long rug from the door into the room: flat decoration, walked over.
+  sink.add("ground", null, flatRect(-0.8, 0.8, floor.minZ + 1.2, floor.maxZ - 0.15, 0.012, "#8c2f39"));
   return sink;
 }
 
@@ -43,6 +52,10 @@ export function fadeVolumes(layout: WorldLayout, sink: Sink): Map<string, THREE.
     volumes.set(group, list);
   };
   for (const o of layout.obstacles) {
+    // Inside walls (M7c) fade like buildings when they hide you or the camera is beside them;
+    // so does a room's door, which stands in a wall.
+    const indoorDoor = o.kind === "door" && layout.obstacles.some((w) => w.kind === "wall");
+    if (o.kind === "wall" || indoorDoor) add(`building:${o.id}`, new THREE.Box3(new THREE.Vector3(o.minX, 0, o.minZ), new THREE.Vector3(o.maxX, o.height, o.maxZ)));
     const group = BUILDING_BATCH[o.id];
     if (!group) continue;
     add(group, new THREE.Box3(new THREE.Vector3(o.minX, 0, o.minZ), new THREE.Vector3(o.maxX, FADE_TOP[group] ?? o.height + 4, o.maxZ)));

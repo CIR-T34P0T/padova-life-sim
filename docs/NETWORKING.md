@@ -129,6 +129,19 @@ and rebuilds only the affected body parts (`client/src/render/avatar/character.t
 Hidden choices (hair under a headscarf) are still replicated, so the look is
 the same on every client when the covering comes off.
 
+## Areas (M7c, D-039)
+
+Every character in the world is in one area: `plaza` or an indoor room
+(`hall/lecture-room`, `library/reading-room`). The player map is filtered per
+client with a Colyseus `StateView`: a client receives **only the players in
+its own area**, and none while at the title screen (the map is absent on the
+client until its own character enters). Each player carries `area`, so a
+client knows which area to draw. Going through a door is an `interact` with
+action `enter` on a door object; the server walks the character to the door,
+then moves it to the linked area, and every client's view is updated (players
+leave or appear like a join or a leave). Greetings and object actions are
+refused (`unknown_target`) across areas. The seat map is not filtered.
+
 ## Game time (D-021)
 
 The server derives the game minute from its real clock and the time scale
@@ -147,9 +160,8 @@ still one server clock that every player shares.
 ## Not yet implemented
 
 - Interest management / proximity filtering (one small room makes it unnecessary so far).
-- Multiple rooms or areas, room transfer between districts. **Proposed** for
-  indoor rooms: areas inside the one server room, each client receiving only
-  its area's players (ARCHITECTURE.md "Proposed: indoor rooms", ROADMAP Q14).
+- Several server rooms or room transfer between districts (indoor rooms are
+  areas inside the one server room since M7c, see "Areas").
 - Real authentication (only temporary guest accounts exist, D-017).
 - A shared session registry for more than one server process.
 - Client-side prediction and reconciliation for the local player.

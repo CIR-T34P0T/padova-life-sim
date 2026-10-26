@@ -39,7 +39,7 @@ function useServer(port: number, tuning = {}) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const playerIn = (client: ProfileClient, id: string): any => client.room.state.players.get(id);
+const playerIn = (client: ProfileClient, id: string): any => client.room.state.players?.get(id);
 const preset = (id: string) => APPEARANCE_PRESETS.find((p) => p.id === id)!.appearance;
 const newCharacter = (displayName: string, appearance = DEFAULT_APPEARANCE): NewCharacterInput => ({ displayName, ageCategory: "adult", appearance, traits: [] });
 
@@ -170,9 +170,9 @@ describe("title screen and several lives", () => {
     await waitFor(() => again.errors.length === 1, 3000, "second press refused");
     expect(["busy", "in_world"]).toContain(again.errors[0]!.reason);
     // "ready" is a direct message; the player appears with the next state patch.
-    await waitFor(() => again.room.state.players.get(again.room.sessionId) !== undefined, 3000, "replicated");
+    await waitFor(() => again.room.state.players?.get(again.room.sessionId) !== undefined, 3000, "replicated");
     await sleep(200);
-    expect([...again.room.state.players.values()].filter((p: any) => p.name === "Vera")).toHaveLength(1);
+    expect([...(again.room.state.players?.values() ?? [])].filter((p: any) => p.name === "Vera")).toHaveLength(1);
   });
 
   it("creates one character and one guest profile even if Begin is pressed twice", async () => {
@@ -201,7 +201,7 @@ describe("title screen and several lives", () => {
     expect(second).toHaveLength(1);
     expect(second[0]!.account_id).toBe((await rows("Doppio"))[0]!.account_id);
     expect(visitor.identities).toHaveLength(1);
-    expect([...visitor.room.state.players.values()].filter((p: any) => p.name.startsWith("Doppio"))).toHaveLength(1);
+    expect([...(visitor.room.state.players?.values() ?? [])].filter((p: any) => p.name.startsWith("Doppio"))).toHaveLength(1);
   });
 
   it("ignores gameplay messages from a session at the title screen (audit 2026-10-20)", async () => {

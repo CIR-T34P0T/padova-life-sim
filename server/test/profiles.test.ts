@@ -47,7 +47,7 @@ function useProfileServer(port: number, tuning = {}) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const playerIn = (client: ProfileClient, id: string): any => client.room.state.players.get(id);
+const playerIn = (client: ProfileClient, id: string): any => client.room.state.players?.get(id);
 /** The appearance another client sees for a player, decoded from the replicated look string. */
 const lookIn = (client: ProfileClient, id: string): AppearanceConfig | undefined => {
   const look = playerIn(client, id)?.look as string | undefined;
@@ -69,7 +69,7 @@ describe("character profiles", () => {
     const visitor = track(await connect(context.server.url));
     expect(visitor.lastProfile()).toEqual({ status: "lobby", characters: [], maxCharacters: 3 });
     await sleep(200);
-    expect(visitor.room.state.players.size).toBe(0);
+    expect((visitor.room.state.players?.size ?? 0)).toBe(0);
     expect(await count(context.server, "accounts")).toBe(accountsBefore);
   });
 
@@ -100,7 +100,7 @@ describe("character profiles", () => {
     expect(visitor.errors.map((e) => e.reason)).toEqual(["age_category_not_allowed", "invalid_appearance", "invalid_payload", "invalid_appearance"]);
     expect(visitor.errors[1]).toMatchObject({ field: "outfit.top" });
     expect(visitor.identities).toHaveLength(0);
-    expect(visitor.room.state.players.get(visitor.room.sessionId)).toBeUndefined();
+    expect(visitor.room.state.players?.get(visitor.room.sessionId)).toBeUndefined();
   });
 
   it("does not create or enter another character while one is in the world", async () => {
@@ -217,8 +217,8 @@ describe("character profiles", () => {
     await enterWorld(second);
     expect(await firstLeft).toBe(CLOSE_SIGNED_IN_ELSEWHERE);
     expect(second.lastProfile()).toMatchObject({ status: "ready", profile: { displayName: "Fabio" } });
-    await waitFor(() => !watcher.room.state.players.has(first.room.sessionId), 3000, "old session removed");
-    const fabios = [...watcher.room.state.players.values()].filter((p: any) => p.name === "Fabio");
+    await waitFor(() => !watcher.room.state.players?.has(first.room.sessionId), 3000, "old session removed");
+    const fabios = [...(watcher.room.state.players?.values() ?? [])].filter((p: any) => p.name === "Fabio");
     expect(fabios).toHaveLength(1);
   });
 
@@ -233,7 +233,7 @@ describe("character profiles", () => {
     expect(gina.room.sessionId).toBe(sessionId);
     await waitFor(() => playerIn(gina, sessionId)?.connected === true, 3000, "connected again");
     expect(await count(context.server, `characters WHERE id = '${characterId}'`)).toBe(1);
-    expect([...gina.room.state.players.values()].filter((p: any) => p.name === "Gina")).toHaveLength(1);
+    expect([...(gina.room.state.players?.values() ?? [])].filter((p: any) => p.name === "Gina")).toHaveLength(1);
   });
 
   it("removes a dropped player who never returns once the reconnection window ends, saved and free to play again", async () => {
@@ -256,7 +256,7 @@ describe("character profiles", () => {
     // The account is free again: the same guest token plays the character, once.
     const back = track(await connectAndPlay(context.server.url, ivo.guestToken, characterId));
     expect(back.lastProfile()!.profile!.characterId).toBe(characterId);
-    await waitFor(() => [...watcher.room.state.players.values()].filter((p: any) => p.name === "Ivo").length === 1, 3000, "exactly one Ivo");
+    await waitFor(() => [...(watcher.room.state.players?.values() ?? [])].filter((p: any) => p.name === "Ivo").length === 1, 3000, "exactly one Ivo");
   }, (GAME_CONFIG.reconnectSeconds + 25) * 1000);
 
   it("saves a seated character at the spot it stands up to", async () => {

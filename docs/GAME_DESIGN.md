@@ -180,7 +180,9 @@ gardens and portico are places to walk and meet; doors don't open yet.
 **What can be used today (implemented):** benches (sit, sketch, stand up),
 study desks and café tables (sit, study), the café counter (buy, with
 prices; *Ask about work* without a job, *Work a shift* for employees, M7),
-the fountain (wash up), other players (greet). Clicking yourself
+the fountain (wash up), other players (greet), the university hall's and
+the library's doors (*Go in*, M7c) and, inside, the desks, tables and the
+door out. Clicking yourself
 opens *Character* and *Edit look* (standing) or the seat's actions plus
 *Character* (seated). Only valid actions are shown; the server re-checks
 every one.
@@ -453,20 +455,25 @@ the daily limit are tuning values; unpaid partial shifts are a design choice
 the product owner can reverse (proportional pay instead); showing
 unavailable shifts greyed out with a reason is recorded in D-036.
 
-## Indoor rooms (proposed)
+## Indoor rooms (M7c)
 
-**Proposed, not built** (D-038; how: ARCHITECTURE.md "Proposed: indoor
-rooms", waiting on ROADMAP Q14). Every building has at least one room you
-can enter through its door, with a short fade; inside you meet only the
-players in the same room. First rooms and what they are for:
+Every building gets a room for each of its uses, when that use arrives
+(D-038, D-039). Tap a building's door and choose **Go in**: your character
+walks to the door and, after a short fade, stands just inside it. Inside
+you meet only the players in the same room, and they only see you; the
+square carries on without you. The room's door says **Go out to the
+square** and puts you in front of the building. If you leave the game
+inside, you come back inside. Rooms are larger inside than the buildings
+look from outside, and the walls and door on the camera's side are cut away
+so you always see the room.
 
-| Building | Room | Use |
-| --- | --- | --- |
-| University hall | Lecture room | Lectures and the exam (M8); sit and study meanwhile |
-| Library | Reading room | Study at desks (quiet, a small bonus could come later) |
-| Shops | A shop interior | A second workplace (later milestone) |
-| Residences and bookshop | Bookshop; flats upstairs | Browse and buy books (later); homes (M10) |
-| Student housing, portico houses | Flats | Homes (M10): rent, sleep, furniture |
+| Building | Room | Use | Status |
+| --- | --- | --- | --- |
+| University hall | Lecture room | Rows of desks facing a blackboard and lectern: study and sit now; lectures and the exam with M8 | **Built (M7c)** |
+| Library | Reading room | Shelves and two long reading tables: study and sit | **Built (M7c)** |
+| Shops | A shop interior | A second workplace | Proposed (later milestone) |
+| Residences and bookshop | Bookshop; flats | Books (later); homes (M10) | Proposed |
+| Student housing, portico houses | Flats | Homes (M10): rent, sleep, furniture, private | Proposed |
 
 ## Open design questions
 

@@ -555,3 +555,31 @@ default the product owner can change.
   workplaces and homes. How interiors are built is compared in
   ARCHITECTURE.md "Proposed: indoor rooms"; the recommended approach and the
   milestone order wait for approval (ROADMAP Q14).
+
+## D-039 — Indoor rooms: areas in the one server room (2026-10-26)
+
+The product owner approved option C of the comparison (Q14) and decided
+that each building gets its rooms when it has a use, one room per use.
+Built in M7c (ARCHITECTURE.md "Indoor rooms"):
+
+- **Areas, not rooms per server:** the square and each indoor room are
+  areas inside the one Colyseus room; a door moves a character between
+  them; each client receives only the players in its own area (`StateView`).
+  Splitting areas or districts across server rooms later is a known step
+  if player numbers need it.
+- **Rooms may be bigger inside than their building's shell** (common in
+  games); a room is a layout of its own, not modelled inside the façade.
+- **First rooms:** the hall's lecture room (rows of two-seat desks, a
+  lectern, a blackboard; lectures come with M8) and the library's reading
+  room (shelves, two reading tables). Both reuse study and sit.
+- **Doors on the square** are thin portals in front of the hall's porch and
+  the library's entrance (the doors' art moved into them, so they can be
+  tapped and highlighted); the menu says "Go in" and, inside, "Go out to the
+  square". You arrive in front of the linked door, facing away from it.
+- **Indoors, the walls and the door on the camera's side are cut away**
+  (they fade while the camera is outside the room on their side); the door
+  stays tappable. Rooms have a fixed warm indoor light; the time of day
+  doesn't reach inside (no windows in rooms yet).
+- **The room is saved:** you come back where you left; an area that no
+  longer exists sends you to the square's spawn points.
+- **At the title screen a client receives no players at all.**

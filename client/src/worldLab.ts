@@ -8,10 +8,11 @@
 //   ?quality=low    phone detail level
 //   ?people         a few characters for scale (on a bench, at a café table, walking)
 //   ?time=HH:MM     time of day for the light (default 10:10); e.g. 06:30, 19:40, 23:00 (M7b)
+//   ?area=ID        an indoor room instead of the square (M7c): hall/lecture-room, library/reading-room
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { APPEARANCE_PRESETS, PLAZA_LAYOUT, findSeat } from "@padova/shared";
+import { AREAS, APPEARANCE_PRESETS, PLAZA_AREA, findArea, findSeat } from "@padova/shared";
 import { CharacterModel } from "./render/avatar/index.ts";
 import { buildWorldScene } from "./render/worldScene.ts";
 
@@ -28,7 +29,9 @@ const canvas = document.getElementById("stage") as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.antialias, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
 renderer.shadowMap.enabled = quality.shadows;
-const world = buildWorldScene(PLAZA_LAYOUT, quality);
+const area = findArea(params.get("area") ?? PLAZA_AREA) ?? AREAS[PLAZA_AREA]!;
+const layout = area.layout;
+const world = buildWorldScene(layout, quality, area.floor ? { interior: { floor: area.floor } } : {});
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
@@ -48,8 +51,9 @@ const VIEWS: Record<string, [THREE.Vector3Tuple, THREE.Vector3Tuple]> = {
   south: [[0, 9, -4], [0, 4, 22]],
   skyline: [[0, 26, 30], [0, 18, -60]],
 };
-const viewName = params.get("view") ?? "overview";
-const [eye, target] = VIEWS[viewName] ?? VIEWS.overview!;
+const viewName = area.indoor ? area.id : (params.get("view") ?? "overview");
+// Indoors: from above the door side, looking into the room.
+const [eye, target] = area.floor ? ([[0, 8.5, area.floor.maxZ + 6.5], [0, 0.6, -0.5]] as [THREE.Vector3Tuple, THREE.Vector3Tuple]) : (VIEWS[viewName] ?? VIEWS.overview!);
 camera.position.set(...eye);
 controls.target.set(...target);
 
@@ -72,9 +76,15 @@ if (params.has("people")) {
     world.scene.add(model.root);
   };
   const seat = (id: string, preset: number, activity = "sitting") => {
-    const found = findSeat(PLAZA_LAYOUT, id)!.seat;
+    const found = findSeat(layout, id)!.seat;
     place(preset, found.x, found.z, found.rotation, true, activity);
   };
+  if (area.indoor) {
+    // A few people at the desks or tables, and one coming in.
+    const seats = layout.interactables.filter((i) => i.kind === "desk").flatMap((i) => i.seats);
+    for (const [k, s] of seats.slice(0, 5).entries()) seat(s.id, k * 3 + 1, k % 2 ? "studying" : "sitting");
+    place(4, 0, area.floor!.maxZ - 1.2, Math.PI, false, "idle", true);
+  } else {
   seat("bench-1/seat-a", 1);
   seat("bench-1/seat-b", 4, "sketching");
   seat("cafe-table-1/seat-a", 6);
@@ -85,6 +95,7 @@ if (params.has("people")) {
   place(7, -12.8, -18.8, 0, false);
   place(10, 18.4, -2, Math.PI, false, "idle", true);
   place(5, 8.25, 8.95, 0, false, "ordering");
+  }
 }
 
 const stats = document.getElementById("stats")!;

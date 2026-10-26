@@ -5,7 +5,10 @@ import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import {
   GAME_CONFIG,
+  AREAS,
+  PLAZA_AREA,
   PLAZA_LAYOUT,
+  findArea,
   type AppearanceConfig,
   type CharacterProfile,
   type IdentityPayload,
@@ -56,8 +59,15 @@ export class Game {
   private readonly quality = detectQuality();
   private readonly renderer: THREE.WebGLRenderer;
   private readonly labelRenderer = new CSS2DRenderer();
-  // The detailed district art is built just after the title screen appears (defer).
-  private readonly world = buildWorldScene(PLAZA_LAYOUT, this.quality, { defer: true });
+  /**
+   * One scene per area (M7c): the square's detailed art is built just after
+   * the title screen appears (defer); an indoor room when first entered.
+   */
+  private readonly scenes = new Map<string, WorldScene>([[PLAZA_AREA, buildWorldScene(PLAZA_LAYOUT, this.quality, { defer: true })]]);
+  /** The area our character is in: the scene drawn and the layout menus use. */
+  private areaId = PLAZA_AREA;
+  /** Covers the screen for a moment while going through a door. */
+  private readonly areaFade = document.createElement("div");
   private readonly rig = new CameraRig(window.innerWidth / window.innerHeight);
   private readonly entities = new Map<string, RemoteEntity>();
   private readonly connection: GameConnection;
@@ -135,8 +145,12 @@ export class Game {
     });
     const menu = createActionMenu(overlay, () => this.interactions.clearSelection());
     const progress = new ActionProgress(overlay, () => this.interactions.cancelCurrentAction());
+    this.areaFade.id = "area-fade";
+    this.areaFade.setAttribute("aria-hidden", "true");
+    overlay.append(this.areaFade);
     this.interactions = new InteractionController({
-      world: this.world,
+      world: () => this.world,
+      layout: () => (findArea(this.areaId) ?? AREAS[PLAZA_AREA]!).layout,
       camera: () => this.rig.camera,
       canvas: this.renderer.domElement,
       entities: {
@@ -203,6 +217,57 @@ export class Game {
     this.exposeDebugHook();
   }
 
+  /** The scene of the area our character is in. */
+  private get world(): WorldScene {
+    return this.sceneFor(this.areaId);
+  }
+
+  private sceneFor(id: string): WorldScene {
+    let scene = this.scenes.get(id);
+    if (!scene) {
+      const area = findArea(id) ?? AREAS[PLAZA_AREA]!;
+      scene = buildWorldScene(area.layout, this.quality, area.floor ? { interior: { floor: area.floor } } : {});
+      this.scenes.set(id, scene);
+    }
+    return scene;
+  }
+
+  /**
+   * Our character went through a door (M7c): draw the other area. Avatars move
+   * to its scene; players of the area we left are hidden until the server
+   * removes them (it sends only our area's players); a short fade hides the cut.
+   */
+  private switchArea(next: string): void {
+    if (next === this.areaId) return;
+    this.interactions.clearSelection();
+    this.world.targetMarker.visible = false;
+    this.areaId = next;
+    const scene = this.world.scene;
+    const selfId = this.connection.sessionId;
+    for (const [id, entity] of this.entities) {
+      if (!entity.view) continue;
+      scene.add(entity.view.root);
+      if (id !== selfId && entity.latest.area !== next) entity.view.root.visible = false;
+    }
+    const self = selfId ? this.entities.get(selfId) : undefined;
+    if (self) {
+      // A jump, not a walk: no interpolation across the two areas.
+      self.buffer = new SnapshotBuffer();
+      this.pushSnapshot(self, self.latest);
+    }
+    this.rig.snapToNextTarget();
+    this.areaFade.classList.remove("fading");
+    this.areaFade.classList.add("shown");
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        this.areaFade.classList.add("fading");
+        this.areaFade.classList.remove("shown");
+      }),
+    );
+    const area = findArea(next);
+    this.hud.toast(area?.indoor ? area.label : "Back on the square", 2200);
+  }
+
   /** In the world and not hidden behind a full-screen panel. */
   private get playing(): boolean {
     return this.inWorld && !this.covered;
@@ -246,6 +311,9 @@ export class Game {
   enterWorld(): Promise<void> {
     const visible = new Promise<void>((resolve) => this.worldVisibleWaiters.push(resolve));
     if (this.inWorld) return visible;
+    // Saved inside a room: draw that room from the first frame.
+    const self = this.connection.sessionId ? this.entities.get(this.connection.sessionId) : undefined;
+    if (self?.latest.area) this.areaId = findArea(self.latest.area) ? self.latest.area : PLAZA_AREA;
     this.inWorld = true;
     this.moveInput = { forward: 0, right: 0 };
     this.lastSentDirection = { dx: 0, dz: 0 };
@@ -416,6 +484,10 @@ export class Game {
 
   private addEntity(id: string, player: ReplicatedPlayer): void {
     if (this.entities.has(id)) return;
+    if (id === this.connection.sessionId && player.area !== this.areaId) {
+      if (this.inWorld) this.switchArea(player.area);
+      else this.areaId = findArea(player.area) ? player.area : PLAZA_AREA;
+    }
     const view = this.inWorld ? this.buildView(id, player) : null;
     const buffer = new SnapshotBuffer();
     const entity: RemoteEntity = { view, buffer, latest: { ...player } };
@@ -427,6 +499,11 @@ export class Game {
   private updateEntity(id: string, player: ReplicatedPlayer): void {
     const entity = this.entities.get(id);
     if (!entity) return;
+    if (id === this.connection.sessionId && this.inWorld && player.area !== this.areaId) {
+      entity.latest = { ...player };
+      this.switchArea(player.area);
+      return;
+    }
     const view = entity.view;
     if (view) {
       if (entity.latest.connected !== player.connected) view.setAway(!player.connected);
@@ -482,6 +559,10 @@ export class Game {
       /** True while our character is in the world (not at the title screen). */
       get inWorld() {
         return game.inWorld;
+      },
+      /** The area drawn: "plaza" or an indoor room's id (M7c). */
+      get area() {
+        return game.areaId;
       },
       /** Every connection status so far, in order. */
       statusLog() {

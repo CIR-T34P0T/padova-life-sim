@@ -25,9 +25,28 @@ export type ObstacleKind =
   | "table"
   | "garden"
   | "bike-rack"
-  | "noticeboard";
+  | "noticeboard"
+  // Indoor rooms (M7c)
+  | "door"
+  | "wall"
+  | "lectern"
+  | "board"
+  | "shelf";
 
-export type InteractableKind = "bench" | "desk" | "cafe" | "fountain";
+export type InteractableKind = "bench" | "desk" | "cafe" | "fountain" | "door";
+
+/**
+ * Where a door leads (M7c): the area, and the door in that area you arrive at
+ * (in front of it, facing away from it). Doors always come in linked pairs.
+ */
+export interface DoorLink {
+  /** Area id (shared/src/areas.ts), e.g. "hall/lecture-room" or "plaza". */
+  to: string;
+  /** Id of the door interactable in that area. */
+  door: string;
+  /** The menu option, e.g. "Go in" or "Go out to the square". */
+  actionLabel: string;
+}
 
 /** A side of a box, or a compass direction (north = -Z, east = +X). */
 export type Side = "north" | "south" | "east" | "west";
@@ -69,6 +88,8 @@ export interface Interactable {
   /** Name shown in menus. */
   label: string;
   seats: readonly Seat[];
+  /** For doors: where it leads. */
+  door?: DoorLink;
 }
 
 export interface Obstacle {
@@ -121,7 +142,7 @@ export const sideRotation = (side: Side): number => Math.atan2(OUTWARD[side].x, 
  * "towards": the character sits just off the edge facing the object (a desk or table).
  * `first` is the letter index of the first seat id (a, b, …), so two edges don't clash.
  */
-function seatsAlongEdge(obstacle: Obstacle, count: number, side: Side, facing: "away" | "towards", first = 0): Seat[] {
+export function seatsAlongEdge(obstacle: Obstacle, count: number, side: Side, facing: "away" | "towards", first = 0): Seat[] {
   const out = OUTWARD[side];
   const alongX = side === "north" || side === "south";
   const length = alongX ? obstacle.maxX - obstacle.minX : obstacle.maxZ - obstacle.minZ;
@@ -152,7 +173,7 @@ function seatsAlongEdge(obstacle: Obstacle, count: number, side: Side, facing: "
  * Standing spots along one long edge of an object, facing it. Ids are
  * `<object>/<prefix>-a`, `-b`…; staff spots use the prefix "staff".
  */
-function standingSpotsAlongEdge(obstacle: Obstacle, count: number, edge: "north" | "south", use?: "staff", playerRadius = PLAYER_RADIUS): Seat[] {
+export function standingSpotsAlongEdge(obstacle: Obstacle, count: number, edge: "north" | "south", use?: "staff", playerRadius = PLAYER_RADIUS): Seat[] {
   const width = obstacle.maxX - obstacle.minX;
   const gap = playerRadius + 0.3;
   const z = edge === "south" ? obstacle.maxZ + gap : obstacle.minZ - gap;
@@ -169,7 +190,7 @@ function standingSpotsAlongEdge(obstacle: Obstacle, count: number, edge: "north"
  * A chair for each "towards" seat: a small box under the sitter, ending
  * before the approach point so the character can still walk up to it.
  */
-function chairsFor(owner: Obstacle, seats: readonly Seat[]): Obstacle[] {
+export function chairsFor(owner: Obstacle, seats: readonly Seat[]): Obstacle[] {
   return seats.map((seat) => {
     const dx = seat.x - (owner.minX + owner.maxX) / 2;
     const dz = seat.z - (owner.minZ + owner.maxZ) / 2;
@@ -193,7 +214,7 @@ function chairsFor(owner: Obstacle, seats: readonly Seat[]): Obstacle[] {
   });
 }
 
-const box = (
+export const box = (
   id: string,
   kind: ObstacleKind,
   cx: number,
@@ -215,7 +236,7 @@ const box = (
   ...(facing ? { facing } : {}),
 });
 
-const bounds = (id: string, kind: ObstacleKind, minX: number, maxX: number, minZ: number, maxZ: number, height: number, label?: string, facing?: Side): Obstacle => ({
+export const bounds = (id: string, kind: ObstacleKind, minX: number, maxX: number, minZ: number, maxZ: number, height: number, label?: string, facing?: Side): Obstacle => ({
   id,
   kind,
   label,
@@ -328,6 +349,10 @@ const plazaObstacles: Obstacle[] = [
   // Bicycles, and the university notice board.
   bounds("bike-rack", "bike-rack", -14.5, -11.5, 15.1, 16.9, 1.1, "Bicycle rack", "north"),
   bounds("noticeboard", "noticeboard", -21, -19.2, -17.75, -17.45, 2.1, "University notice board", "south"),
+  // Doors into the indoor rooms (M7c): a portal standing just in front of each
+  // building's entrance, so it can be tapped and highlighted on its own.
+  bounds("hall-door", "door", -14.23, -11.77, -19.6, -19.35, 3.9, "University hall", "south"),
+  bounds("library-door", "door", 12.87, 15.13, -18, -17.75, 3.8, "Library", "south"),
 ];
 
 const obstacle = (id: string): Obstacle => {
@@ -378,6 +403,20 @@ export const PLAZA_LAYOUT: WorldLayout = {
     { id: "cafe-table-2", kind: "desk", label: "Café table", seats: table2Seats },
     { id: "cafe-table-3", kind: "desk", label: "Café table", seats: table3Seats },
     { id: "fountain", kind: "fountain", label: "Fountain", seats: standingSpotsAlongEdge(obstacle("fountain"), 2, "south") },
+    {
+      id: "hall-door",
+      kind: "door",
+      label: "University hall",
+      seats: standingSpotsAlongEdge(obstacle("hall-door"), 2, "south"),
+      door: { to: "hall/lecture-room", door: "lecture-room-door", actionLabel: "Go in" },
+    },
+    {
+      id: "library-door",
+      kind: "door",
+      label: "Library",
+      seats: standingSpotsAlongEdge(obstacle("library-door"), 2, "south"),
+      door: { to: "library/reading-room", door: "reading-room-door", actionLabel: "Go in" },
+    },
   ],
   spawnPoints: [
     { x: 0, z: 13 },

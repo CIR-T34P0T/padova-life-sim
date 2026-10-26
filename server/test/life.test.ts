@@ -48,7 +48,7 @@ function useLifeServer(port: number, tuning: TuningOverrides = {}, makeDb?: () =
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const me = (client: ProfileClient): any => client.room.state.players.get(client.room.sessionId);
+const me = (client: ProfileClient): any => client.room.state.players?.get(client.room.sessionId);
 const characterIdOf = (client: ProfileClient) => client.profiles.find((p) => p.profile)!.profile!.characterId;
 
 async function lifeAfter(client: ProfileClient, predicate: (life: LifePayload) => boolean, what: string, timeoutMs = 6000) {
@@ -195,7 +195,7 @@ describe("the first life loop", () => {
   it("greeting lifts both players' social need and the greeter's communication", async () => {
     const alice = track(await joinWithNewCharacter(context.server.url, "Alice"));
     const bruno = track(await joinWithNewCharacter(context.server.url, "Bruno"));
-    await waitFor(() => alice.room.state.players.get(bruno.room.sessionId) !== undefined, 3000, "Bruno visible");
+    await waitFor(() => alice.room.state.players?.get(bruno.room.sessionId) !== undefined, 3000, "Bruno visible");
     expect((await act(alice, "player", bruno.room.sessionId, "greet")).status).toMatch(/queued|started/);
     const greeter = await lifeAfter(alice, (l) => l.skills.communication.xp > 0, "communication XP");
     expect(greeter.needs.social).toBeGreaterThan(80);
@@ -236,7 +236,7 @@ describe("the first life loop", () => {
     await act(alice, "object", "cafe-counter", "buy", { itemId: "espresso" });
     await finished(alice, "buy");
     await sleep(300);
-    const seen = bruno.room.state.players.get(alice.room.sessionId);
+    const seen = bruno.room.state.players?.get(alice.room.sessionId);
     const fields = Object.keys(seen.toJSON());
     for (const secret of ["hunger", "energy", "needs", "skills", "balanceCents", "money", "traits"]) expect(fields).not.toContain(secret);
     // Bruno only ever receives his own wallet: starting money, then the daily allowance. Never Alice's purchase.

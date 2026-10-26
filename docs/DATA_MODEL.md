@@ -77,7 +77,8 @@ character_appearance    one row per character
 
 character_state         where the character was when last saved
   character_id  uuid PK → characters (cascade delete)
-  area          text   'plaza'
+  area          text   area id (M7c): 'plaza', 'hall/lecture-room' or 'library/reading-room';
+                       an unknown area loads at the square's spawn points
   pos_x, pos_z, rotation   real
   updated_at
 
@@ -339,7 +340,12 @@ money changes or refusals. Other players see only the public activity
   to its table). Each interactable has a stable id equal to its obstacle's,
   a kind that decides its actions (bench, desk, cafe, fountain), a menu
   label and its interaction points. The café counter's two spots behind it
-  are tagged `use: "staff"` (M7): only for working a shift. Twelve interactables since the world
+  are tagged `use: "staff"` (M7): only for working a shift. Doors (M7c) are
+  interactables of kind `door` with a link to the matching door in another
+  area.
+- `areas.ts` and `interiors.ts` (M7c): the list of areas (the square and the
+  indoor rooms) and the rooms' layouts (walls, furniture, the door out);
+  object and seat ids are unique across all areas. Twelve interactables since the world
   art pass: benches 1–5, study desks 1–2, café tables 1–3 (desk rules),
   the café counter and the fountain (D-034).
 - `appearance/`: the appearance catalogue (option ids, labels, colours, hair
@@ -379,11 +385,11 @@ money changes or refusals. Other players see only the public activity
 would fit the rules above, so their milestones can be estimated; each is
 designed properly, and may change, when its milestone is planned (ROADMAP.md
 "Planned milestones"). None of these tables exists. (M7's job tables were
-built as described above.)
+built as described above; M7c needed none: `character_state.area` stores the
+room.)
 
 | Milestone (proposed) | Data | Notes |
 | --- | --- | --- |
-| M7c indoor rooms | No new table: `character_state.area` (exists, always `plaza` today) stores the area id, e.g. `hall/lecture-room`; areas and doors are static data in `shared/` | An unknown or removed area loads at the square's spawn points, like a blocked position. Homes (M10) add one area copy per household |
 | M8 university basics | Fictional course and timetable catalogue in `shared/`; `enrolments` (character, course, status); `lecture_attendance` (character, lecture slot, game day); `assessments` (character, course, kind, grade, game day) | Grades and attendance are decided by the server from game time and recorded actions, never sent by a client |
 | M9 relationships and safety | `relationships` (an ordered pair of characters, score, kind, last interaction); `blocks` (blocking account → blocked account); `reports` (reporter, reported character, reason, short context, status) | Relationship data is private to the two players unless they choose to show it. Reports keep only what moderation needs; retention to be decided |
 | M9 story log | `story_events` (character, kind, game minute, small validated details, visibility) | Written by the server when a meaningful event happens (first shift, exam result, new friend); never edited by clients |

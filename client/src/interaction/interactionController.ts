@@ -9,7 +9,6 @@ import {
   ACTION_LABELS,
   CAFE_MENU,
   JOBS,
-  PLAZA_LAYOUT,
   findInteractable,
   findMenuItem,
   findSeat,
@@ -23,6 +22,7 @@ import {
   shiftRefusal,
   timedEffectFor,
   type ActionId,
+  type WorldLayout,
   type ActionUpdatePayload,
   type ActorView,
   type GreetedPayload,
@@ -95,7 +95,10 @@ export class InteractionController {
 
   constructor(
     private readonly deps: {
-      world: WorldScene;
+      /** The scene of the area you are in (changes when you go through a door, M7c). */
+      world: () => WorldScene;
+      /** The layout of the area you are in. */
+      layout: () => WorldLayout;
       camera: () => THREE.Camera;
       canvas: HTMLCanvasElement;
       entities: EntityAccess;
@@ -306,9 +309,12 @@ export class InteractionController {
       };
     }
     if (selection.kind === "object") {
-      const item = findInteractable(PLAZA_LAYOUT, selection.id);
+      const item = findInteractable(this.deps.layout(), selection.id);
       if (!item) return null;
-      const options = objectActions(item, actor, this.deps.connection.seats).flatMap((id) => this.optionsFor(id));
+      const options = objectActions(item, actor, this.deps.connection.seats).flatMap((id) =>
+        // Doors say where they lead ("Go in", "Go out to the square"), M7c.
+        id === "enter" && item.door ? [{ id, label: item.door.actionLabel }] : this.optionsFor(id),
+      );
       // Seated here: clicking yourself lands on this menu, so it also offers your character panel.
       if (item.seats.some((seat) => seat.id === actor.seatId)) options.push({ id: "character", label: "Character" });
       return { title: item.label, subtitle: this.seatSubtitle(item, actor), options };
@@ -386,6 +392,7 @@ export class InteractionController {
       return life.job ? `You have ${formatEuros(life.money.balanceCents)} · you work here` : `You have ${formatEuros(life.money.balanceCents)}`;
     }
     if (item.kind === "fountain") return "Freshen up";
+    if (item.kind === "door") return item.door?.to === "plaza" ? "To the square" : "Door";
     if (item.seats.some((seat) => seat.id === actor.seatId)) return "You're sitting here";
     const free = item.seats.filter((seat) => !this.deps.connection.seats.has(seat.id)).length;
     if (item.seats.length === 1) return free ? "Free" : "Taken";
@@ -394,7 +401,7 @@ export class InteractionController {
 
   private emptyMenuMessage(selection: NonNullable<Selection>): string {
     if (selection.kind === "object") {
-      const item = findInteractable(PLAZA_LAYOUT, selection.id);
+      const item = findInteractable(this.deps.layout(), selection.id);
       return reasonText(item && item.seats[0]?.pose === "stand" ? "busy" : "no_free_seat");
     }
     if (selection.kind === "self") return reasonText("action_not_available");
@@ -423,7 +430,7 @@ export class InteractionController {
   private refreshObjectHighlight(): void {
     const selected = this.selection?.kind === "object" ? this.selection.id : null;
     const hovered = this.hovered?.kind === "object" ? this.hovered.id : null;
-    this.deps.world.highlight(selected, hovered);
+    this.deps.world().highlight(selected, hovered);
   }
 
   // ── Picking & projection ────────────────────────────────────────────────
@@ -432,7 +439,8 @@ export class InteractionController {
     const rect = this.deps.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.deps.camera());
-    const { world, entities } = this.deps;
+    const { entities } = this.deps;
+    const world = this.deps.world();
     const hit = this.raycaster.intersectObjects([...world.pickTargets(), ...entities.hitMeshes()], false)[0];
     if (!hit) return null;
     const playerId = hit.object.userData.playerId as string | undefined;
@@ -447,7 +455,7 @@ export class InteractionController {
   anchorFor(selection: { kind: TargetKind | "self"; id: string }): { x: number; y: number; visible: boolean } | null {
     const position = new THREE.Vector3();
     if (selection.kind === "object") {
-      const mesh = this.deps.world.interactableMeshes.get(selection.id);
+      const mesh = this.deps.world().interactableMeshes.get(selection.id);
       if (!mesh) return null;
       position.set(mesh.position.x, mesh.position.y + mesh.scale.y / 2, mesh.position.z);
     } else {
@@ -479,12 +487,12 @@ export class InteractionController {
   private selfSeat(): Interactable | null {
     const actor = this.selfActor();
     if (!actor?.seatId) return null;
-    return findSeat(PLAZA_LAYOUT, actor.seatId)?.interactable ?? null;
+    return findSeat(this.deps.layout(), actor.seatId)?.interactable ?? null;
   }
 
   private targetName(kind: TargetKind, id: string): string {
     if (kind === "player") return this.deps.entities.get(id)?.latest.name ?? "them";
-    return findInteractable(PLAZA_LAYOUT, id)?.label.toLowerCase() ?? "it";
+    return findInteractable(this.deps.layout(), id)?.label.toLowerCase() ?? "it";
   }
 
   /** Read-only snapshot for tests and debugging. */
@@ -527,6 +535,8 @@ function queuedText(update: ActionUpdatePayload, targetName: string): string {
       return `Going to buy ${itemName(update)}…`;
     case "wash":
       return "Going to wash up…";
+    case "enter":
+      return "Going to the door…";
     case "ask_work":
       return "Going to ask about work…";
     case "work":

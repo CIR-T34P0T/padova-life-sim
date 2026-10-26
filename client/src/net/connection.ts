@@ -38,6 +38,8 @@ export interface ReplicatedPlayer {
   activity: string;
   seatId: string;
   targetId: string;
+  /** The area the character is in (M7c): "plaza" or a room id. You only receive players in your own area. */
+  area: string;
 }
 
 export interface ConnectionEvents {

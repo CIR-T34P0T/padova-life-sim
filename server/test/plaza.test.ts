@@ -41,13 +41,13 @@ async function join(name: string): Promise<Room> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const playerIn = (room: Room, sessionId: string): any => room.state.players.get(sessionId);
+const playerIn = (room: Room, sessionId: string): any => room.state.players?.get(sessionId);
 
 describe("plaza room", () => {
   it("lets two players join and see each other", async () => {
     const a = await join("Alice");
     const b = await join("Bruno");
-    await waitFor(() => a.state.players.size === 2 && b.state.players.size === 2);
+    await waitFor(() => (a.state.players?.size ?? 0) === 2 && (b.state.players?.size ?? 0) === 2);
     expect(playerIn(a, b.sessionId).name).toBe("Bruno");
     expect(playerIn(b, a.sessionId).name).toBe("Alice");
     expect(playerIn(b, a.sessionId).connected).toBe(true);
@@ -60,13 +60,13 @@ describe("plaza room", () => {
     visitor.room.send(ClientMessage.CreateCharacter, { displayName: "<", ageCategory: "adult", appearance: {} });
     await waitFor(() => visitor.errors.length === 1);
     expect(visitor.errors[0]).toMatchObject({ action: "createCharacter", reason: "invalid_name" });
-    expect(visitor.room.state.players.get(visitor.room.sessionId)).toBeUndefined();
+    expect(visitor.room.state.players?.get(visitor.room.sessionId)).toBeUndefined();
   });
 
   it("moves a player along a server-computed path and replicates it", async () => {
     const a = await join("Alice");
     const b = await join("Bruno");
-    await waitFor(() => b.state.players.size === 2);
+    await waitFor(() => (b.state.players?.size ?? 0) === 2);
     const target = { x: 0, z: -8 }; // the far side of the fountain
     a.send(ClientMessage.MoveTo, target);
     await waitFor(() => {
@@ -123,7 +123,7 @@ describe("plaza room", () => {
   it("removes a player for everyone when they leave", async () => {
     const a = await join("Alice");
     const b = await join("Bruno");
-    await waitFor(() => b.state.players.size === 2);
+    await waitFor(() => (b.state.players?.size ?? 0) === 2);
     const removed = new Promise<string>((resolve) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const $ = getStateCallbacks(b) as any;
@@ -131,13 +131,13 @@ describe("plaza room", () => {
     });
     await a.leave(true);
     expect(await removed).toBe(a.sessionId);
-    expect(b.state.players.size).toBe(1);
+    expect((b.state.players?.size ?? 0)).toBe(1);
   });
 
   it("keeps the same character through a brief connection drop", async () => {
     const a = await join("Alice");
     const b = await join("Bruno");
-    await waitFor(() => b.state.players.size === 2);
+    await waitFor(() => (b.state.players?.size ?? 0) === 2);
     a.reconnection.minUptime = 0; // the SDK default refuses to auto-reconnect in the first 5 s
     const sessionId = a.sessionId;
     const reconnected = new Promise<void>((resolve) => a.onReconnect(() => resolve()));
@@ -148,7 +148,7 @@ describe("plaza room", () => {
     await waitFor(() => playerIn(b, sessionId)?.connected === true);
 
     expect(a.sessionId).toBe(sessionId);
-    expect(b.state.players.size).toBe(2);
+    expect((b.state.players?.size ?? 0)).toBe(2);
     // The reconnected client can still act.
     a.send(ClientMessage.MoveTo, { x: 3, z: 14 });
     await waitFor(() => Math.hypot(playerIn(b, sessionId).x - 3, playerIn(b, sessionId).z - 14) < 0.1, 8000);

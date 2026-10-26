@@ -9,7 +9,7 @@ import { JOBS, type JobId } from "./life/config.ts";
 import { findMenuItem } from "./life/economy.ts";
 import type { Interactable, Seat, WorldLayout } from "./world.ts";
 
-export const ACTION_IDS = ["sit", "stand", "study", "greet", "sketch", "buy", "wash", "ask_work", "work"] as const;
+export const ACTION_IDS = ["sit", "stand", "study", "greet", "sketch", "buy", "wash", "ask_work", "work", "enter"] as const;
 export type ActionId = (typeof ACTION_IDS)[number];
 
 export type TargetKind = "object" | "player";
@@ -37,6 +37,8 @@ export const ACTION_LABELS: Record<ActionId, string> = {
   wash: "Wash up",
   ask_work: "Ask about work",
   work: "Work a shift",
+  /** Doors (M7c); menus show the door's own wording ("Go in", "Go out to the square"). */
+  enter: "Go through",
 };
 
 /** Reasons an interaction can be refused or fail. Shown to players as friendly text. */
@@ -148,6 +150,8 @@ export function objectActions(interactable: Interactable, actor: ActorView, occu
     }
     case "fountain":
       return hasFreeSeat ? ["wash"] : [];
+    case "door":
+      return hasFreeSeat && interactable.door ? ["enter"] : [];
   }
 }
 
@@ -158,12 +162,13 @@ export function playerActions(actor: ActorView, target: { id: string; connected:
 }
 
 const SEAT_ACTIONS: readonly ActionId[] = ["sit", "study", "sketch"];
-const STANDING_SPOT_ACTIONS: readonly ActionId[] = ["buy", "wash", "ask_work", "work"];
+const STANDING_SPOT_ACTIONS: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter"];
 const OBJECT_ACTIONS: Record<Interactable["kind"], readonly ActionId[]> = {
   bench: ["sit", "stand", "sketch"],
   desk: ["sit", "stand", "study"],
   cafe: ["buy", "ask_work", "work"],
   fountain: ["wash"],
+  door: ["enter"],
 };
 
 /** Server-side validation of an object interaction request. */

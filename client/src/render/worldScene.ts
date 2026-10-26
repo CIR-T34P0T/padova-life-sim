@@ -21,7 +21,7 @@ import type { QualityProfile } from "./quality.ts";
 import { cloudGeometry, nightSkyGeometry, paintSky, skyGeometry } from "./world/backdrop.ts";
 import { MOON_DIRECTION, daylightAt, type DayPhase, type Daylight } from "./world/daylight.ts";
 import { BUILDING_BATCH, CLOCK_FACE } from "./world/buildings.ts";
-import { buildDistrict, fadeGroupOf, fadeVolumes } from "./world/district.ts";
+import { buildDistrict, buildInterior, fadeGroupOf, fadeVolumes } from "./world/district.ts";
 import { pavingTexture, PAVING_TILE_METRES } from "./world/ground.ts";
 import { P } from "./world/palette.ts";
 import { SignAtlas } from "./world/signs.ts";
@@ -58,6 +58,8 @@ export interface WorldStats {
   faded: string[];
   /** The light being shown (M7b). `minute` is null until a game minute from the server has been applied. */
   daylight: { minute: number | null; phase: DayPhase; lamps: number; stars: number };
+  /** An indoor room (M7c): fixed indoor light, no sky. */
+  indoor: boolean;
 }
 
 export interface WorldScene {
@@ -89,6 +91,11 @@ export interface WorldSceneOptions {
    * so the title screen appears first (the game). Tools and tests build at once.
    */
   defer?: boolean;
+  /**
+   * An indoor room (M7c, D-039): its floor (inside the walls) is the ground,
+   * the light is a fixed indoor light, and there is no sky, haze or day/night.
+   */
+  interior?: { floor: { minX: number; maxX: number; minZ: number; maxZ: number } };
 }
 
 interface FadeState {
@@ -97,15 +104,18 @@ interface FadeState {
   opacity: number;
   /** Buildings also fade when the camera is very close to them. */
   building: boolean;
+  /** Indoor walls (M7c): also fade while the camera is outside the room on their side (a cutaway). */
+  cutaway?: (eye: THREE.Vector3) => boolean;
 }
 
 export function buildWorldScene(world: WorldLayout, quality: QualityProfile, options: WorldSceneOptions = {}): WorldScene {
   const detail: Detail = quality.name === "low" ? "low" : "high";
+  const indoor = options.interior ?? null;
   const scene = new THREE.Scene();
-  const background = new THREE.Color(P.skyHorizon);
+  const background = new THREE.Color(indoor ? "#211a16" : P.skyHorizon);
   scene.background = background;
   const fog = new THREE.Fog(P.haze, 55, 150);
-  scene.fog = fog;
+  scene.fog = indoor ? null : fog;
 
   // Soft fill from the sky and the ground, and one directional light: the sun
   // by day, the moon by night. Colours, strengths and direction follow the
@@ -147,7 +157,7 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
   const populate = () => {
     const started = performance.now();
     // ── Geometry → meshes ─────────────────────────────────────────────────────
-    const district = buildDistrict(world, detail);
+    const district = indoor ? buildInterior(world, detail, indoor.floor) : buildDistrict(world, detail);
     const batches = new Map<string, Piece[]>();
     for (const piece of district.pieces) {
       if (piece.material === "sign" && piece.sign) mapSignUvs(piece, atlas);
@@ -189,9 +199,11 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
       const fadeGroup = fadeGroupOf(batch);
       if (fadeGroup) material = fadeMaterial(fadeGroup, base);
       else if (batch.startsWith("interactable:") && kind === "toon") {
-        const clone = withNightGlow(baseMaterial.clone());
-        materials.add(clone);
         const id = batch.slice("interactable:".length);
+        // A room's door is cut away with its wall (M7c) but stays tappable: it is the way out.
+        const doorGroup = indoor && volumes.has(`building:${id}`) ? `building:${id}` : null;
+        const clone = doorGroup ? (fadeMaterial(doorGroup, baseMaterial) as THREE.MeshToonMaterial) : withNightGlow(baseMaterial.clone());
+        materials.add(clone);
         glow.set(id, [...(glow.get(id) ?? []), clone]);
         material = clone;
       }
@@ -208,7 +220,26 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     }
     scene.add(group);
 
+    // Indoors, the walls on the camera's side are cut away, so the room is always seen.
+    if (indoor) {
+      const f = indoor.floor;
+      const eps = 1e-3;
+      for (const o of world.obstacles) {
+        const state = fades.get(`building:${o.id}`);
+        if ((o.kind !== "wall" && o.kind !== "door") || !state) continue;
+        if (o.minZ >= f.maxZ - eps) state.cutaway = (eye) => eye.z > f.maxZ;
+        else if (o.maxZ <= f.minZ + eps) state.cutaway = (eye) => eye.z < f.minZ;
+        else if (o.minX >= f.maxX - eps) state.cutaway = (eye) => eye.x > f.maxX;
+        else if (o.maxX <= f.minX + eps) state.cutaway = (eye) => eye.x < f.minX;
+      }
+    }
+
     // ── Clock hands on the hall's tower, driven by the shared game clock ──────
+    if (indoor) {
+      buildMs = performance.now() - started;
+      built = true;
+      return;
+    }
     const clock = new THREE.Group();
     clock.position.set(CLOCK_FACE.x, CLOCK_FACE.y, CLOCK_FACE.z);
     const handMaterial = fades.has("building:hall") ? fadeMaterial("building:hall", baseMaterial) : baseMaterial;
@@ -230,13 +261,15 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     built = true;
   };
 
-  // ── Walkable ground ───────────────────────────────────────────────────────
+  // ── Walkable ground (indoors: the room's wooden floor) ────────────────────
   const size = world.halfSize * 2;
-  const paving = pavingTexture(detail === "high" ? 512 : 256);
+  const paving = indoor ? null : pavingTexture(detail === "high" ? 512 : 256);
   if (paving) paving.repeat.set(size / PAVING_TILE_METRES, size / PAVING_TILE_METRES);
-  const groundMaterial = new THREE.MeshToonMaterial({ color: paving ? 0xffffff : new THREE.Color(P.paving), map: paving, gradientMap: ramp });
+  const groundMaterial = new THREE.MeshToonMaterial({ color: paving ? 0xffffff : new THREE.Color(indoor ? "#b48356" : P.paving), map: paving, gradientMap: ramp });
   materials.add(groundMaterial);
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(size, size), groundMaterial);
+  const floor = indoor?.floor;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(floor ? floor.maxX - floor.minX : size, floor ? floor.maxZ - floor.minZ : size), groundMaterial);
+  if (floor) ground.position.set((floor.minX + floor.maxX) / 2, 0, (floor.minZ + floor.maxZ) / 2);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = quality.shadows;
   ground.name = "ground";
@@ -264,6 +297,7 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     sky.add(m);
   }
   sky.scale.setScalar(170);
+  sky.visible = !indoor;
   scene.add(sky);
   meshes += 3;
   triangles += nightSky.geometry.getAttribute("position").count / 3;
@@ -303,13 +337,22 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     paintSky(skyDome.geometry, d.skyTop, d.skyMid, d.skyHorizon);
     cloudMaterial.color.set(d.clouds);
     nightSkyMaterial.opacity = d.stars;
-    nightSky.visible = d.stars > 0.01;
+    nightSky.visible = d.stars > 0.01 && !indoor;
     poolMaterial.opacity = d.lamps * 0.55;
-    pools.visible = d.lamps > 0.01;
+    pools.visible = d.lamps > 0.01 && !indoor;
     // The fountain's water glows faintly by day; much less at night.
     waterMaterial.emissive.copy(WATER_EMISSIVE).multiplyScalar(1 - 0.75 * d.lamps);
   };
-  applyLight(current);
+  if (indoor) {
+    // A warm, even indoor light from the ceiling; the time of day doesn't reach inside (M7c).
+    ambient.color.set("#fff1e0");
+    ambient.groundColor.set("#6b5a4a");
+    ambient.intensity = 1.5;
+    sun.color.set("#fff0dc");
+    sun.intensity = 1.5;
+    sun.position.set(6, LIGHT_DISTANCE, 10);
+    current = { ...current, lamps: 0, stars: 0, characterLift: 0 };
+  } else applyLight(current);
 
   // ── Invisible tap and collision boxes ─────────────────────────────────────
   const unitBox = new THREE.BoxGeometry(1, 1, 1);
@@ -334,8 +377,8 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     const owner = interactableIds.has(obstacle.id) ? obstacle.id : obstacle.partOf && interactableIds.has(obstacle.partOf) ? obstacle.partOf : undefined;
     if (owner) mesh.userData.interactableId = owner;
     if (interactableIds.has(obstacle.id)) interactableMeshes.set(obstacle.id, mesh);
-    // A see-through building lets taps through to what is visible behind it.
-    const group = BUILDING_BATCH[obstacle.id];
+    // A see-through building (or inside wall, M7c) lets taps through to what is visible behind it.
+    const group = obstacle.kind === "wall" ? `building:${obstacle.id}` : BUILDING_BATCH[obstacle.id];
     if (group) mesh.userData.fadeGroup = group;
   }
   // Overhangs: the portico's upper floors (not walkable ground, though over it).
@@ -348,8 +391,10 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
   // Beyond the edge: tapping there explains that the area isn't open yet.
   const h = world.halfSize;
   const far = 110;
-  for (const [x0, x1, z0, z1] of [[-far, far, -far, -h], [-far, far, h, far], [-far, -h, -h, h], [h, far, -h, h]] as const) {
-    proxy(x0, x1, -0.05, 0, z0, z1, "outside", OUTSIDE_LABEL);
+  if (!indoor) {
+    for (const [x0, x1, z0, z1] of [[-far, far, -far, -h], [-far, far, h, far], [-far, -h, -h, h], [h, far, -h, h]] as const) {
+      proxy(x0, x1, -0.05, 0, z0, z1, "outside", OUTSIDE_LABEL);
+    }
   }
 
   const targetMarker = new THREE.Mesh(
@@ -402,7 +447,7 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     const step = focus && !hadFocus ? 1 : 1 - Math.exp(-Math.min(dt, 0.1) * 10);
     hadFocus = focus !== null;
     for (const state of fades.values()) {
-      const target = focus && (state.volumes.some(hides) || (state.building && state.volumes.some(nearCamera))) ? FADED_OPACITY : 1;
+      const target = focus && (state.volumes.some(hides) || (state.building && state.volumes.some(nearCamera)) || state.cutaway?.(eye)) ? FADED_OPACITY : 1;
       if (Math.abs(state.opacity - target) < 0.002) continue;
       state.opacity += (target - state.opacity) * step;
       if (Math.abs(state.opacity - target) < 0.01) state.opacity = target;
@@ -417,7 +462,7 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
         m.opacity = state.opacity;
       }
     }
-    if (gameMinute !== null) {
+    if (gameMinute !== null && !indoor) {
       // The light changes once per game minute (6 real seconds by default): too slowly to see it step.
       const whole = Math.floor(gameMinute);
       if (whole !== lightMinute) {
@@ -456,6 +501,7 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     materials: materials.size,
     faded: [...fades].filter(([, s]) => s.opacity < 0.6).map(([name]) => name),
     daylight: { minute: lightMinute, phase: current.phase, lamps: current.lamps, stars: current.stars },
+    indoor: indoor !== null,
   });
 
   return { scene, ground, blockers, targetMarker, interactableMeshes, highlight, pickTargets, update, stats, ready, isReady: () => built };

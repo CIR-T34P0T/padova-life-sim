@@ -99,6 +99,23 @@ export async function waitUntilPlaying(page: Page, name?: string, timeoutMs = 60
   );
 }
 
+/**
+ * Waits until the page has drawn `count` more frames. Use this, not a fixed
+ * delay, between two reads of a screen point: under software rendering (most
+ * of all phone emulation) one frame can take longer than 250 ms, so two reads
+ * a fixed time apart can fall in the same frame while the camera still moves.
+ */
+export async function afterFrames(page: Page, count = 3): Promise<void> {
+  await page.evaluate(
+    (n) => new Promise<void>((resolve) => {
+      let frames = 0;
+      const step = () => (++frames >= n ? resolve() : requestAnimationFrame(step));
+      requestAnimationFrame(step);
+    }),
+    count,
+  );
+}
+
 /** Opens a new browser context and creates a fresh character in it. */
 export async function joinAs(
   browser: Browser,
