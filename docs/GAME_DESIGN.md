@@ -453,6 +453,21 @@ the daily limit are tuning values; unpaid partial shifts are a design choice
 the product owner can reverse (proportional pay instead); showing
 unavailable shifts greyed out with a reason is recorded in D-036.
 
+## Indoor rooms (proposed)
+
+**Proposed, not built** (D-038; how: ARCHITECTURE.md "Proposed: indoor
+rooms", waiting on ROADMAP Q14). Every building has at least one room you
+can enter through its door, with a short fade; inside you meet only the
+players in the same room. First rooms and what they are for:
+
+| Building | Room | Use |
+| --- | --- | --- |
+| University hall | Lecture room | Lectures and the exam (M8); sit and study meanwhile |
+| Library | Reading room | Study at desks (quiet, a small bonus could come later) |
+| Shops | A shop interior | A second workplace (later milestone) |
+| Residences and bookshop | Bookshop; flats upstairs | Browse and buy books (later); homes (M10) |
+| Student housing, portico houses | Flats | Homes (M10): rent, sleep, furniture |
+
 ## Open design questions
 
 1. ~~**Time in a shared world.**~~ Decided above (D-021, D-022); sleep and

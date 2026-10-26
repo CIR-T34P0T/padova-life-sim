@@ -147,7 +147,9 @@ still one server clock that every player shares.
 ## Not yet implemented
 
 - Interest management / proximity filtering (one small room makes it unnecessary so far).
-- Multiple rooms or areas, room transfer between districts.
+- Multiple rooms or areas, room transfer between districts. **Proposed** for
+  indoor rooms: areas inside the one server room, each client receiving only
+  its area's players (ARCHITECTURE.md "Proposed: indoor rooms", ROADMAP Q14).
 - Real authentication (only temporary guest accounts exist, D-017).
 - A shared session registry for more than one server process.
 - Client-side prediction and reconciliation for the local player.

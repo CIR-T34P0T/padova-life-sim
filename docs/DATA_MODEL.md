@@ -383,6 +383,7 @@ built as described above.)
 
 | Milestone (proposed) | Data | Notes |
 | --- | --- | --- |
+| M7c indoor rooms | No new table: `character_state.area` (exists, always `plaza` today) stores the area id, e.g. `hall/lecture-room`; areas and doors are static data in `shared/` | An unknown or removed area loads at the square's spawn points, like a blocked position. Homes (M10) add one area copy per household |
 | M8 university basics | Fictional course and timetable catalogue in `shared/`; `enrolments` (character, course, status); `lecture_attendance` (character, lecture slot, game day); `assessments` (character, course, kind, grade, game day) | Grades and attendance are decided by the server from game time and recorded actions, never sent by a client |
 | M9 relationships and safety | `relationships` (an ordered pair of characters, score, kind, last interaction); `blocks` (blocking account → blocked account); `reports` (reporter, reported character, reason, short context, status) | Relationship data is private to the two players unless they choose to show it. Reports keep only what moderation needs; retention to be decided |
 | M9 story log | `story_events` (character, kind, game minute, small validated details, visibility) | Written by the server when a meaningful event happens (first shift, exam result, new friend); never edited by clients |

@@ -17,7 +17,8 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M6c | World art pass: the first district | Tested (see acceptance below); Stage-1 procedural art; not yet seen by the product owner, on Windows or on a phone | The greybox becomes a fictional Padua-inspired university square: six detailed buildings (hall with walk-in porch and clock tower, library, portico you can walk through), market, café with tables, gardens, trees, lamps, paving; streets and skyline beyond; collision-first art checked by a test; buildings and trees that hide you fade (D-033, D-034) |
 | M7 | A first job | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | Café kiosk job: ask about work, 90 s shifts on two staff spots behind the counter, a wage paid once per completed shift through the M5 ledger, barista grade at communication level 2, opening hours and a daily limit, quit; daily allowance halved (D-035, D-036) |
 | M7b | Day and night | Tested (world lab, the game at night on desktop and phone emulation); Stage-1 art; not yet seen by the product owner, on Windows or on a phone | Sun and moon, sky, haze, stars, lit windows, lanterns and lamplight pools follow the shared game clock; night stays readable; 2 extra draw calls at night only; no gameplay effect (D-037) |
-| M8 | University basics | Planned, next (order approved; details proposed; waits on Q4 and the Q6 explanation) | One fictional course: enrolment, a timetable in game time, lectures, an exam with a server-computed grade |
+| M7c | Indoor rooms: the foundation | **Proposed** (waits on Q14) | Areas inside the one server room, doors, only your area's players sent to you, the area saved; the hall's lecture room and the library's reading room |
+| M8 | University basics | Planned (order approved; details proposed; after M7c if Q14 is approved; the Q6 explanation is due when it starts) | One fictional course: enrolment, a timetable in game time, lectures, an exam with a server-computed grade |
 | M9 | Relationships, public profiles and safety | Planned (order approved; details proposed) | Public info panel for other players, relationships grown from shared actions, block and report, a private story log |
 | M10 | A place to live | Planned (order approved; details proposed) | A rented room, sleep, comfort, a small furniture catalogue with server-validated placement |
 | M11 | NPCs with routines | Planned (order approved; details proposed) | A few deterministic NPCs with game-time schedules using the same interaction points |
@@ -219,10 +220,9 @@ D-037.
 
 ### M8 — University basics (one fictional course)
 
-Depends on: the game clock (D-021) and academic skill (M5); a place for
-lectures (Q10: at the hall's entrance without an interior, or an interior,
-compared in writing first). M7 first so time and money compete (approved
-order). The plainer explanation of authored character models (Q6) is given
+Depends on: the game clock (D-021, kept as it is: D-038) and academic
+skill (M5); the indoor lecture room (D-038), so M7c first if Q14 is
+approved. M7 first so time and money compete (approved order). The plainer explanation of authored character models (Q6) is given
 when M8 starts.
 
 1. Enrol in one fictional course at the university hall (no real course
@@ -316,9 +316,10 @@ before any test with people outside the project (D-035).
 | --- | --- |
 | M7 job | Done (2026-10-26) |
 | M7b day and night | Done (2026-10-26) |
-| M8 university | M5 clock and skills (done); Q10 for an indoor lecture room |
+| M7c indoor rooms | Q14 approval; M6c world format (done) |
+| M8 university | M5 clock and skills (done); the lecture room (M7c) |
 | M9 social | M3 greet, M4 profiles (done); the sign-in method (Q5) and the report process (Q13) |
-| M10 home | M7 income (done); the interiors comparison (Q10); area transfer in networking |
+| M10 home | M7 income (done); areas and doors (M7c) |
 | M11 NPCs | M7 and M8 places |
 | M12 operations | Q5 and hosting decisions |
 
@@ -333,16 +334,17 @@ marked **waiting**.
 | Q1 | Order of the next milestones | Approved: M7 → M7b → M8 → M9 → M10 → M11; M12 before any public test | "Planned milestones" above |
 | Q2 | Arrival view (the shops' wall filled the right of the first view on a computer) | Approved: fade buildings very close to the camera | Implemented 2026-10-20: buildings within 3.5 m of the camera fade, and a faded building lets taps through |
 | Q3 | Three lives per guest profile (D-031) | Kept for now | — |
-| Q4 | Time scale and offline cap (D-021, D-022) | **Waiting** (not answered); today's values stay | Matters for M8 timetables, which are set in game time |
+| Q4 | Time scale and offline cap (D-021, D-022) | Answered 2026-10-26: keep the current clock (D-038) | M8 timetables use it |
 | Q5 | A real sign-in method and account deletion | Approved: decide before M9 and before any public test | Options presented before M9 |
 | Q6 | Authored character models (commission or license, or keep procedural; glTF or VRM) | **Waiting**: the owner likes the idea and wants a plainer explanation | Explained when M8 starts; procedural characters until then |
 | Q7 | A comfort need | Approved: add it in M10 with furniture of different comfort | M10 |
 | Q8 | The daily allowance once jobs exist | Approved: halve it (€15 → €7.50 per game day) in M7 | Done in M7 |
 | Q9 | Rent that can't be paid (no debt, D-023) | Approved: a notice and a mood event, then a move to a cheaper room | M10 |
-| Q10 | How to build interiors (homes, lecture rooms) | Approved: a written comparison first | Before M10, or before M8 if lectures move indoors |
+| Q10 | How to build interiors (homes, lecture rooms) | Approved: a written comparison first. 2026-10-26: lectures indoors, and every building gets at least one indoor room, workplaces and homes included (D-038) | Comparison written: ARCHITECTURE.md "Proposed: indoor rooms"; approval is Q14 |
 | Q11 | Later districts: fictional or real streets | Approved: fictional composites until verified references exist | — |
 | Q12 | Day and night lighting | Approved: right after M7 | Done in M7b (D-037) |
 | Q13 | Who reviews player reports, and how long reports are kept | **Waiting**: to be explained more simply | Raised again before M9 |
+| Q14 | How to build indoor rooms, and when | **Waiting.** Recommended: areas inside the one server room with doors (option C), as M7c before M8; the other buildings' rooms with their uses, or in one pass right after M7c | M7c, then M8 |
 
 ## Current state (handoff, 2026-10-26)
 
@@ -401,12 +403,10 @@ saved in the creator and device settings live only in that browser. The world cl
 | 4 | Play-test the M5 and M7 balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
 | 5 | Remaining decisions in "Decisions for the product owner": Q4 (any time), Q6 (when M8 starts), Q13 (before M9) | Waiting | Product owner, with explanations from Claude |
 
-**Recommended next task:** **M8, university basics**, next in the approved
-order. Before building it: Claude gives the plainer explanation of authored
-character models promised for when M8 starts (Q6), the product owner answers
-Q4 (time scale and offline cap: lecture timetables are set in game time),
-and says whether lectures happen at the hall's entrance or need an interior
-(Q10: an interior needs the written comparison first). In parallel the
+**Recommended next task:** the product owner approves how indoor rooms are
+built (Q14; comparison in ARCHITECTURE.md "Proposed: indoor rooms"), then
+**M7c, indoor rooms: the foundation**, then M8 with lectures in the lecture
+room (the Q6 explanation is due when M8 starts). In parallel the
 product owner looks at the district by day and at night, the title screen,
 the creation flow and the characters on Windows and a phone (item 1; the
 world lab, `/world-lab.html?time=23:00`, shows every corner at any hour).

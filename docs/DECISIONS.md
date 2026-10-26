@@ -544,3 +544,14 @@ default the product owner can change.
   nothing changes.
 - **Joining at night shows night at once:** the light is applied in the frame
   update before the first render after entering.
+
+## D-038 — The product owner's answers before M8 (2026-10-26)
+
+- **Q4, time scale and offline cap: keep the current clock** (10 game
+  minutes per real minute, D-021; offline catch-up capped at 8 game hours,
+  D-022). M8's timetables are set in game time on this clock.
+- **Q10, lectures: in an indoor room.** And a direction for the whole game:
+  **every building, now and later, has at least one indoor room**, including
+  workplaces and homes. How interiors are built is compared in
+  ARCHITECTURE.md "Proposed: indoor rooms"; the recommended approach and the
+  milestone order wait for approval (ROADMAP Q14).
