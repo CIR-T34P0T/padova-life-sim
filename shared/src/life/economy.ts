@@ -3,7 +3,7 @@
 import { CAFE_MENU, type MenuItem } from "./config.ts";
 
 export type TransactionDirection = "income" | "expense";
-export type TransactionCategory = "allowance" | "purchase" | "refund";
+export type TransactionCategory = "allowance" | "purchase" | "refund" | "wage";
 
 /** One ledger entry as shown to its owner. */
 export interface TransactionView {

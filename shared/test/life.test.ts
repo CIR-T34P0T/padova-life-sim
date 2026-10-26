@@ -232,11 +232,12 @@ describe("money and the café", () => {
     expect(canAfford(4.5, 4)).toBe(false); // amounts are whole cents
   });
 
-  it("lets the daily allowance pay for a day of food (money matters without being punishing)", () => {
+  it("lets the daily allowance cover at least half a day of food (money matters without being punishing)", () => {
+    // Since M7 the allowance is halved and wages make up the rest (see work.test.ts).
     const hungerPerGameDay = -NEEDS_CONFIG.perGameHour.hunger * 24;
     const panino = findMenuItem("panino")!;
     const costPerDay = (hungerPerGameDay / panino.needs.hunger!) * panino.priceCents;
-    expect(costPerDay).toBeLessThanOrEqual(ECONOMY_CONFIG.dailyAllowanceCents);
+    expect(ECONOMY_CONFIG.dailyAllowanceCents).toBeGreaterThanOrEqual(costPerDay / 2);
   });
 
   it("accepts only safe request ids", () => {

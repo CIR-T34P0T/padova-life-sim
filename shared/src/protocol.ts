@@ -4,7 +4,7 @@
 
 import { GAME_CONFIG } from "./config.ts";
 import { ACTION_IDS, type ActionId, type CancelReason, type InteractionFailure, type TargetKind } from "./interactions.ts";
-import type { MoodEventId, MoodLevel, NeedId, SkillId, TraitId } from "./life/config.ts";
+import type { JobId, MoodEventId, MoodLevel, NeedId, SkillId, TraitId } from "./life/config.ts";
 import { isValidRequestId, type TransactionView } from "./life/economy.ts";
 import type { MoodReason } from "./life/mood.ts";
 import type { CharacterProfile, ProfileFailure } from "./profile.ts";
@@ -34,6 +34,8 @@ export const ClientMessage = {
   LeaveWorld: "leaveWorld",
   /** Permanently delete one of this account's characters (lobby only). Payload: DeleteCharacterPayload. */
   DeleteCharacter: "deleteCharacter",
+  /** Quit the character's job (in the world only; a shift in progress ends unpaid). No payload. */
+  QuitJob: "quitJob",
 } as const;
 
 export const ServerMessage = {
@@ -185,6 +187,12 @@ export interface LifePayload {
   skills: Record<SkillId, SkillView>;
   traits: TraitId[];
   money: { balanceCents: number; recent: TransactionView[] };
+  /**
+   * The character's job (M7), or null without one. `shiftsToday` counts
+   * completed shifts on the current game day. Grade, wage and opening hours
+   * follow from the shared rules (shared/src/life/work.ts).
+   */
+  job: { jobId: JobId; shiftsToday: number } | null;
 }
 
 export interface GreetedPayload {

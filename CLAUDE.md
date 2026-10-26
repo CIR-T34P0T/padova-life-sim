@@ -63,7 +63,9 @@ or auth model without the product owner's approval.
   `shared/src/interactions.ts`; they don't add special cases to the room.
   Gameplay effects (needs, skills, money) plug in through `InteractionHooks`,
   implemented by `server/src/life/LifeSystem.ts`, and are defined as data in
-  `shared/src/life/config.ts` (`ACTION_EFFECTS`, `CAFE_MENU`).
+  `shared/src/life/config.ts` (`ACTION_EFFECTS`, `CAFE_MENU`, `JOBS`).
+  Wages are paid only for completed shifts, through the same ledger
+  (`recordShift`, one payment per shift id).
 - **Appearance is cosmetic and never about ethnicity** (D-029). The
   appearance config (`shared/src/appearance/`) has no ethnicity, race or
   heritage field, presets are named by look, and no gameplay rule reads

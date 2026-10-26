@@ -5,10 +5,11 @@
 
 import { isPositionWalkable, type Vec2 } from "./collision.ts";
 import { GAME_CONFIG, INTERACTION_CONFIG } from "./config.ts";
+import { JOBS, type JobId } from "./life/config.ts";
 import { findMenuItem } from "./life/economy.ts";
 import type { Interactable, Seat, WorldLayout } from "./world.ts";
 
-export const ACTION_IDS = ["sit", "stand", "study", "greet", "sketch", "buy", "wash"] as const;
+export const ACTION_IDS = ["sit", "stand", "study", "greet", "sketch", "buy", "wash", "ask_work", "work"] as const;
 export type ActionId = (typeof ACTION_IDS)[number];
 
 export type TargetKind = "object" | "player";
@@ -23,7 +24,8 @@ export type Activity =
   | "ordering"
   | "eating"
   | "drinking"
-  | "washing";
+  | "washing"
+  | "working";
 
 export const ACTION_LABELS: Record<ActionId, string> = {
   sit: "Sit",
@@ -33,6 +35,8 @@ export const ACTION_LABELS: Record<ActionId, string> = {
   sketch: "Sketch",
   buy: "Buy",
   wash: "Wash up",
+  ask_work: "Ask about work",
+  work: "Work a shift",
 };
 
 /** Reasons an interaction can be refused or fail. Shown to players as friendly text. */
@@ -55,7 +59,14 @@ export type InteractionFailure =
   | "unknown_item"
   | "insufficient_funds"
   | "purchase_failed"
-  | "duplicate_request";
+  | "duplicate_request"
+  // Work (M7)
+  | "not_employed"
+  | "already_employed"
+  | "closed"
+  | "shift_limit"
+  | "hire_failed"
+  | "wage_failed";
 
 /** Why an action ended before completing. */
 export type CancelReason = "cancelled" | "interrupted" | "replaced" | "disconnected";
@@ -68,6 +79,8 @@ export interface ActorView {
   /** Seat currently occupied ("" when standing). */
   seatId: string;
   activity: Activity | string;
+  /** The actor's job (private: the server passes its own record, a client only its own). */
+  job?: JobId | null;
 }
 
 /** seatId → id of the player occupying or walking to it. */
@@ -103,10 +116,23 @@ export function interactableCentre(world: WorldLayout, interactable: Interactabl
 const isFreeFor = (seat: Seat, occupancy: SeatOccupancy, actorId: string) =>
   !occupancy.has(seat.id) || occupancy.get(seat.id) === actorId;
 
+/** Staff spots are only for working; every other action uses the other points. */
+export function seatsFor(interactable: Interactable, action: ActionId): readonly Seat[] {
+  const staff = action === "work";
+  return interactable.seats.filter((seat) => (seat.use === "staff") === staff);
+}
+
+const hasFreeFor = (interactable: Interactable, action: ActionId, occupancy: SeatOccupancy, actorId: string) =>
+  seatsFor(interactable, action).some((seat) => isFreeFor(seat, occupancy, actorId));
+
+/** True when the actor's job is done at this object. */
+const worksHere = (interactable: Interactable, actor: ActorView) =>
+  Boolean(actor.job && JOBS[actor.job].workplaceId === interactable.id);
+
 /** Actions an object offers this actor right now (menu contents). */
 export function objectActions(interactable: Interactable, actor: ActorView, occupancy: SeatOccupancy): ActionId[] {
   const seatedHere = interactable.seats.some((seat) => seat.id === actor.seatId);
-  const hasFreeSeat = interactable.seats.some((seat) => isFreeFor(seat, occupancy, actor.id));
+  const hasFreeSeat = hasFreeFor(interactable, "sit", occupancy, actor.id);
   switch (interactable.kind) {
     case "bench":
       if (seatedHere) return actor.activity === "sketching" ? ["stand"] : ["sketch", "stand"];
@@ -114,8 +140,12 @@ export function objectActions(interactable: Interactable, actor: ActorView, occu
     case "desk":
       if (seatedHere) return actor.activity === "studying" ? ["stand"] : ["study", "stand"];
       return hasFreeSeat ? ["study", "sit"] : [];
-    case "cafe":
-      return hasFreeSeat ? ["buy"] : [];
+    case "cafe": {
+      const actions: ActionId[] = hasFreeSeat ? ["buy"] : [];
+      if (!actor.job && hasFreeSeat) actions.push("ask_work");
+      if (worksHere(interactable, actor) && hasFreeFor(interactable, "work", occupancy, actor.id)) actions.push("work");
+      return actions;
+    }
     case "fountain":
       return hasFreeSeat ? ["wash"] : [];
   }
@@ -128,11 +158,11 @@ export function playerActions(actor: ActorView, target: { id: string; connected:
 }
 
 const SEAT_ACTIONS: readonly ActionId[] = ["sit", "study", "sketch"];
-const STANDING_SPOT_ACTIONS: readonly ActionId[] = ["buy", "wash"];
+const STANDING_SPOT_ACTIONS: readonly ActionId[] = ["buy", "wash", "ask_work", "work"];
 const OBJECT_ACTIONS: Record<Interactable["kind"], readonly ActionId[]> = {
   bench: ["sit", "stand", "sketch"],
   desk: ["sit", "stand", "study"],
-  cafe: ["buy"],
+  cafe: ["buy", "ask_work", "work"],
   fountain: ["wash"],
 };
 
@@ -148,10 +178,12 @@ export function validateObjectAction(
 ): Check {
   if (!OBJECT_ACTIONS[interactable.kind].includes(action)) return fail("action_not_available");
   if (action === "buy" && (!itemId || !findMenuItem(itemId))) return fail("unknown_item");
+  if (action === "ask_work" && actor.job) return fail("already_employed");
+  if (action === "work" && !worksHere(interactable, actor)) return fail("not_employed");
   const centre = interactableCentre(world, interactable);
   if (Math.hypot(centre.x - actor.x, centre.z - actor.z) > maxDistance) return fail("too_far");
   if (objectActions(interactable, actor, occupancy).includes(action)) return ok;
-  const anyFree = interactable.seats.some((s) => isFreeFor(s, occupancy, actor.id));
+  const anyFree = hasFreeFor(interactable, action, occupancy, actor.id);
   if (SEAT_ACTIONS.includes(action) && !anyFree) return fail("no_free_seat");
   if (STANDING_SPOT_ACTIONS.includes(action) && !anyFree) return fail("busy");
   return fail("action_not_available");
@@ -175,11 +207,11 @@ export function validatePlayerAction(
   return ok;
 }
 
-/** The free seat closest to the actor (or the one they already hold). */
-export function chooseSeat(interactable: Interactable, occupancy: SeatOccupancy, actor: ActorView): Seat | null {
+/** The free seat (or spot) for this action closest to the actor (or the one they already hold). */
+export function chooseSeat(interactable: Interactable, occupancy: SeatOccupancy, actor: ActorView, action: ActionId = "sit"): Seat | null {
   let best: Seat | null = null;
   let bestDistance = Infinity;
-  for (const seat of interactable.seats) {
+  for (const seat of seatsFor(interactable, action)) {
     if (!isFreeFor(seat, occupancy, actor.id)) continue;
     const distance = Math.hypot(seat.approach.x - actor.x, seat.approach.z - actor.z);
     if (distance < bestDistance) {

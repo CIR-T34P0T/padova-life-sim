@@ -5,10 +5,10 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district (M0–M6, title screen and world art pass)
+## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job (M0–M7)
 
 What exists today is an early, end-to-end slice: one district, one room,
-the first life-simulation loop and character creation. It proves the
+the first life-simulation loop, character creation and a first job. It proves the
 architecture; it is **not** the full game yet. Planned work and its order are
 in `docs/ROADMAP.md`.
 
@@ -23,7 +23,7 @@ in `docs/ROADMAP.md`.
 | Server-authoritative movement and validation | Multiplayer functional, tested |
 | Join / leave / brief-disconnect reconnection | Multiplayer functional, tested |
 | Click/tap objects and players for contextual actions (desktop radial menu, mobile bottom sheet) | Multiplayer functional, tested |
-| Bench: sit / sketch / stand · Study desk and café table: sit / study · Café counter: buy food · Fountain: wash up · Other player: greet | Multiplayer functional, tested |
+| Bench: sit / sketch / stand · Study desk and café table: sit / study · Café counter: buy food, ask about work, work a shift · Fountain: wash up · Other player: greet | Multiplayer functional, tested |
 | Action progress, cancel, and explanations when refused | Multiplayer functional, tested |
 | Saved character profile (name, adult age category, appearance, position) in PostgreSQL | Persistence verified (tested on embedded PGlite and PostgreSQL 16) |
 | Temporary guest identity (one browser = one guest profile with up to 3 characters; no sign-in) | Multiplayer functional, tested; temporary by design (D-017, D-031) |
@@ -34,10 +34,11 @@ in `docs/ROADMAP.md`.
 | Device settings: graphics, camera speed, interface animation, controls reminder | Locally functional, tested |
 | Procedural anime-inspired characters (every option is real geometry), walk / sit / wave poses | Multiplayer functional, persistence verified; **Stage-1 procedural art, not final artist-made models** (D-027) |
 | Needs (hunger, energy, hygiene, social, fun), mood with reasons, five skills, personality traits | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16) |
-| Money: balance, server-validated purchases and allowances, transaction history, no debt | Multiplayer functional, persistence verified |
+| Money: balance, server-validated purchases, allowances and wages, transaction history, no debt | Multiplayer functional, persistence verified |
+| First job at the café kiosk: ask about work, 90-second shifts behind the counter (two staff spots), wage paid once per completed shift, two grades by communication level, opening hours 06:00–23:00 game time, 4 shifts per game day, quit from the character panel | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16; desktop and phone emulation); numbers not yet play-tested |
 | Shared world clock (10 game minutes per real minute) and capped offline progression | Multiplayer functional, tested |
-| Character panel (your needs, mood, skills, money, current action) and top-right time/money chip | Locally functional, tested (desktop and phone emulation) |
-| Sleep/beds, cooking, inventory, jobs, university courses | Not started (see docs/ROADMAP.md) |
+| Character panel (your needs, mood, skills, work, money, current action) and top-right time/money chip | Locally functional, tested (desktop and phone emulation) |
+| Sleep/beds, cooking, inventory, more jobs, university courses | Not started (see docs/ROADMAP.md) |
 
 "Tested" means covered by the automated tests in `docs/TESTING.md`. Mobile is
 tested in Chromium mobile emulation only; a real phone has not been tested yet.
@@ -115,8 +116,15 @@ The client runs on port 5173 and the game server on port 2567.
   sketch on a bench (fun, creativity), study at a desk (academic skill; not
   when you're exhausted). Needs drop slowly over time and nothing bad happens
   quickly: low needs make your mood worse, which slows learning.
-- **Money:** you start with €100 and get €15 each game day you play. You can't
-  spend more than you have.
+- **Money:** you start with €100 and get €7.50 each game day you play, plus
+  wages from the café. You can't spend more than you have.
+- **Work:** click/tap the café counter → **Ask about work** to get a job,
+  then **Work a shift**: your character goes behind the counter and works
+  for 90 seconds (you can cancel, but only a finished shift is paid: €6, or
+  €8 once your communication skill reaches level 2). The café is open
+  06:00–23:00 game time and takes up to 4 shifts a game day; you can't work
+  when you're exhausted. Your job, wage and shifts today are in the
+  character panel's **Work** section, with **Quit job**.
 - **Stand up:** click/tap yourself while seated, or just walk away.
 - **Cancel:** the Cancel button on the action bar, or Escape.
 - **Camera:** drag to turn; mouse wheel or pinch to zoom.
@@ -206,9 +214,11 @@ First-time Playwright setup: `npx playwright install chromium`.
 | `DB_MIGRATE_ON_START` | server | `true` | Set `false` to apply migrations only with `npm run db:migrate` |
 | `GUEST_CREATIONS_PER_IP_PER_HOUR` | server | `10` | New guest characters allowed per IP address per hour (abuse limit) |
 | `GAME_TIME_SCALE` | server | `10` | Game minutes per real minute (1–1440). Changing it moves the world clock; for development and testing (D-021) |
+| `GAME_CLOCK_OFFSET_MINUTES` | server | `0` | Shifts the world clock by whole game minutes (up to a week either way), e.g. to try the café's opening hours at any real time; for development and testing (D-036) |
 | `CHROMIUM_PATH` | e2e | Playwright's browser | Use an existing Chromium for tests |
 | `TEST_DATABASE_URL` | tests | unset | Also run database tests on a real PostgreSQL (creates and drops throwaway databases) |
 | `E2E_DATABASE_URL` | e2e | unset | Run the browser tests' server on a real PostgreSQL instead of in-memory |
+| `E2E_CLOCK_OFFSET_MINUTES` | e2e | starts at 09:00 game time | Overrides the browser tests' clock offset (e.g. to try the closed café) |
 | `E2E_QUALITY` | e2e | `low` | World detail for test browsers (`high` needs a real GPU to be quick; see TESTING.md) |
 | `VITE_DEFAULT_QUALITY` | client build | unset | Replaces the phone/computer guess for the "Automatic" graphics setting (`low` or `high`); the browser tests use it, players don't need it |
 

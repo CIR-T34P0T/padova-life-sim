@@ -1,5 +1,7 @@
 // Friendly text for server refusal and failure reasons.
 
+import { JOBS, formatTimeOfDay } from "@padova/shared";
+
 const REASON_TEXT: Record<string, string> = {
   // Movement
   target_blocked: "You can't walk there.",
@@ -27,6 +29,13 @@ const REASON_TEXT: Record<string, string> = {
   insufficient_funds: "You can't afford that right now.",
   purchase_failed: "The payment didn't go through. Nothing was charged.",
   duplicate_request: "That order was already placed.",
+  // Work (M7)
+  not_employed: "You don't work here. Choose \"Ask about work\" at the café counter first.",
+  already_employed: "You already work at the café.",
+  closed: `The café is closed until ${formatTimeOfDay(JOBS.cafe.opensAt)}.`,
+  shift_limit: "That's enough shifts for today. Come back tomorrow.",
+  hire_failed: "Couldn't sign you up just now. Nothing changed; try again in a moment.",
+  wage_failed: "Your wage couldn't be paid because of a server problem, so the shift didn't count.",
 };
 
 export function reasonText(reason: string | undefined): string {

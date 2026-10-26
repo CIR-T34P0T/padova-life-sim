@@ -94,7 +94,8 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     this.profiles = services.profiles;
     this.lifeService = services.life;
     const scale = this.tuning.timeScale;
-    this.gameClock = { scale, minute: () => gameMinuteAt(Date.now(), scale) };
+    const offset = this.tuning.clockOffsetMinutes;
+    this.gameClock = { scale, minute: () => gameMinuteAt(Date.now(), scale, offset) };
     this.registry = services.sessions;
     this.nav = new NavGrid(this.tuning.world, GAME_CONFIG.navCellSize, GAME_CONFIG.playerRadius, GAME_CONFIG.maxPathExpansions);
     this.state = new PlazaState();
@@ -133,6 +134,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     this.onMessage(ClientMessage.EnterWorld, (client, payload) => void this.handleEnterWorld(client, payload));
     this.onMessage(ClientMessage.LeaveWorld, (client) => void this.handleLeaveWorld(client));
     this.onMessage(ClientMessage.DeleteCharacter, (client, payload) => void this.handleDeleteCharacter(client, payload));
+    this.onMessage(ClientMessage.QuitJob, (client) => this.handleQuitJob(client));
     this.onMessage("*", (client, type) => {
       // Unknown message types (including any attempt to send a position) are ignored.
       log.warn("plaza", `ignored unknown message "${String(type)}" from ${client.sessionId}`);
@@ -575,6 +577,14 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     }
     this.interactions.onMovementIntent(client.sessionId, true);
     runtime.character.intent = { kind: "direction", dx, dz };
+  }
+
+  /** Quits the character's job. A shift in progress ends first, unpaid. No payload to validate. */
+  private handleQuitJob(client: Client): void {
+    if (!this.acceptIntent(client, ClientMessage.QuitJob)) return;
+    if (!this.life.jobOf(client.sessionId)) return;
+    this.interactions.cancelWork(client.sessionId);
+    this.life.quitJob(client.sessionId);
   }
 
   private handleStop(client: Client): void {

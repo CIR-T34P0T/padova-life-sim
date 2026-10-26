@@ -208,8 +208,8 @@ sign is original and generated at runtime. It is **Stage-1 procedural art**
   profile, none on phones) and
   a warm sky / earth hemisphere fill; a gradient sky dome with clouds; warm
   distance haze from 55 m to 150 m that hides the outer ring. Day/night
-  lighting is **proposed** (ROADMAP decision Q12): the clock already shows
-  night while the light stays afternoon.
+  lighting is approved as M7b (D-035) and not built yet: the clock already
+  shows night while the light stays afternoon.
 - **Readability rules for new work:** what can be used looks usable (seats,
   counters and desks at real heights, a clear front side); what blocks
   movement is visibly solid and fills its collision box; the edge of the

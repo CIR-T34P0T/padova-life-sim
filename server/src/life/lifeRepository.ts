@@ -1,4 +1,5 @@
-// SQL for life-simulation data: traits, needs, skills, mood events and money.
+// SQL for life-simulation data: traits, needs, skills, mood events, money and
+// work (M7).
 // Like profileRepository.ts, every read and write is scoped by the owning
 // account id taken from the authenticated session, never from client input.
 
@@ -6,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import {
   NEEDS_CONFIG,
   type ActiveMoodEvent,
+  type JobId,
   type Needs,
   type SkillXp,
   type TraitId,
@@ -185,54 +187,187 @@ export async function saveLife(tx: Queryable, owner: Owner, life: LifeSnapshot):
  * and the new balance together.
  */
 export async function applyMoneyChange(db: Database, owner: Owner, change: MoneyChange): Promise<MoneyChangeResult> {
-  if (!Number.isInteger(change.amountCents) || change.amountCents <= 0) {
-    throw new Error(`Money changes must be a positive whole number of cents (got ${change.amountCents})`);
-  }
   try {
-    return await db.transaction(async (tx) => {
-      const wallet = await tx.query<{ balance_cents: number }>(
-        `SELECT w.balance_cents FROM character_wallets w JOIN characters c ON c.id = w.character_id
-          WHERE w.character_id = $1 AND c.account_id = $2 FOR UPDATE OF w`,
-        [owner.characterId, owner.accountId],
-      );
-      const row = wallet.rows[0];
-      if (!row) return { status: "not_owner" } as const;
-      const balance = Number(row.balance_cents);
-
-      const earlier = await tx.query<TransactionRow>(
-        `SELECT ${TRANSACTION_COLUMNS} FROM wallet_transactions WHERE character_id = $1 AND request_key = $2`,
-        [owner.characterId, change.requestKey],
-      );
-      if (earlier.rows[0]) return { status: "duplicate", transaction: toView(earlier.rows[0]), balanceCents: balance } as const;
-
-      const next = change.direction === "income" ? balance + change.amountCents : balance - change.amountCents;
-      if (next < 0) return { status: "insufficient_funds", balanceCents: balance } as const;
-
-      await tx.query(`UPDATE character_wallets SET balance_cents = $2, updated_at = now() WHERE character_id = $1`, [owner.characterId, next]);
-      const inserted = await tx.query<TransactionRow>(
-        `INSERT INTO wallet_transactions
-           (id, character_id, direction, category, amount_cents, balance_after_cents, item_id, description, request_key, game_minute)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         RETURNING ${TRANSACTION_COLUMNS}`,
-        [
-          randomUUID(),
-          owner.characterId,
-          change.direction,
-          change.category,
-          change.amountCents,
-          next,
-          change.itemId ?? null,
-          change.description,
-          change.requestKey,
-          change.gameMinute,
-        ],
-      );
-      return { status: "applied", transaction: toView(inserted.rows[0]!), balanceCents: next } as const;
-    });
+    return await db.transaction((tx) => applyMoneyChangeIn(tx, owner, change));
   } catch (error) {
     // Two identical requests racing past the lock (should not happen, but the
     // unique key is the final guard): report the one that was stored.
-    if ((error as { code?: string }).code === "23505") return applyMoneyChange(db, owner, change);
+    if (isUniqueViolation(error)) return applyMoneyChange(db, owner, change);
+    throw error;
+  }
+}
+
+/**
+ * The body of applyMoneyChange, for use inside a larger transaction that must
+ * succeed or fail together with the money change (a wage and its shift).
+ */
+async function applyMoneyChangeIn(tx: Queryable, owner: Owner, change: MoneyChange): Promise<MoneyChangeResult> {
+  if (!Number.isInteger(change.amountCents) || change.amountCents <= 0) {
+    throw new Error(`Money changes must be a positive whole number of cents (got ${change.amountCents})`);
+  }
+  const wallet = await tx.query<{ balance_cents: number }>(
+    `SELECT w.balance_cents FROM character_wallets w JOIN characters c ON c.id = w.character_id
+      WHERE w.character_id = $1 AND c.account_id = $2 FOR UPDATE OF w`,
+    [owner.characterId, owner.accountId],
+  );
+  const row = wallet.rows[0];
+  if (!row) return { status: "not_owner" } as const;
+  const balance = Number(row.balance_cents);
+
+  const earlier = await tx.query<TransactionRow>(
+    `SELECT ${TRANSACTION_COLUMNS} FROM wallet_transactions WHERE character_id = $1 AND request_key = $2`,
+    [owner.characterId, change.requestKey],
+  );
+  if (earlier.rows[0]) return { status: "duplicate", transaction: toView(earlier.rows[0]), balanceCents: balance } as const;
+
+  const next = change.direction === "income" ? balance + change.amountCents : balance - change.amountCents;
+  if (next < 0) return { status: "insufficient_funds", balanceCents: balance } as const;
+
+  await tx.query(`UPDATE character_wallets SET balance_cents = $2, updated_at = now() WHERE character_id = $1`, [owner.characterId, next]);
+  const inserted = await tx.query<TransactionRow>(
+    `INSERT INTO wallet_transactions
+       (id, character_id, direction, category, amount_cents, balance_after_cents, item_id, description, request_key, game_minute)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING ${TRANSACTION_COLUMNS}`,
+    [
+      randomUUID(),
+      owner.characterId,
+      change.direction,
+      change.category,
+      change.amountCents,
+      next,
+      change.itemId ?? null,
+      change.description,
+      change.requestKey,
+      change.gameMinute,
+    ],
+  );
+  return { status: "applied", transaction: toView(inserted.rows[0]!), balanceCents: next } as const;
+}
+
+const isUniqueViolation = (error: unknown) => (error as { code?: string }).code === "23505";
+
+// ── Work (M7) ─────────────────────────────────────────────────────────────
+
+export interface StoredWork {
+  /** Raw stored job id (validate with isJobId), or null without a job. */
+  jobId: string | null;
+  /** Completed shifts on the requested game day. */
+  shiftsToday: number;
+}
+
+/** A character's job and its shifts on `gameDay`, or null when `owner.accountId` does not own it. */
+export async function loadWork(db: Queryable, owner: Owner, gameDay: number): Promise<StoredWork | null> {
+  if (!(await owns(db, owner))) return null;
+  const [job, shifts] = await Promise.all([
+    db.query<{ job: string }>(`SELECT job FROM character_employment WHERE character_id = $1`, [owner.characterId]),
+    db.query<{ n: number }>(`SELECT count(*)::int AS n FROM work_shifts WHERE character_id = $1 AND game_day = $2`, [owner.characterId, gameDay]),
+  ]);
+  return { jobId: job.rows[0]?.job ?? null, shiftsToday: Number(shifts.rows[0]?.n ?? 0) };
+}
+
+/** Gives the character a job. One job per character: refused while it has one. */
+export async function hireCharacter(db: Queryable, owner: Owner, jobId: JobId, gameMinute: number): Promise<"hired" | "already_employed" | "not_owner"> {
+  const { rows } = await db.query(
+    `INSERT INTO character_employment (character_id, job, hired_game_minute)
+       SELECT c.id, $3, $4 FROM characters c WHERE c.id = $1 AND c.account_id = $2
+     ON CONFLICT (character_id) DO NOTHING
+     RETURNING character_id`,
+    [owner.characterId, owner.accountId, jobId, gameMinute],
+  );
+  if (rows.length > 0) return "hired";
+  return (await owns(db, owner)) ? "already_employed" : "not_owner";
+}
+
+/** Ends the character's job. Its shift history and wages stay. */
+export async function quitJob(db: Queryable, owner: Owner): Promise<"quit" | "not_employed" | "not_owner"> {
+  const { rows } = await db.query(
+    `DELETE FROM character_employment e USING characters c
+      WHERE e.character_id = c.id AND c.id = $1 AND c.account_id = $2
+     RETURNING e.character_id`,
+    [owner.characterId, owner.accountId],
+  );
+  if (rows.length > 0) return "quit";
+  return (await owns(db, owner)) ? "not_employed" : "not_owner";
+}
+
+export interface CompletedShift {
+  /** Server-chosen shift id (a UUID); the wage's ledger key is `wage:<id>`. */
+  shiftId: string;
+  jobId: JobId;
+  gradeId: string;
+  gradeLabel: string;
+  wageCents: number;
+  gameDay: number;
+  startedGameMinute: number;
+  endedGameMinute: number;
+  /** The job's daily limit, enforced again here. */
+  maxShiftsPerDay: number;
+}
+
+export type ShiftResult =
+  | { status: "paid" | "duplicate"; transaction: TransactionView; balanceCents: number; shiftsToday: number }
+  | { status: "shift_limit"; shiftsToday: number }
+  | { status: "not_employed" }
+  | { status: "not_owner" };
+
+/**
+ * Records a completed shift and pays its wage in one transaction: either both
+ * are written or neither. Safe to repeat: a shift already recorded returns
+ * "duplicate" with its original payment. Refuses a shift when the character
+ * no longer has that job or the day's limit is already reached.
+ */
+export async function recordShift(db: Database, owner: Owner, shift: CompletedShift): Promise<ShiftResult> {
+  try {
+    return await db.transaction(async (tx): Promise<ShiftResult> => {
+      // Lock the wallet first: shifts of one character are recorded one at a time.
+      const wallet = await tx.query(
+        `SELECT 1 FROM character_wallets w JOIN characters c ON c.id = w.character_id
+          WHERE w.character_id = $1 AND c.account_id = $2 FOR UPDATE OF w`,
+        [owner.characterId, owner.accountId],
+      );
+      if (wallet.rows.length === 0) return { status: "not_owner" };
+      const countToday = async () =>
+        Number(
+          (await tx.query<{ n: number }>(`SELECT count(*)::int AS n FROM work_shifts WHERE character_id = $1 AND game_day = $2`, [owner.characterId, shift.gameDay]))
+            .rows[0]?.n ?? 0,
+        );
+
+      const earlier = await tx.query<TransactionRow>(
+        `SELECT ${TRANSACTION_COLUMNS.split(", ").map((column) => `t.${column}`).join(", ")}
+           FROM work_shifts s JOIN wallet_transactions t ON t.id = s.transaction_id
+          WHERE s.id = $1 AND s.character_id = $2`,
+        [shift.shiftId, owner.characterId],
+      );
+      if (earlier.rows[0]) {
+        const balance = await tx.query<{ balance_cents: number }>(`SELECT balance_cents FROM character_wallets WHERE character_id = $1`, [owner.characterId]);
+        return { status: "duplicate", transaction: toView(earlier.rows[0]), balanceCents: Number(balance.rows[0]!.balance_cents), shiftsToday: await countToday() };
+      }
+
+      const job = await tx.query<{ job: string }>(`SELECT job FROM character_employment WHERE character_id = $1`, [owner.characterId]);
+      if (job.rows[0]?.job !== shift.jobId) return { status: "not_employed" };
+      const before = await countToday();
+      if (before >= shift.maxShiftsPerDay) return { status: "shift_limit", shiftsToday: before };
+
+      const paid = await applyMoneyChangeIn(tx, owner, {
+        direction: "income",
+        category: "wage",
+        amountCents: shift.wageCents,
+        description: `Wage: ${shift.gradeLabel}`,
+        requestKey: `wage:${shift.shiftId}`,
+        gameMinute: shift.endedGameMinute,
+      });
+      if (paid.status !== "applied") throw new Error(`wage for shift ${shift.shiftId} was not applied (${paid.status})`);
+      await tx.query(
+        `INSERT INTO work_shifts (id, character_id, job, grade, game_day, started_game_minute, ended_game_minute, wage_cents, transaction_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [shift.shiftId, owner.characterId, shift.jobId, shift.gradeId, shift.gameDay, shift.startedGameMinute, shift.endedGameMinute, shift.wageCents, paid.transaction.id],
+      );
+      return { status: "paid", transaction: paid.transaction, balanceCents: paid.balanceCents, shiftsToday: before + 1 };
+    });
+  } catch (error) {
+    // The same shift recorded twice at once: the second sees the first's result.
+    if (isUniqueViolation(error)) return recordShift(db, owner, shift);
     throw error;
   }
 }

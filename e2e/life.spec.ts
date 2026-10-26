@@ -129,7 +129,8 @@ test("desktop: café → eat → study, all visible in the character panel, and 
     const counter = await objectPoint(page, "cafe-counter");
     await page.mouse.click(counter.x, counter.y);
     const menu = (await interaction(page)).menu;
-    expect(menu).toMatchObject({ title: "Café counter", options: ["Espresso", "Cornetto", "Panino"], details: ["€1.50", "€1.80", "€4.50"] });
+    // Since M7 the counter also offers work to anyone without a job (e2e/work.spec.ts).
+    expect(menu).toMatchObject({ title: "Café counter", options: ["Espresso", "Cornetto", "Panino", "Ask about work"], details: ["€1.50", "€1.80", "€4.50", "€6.00 a shift"] });
     const before = await mustLife(page);
     await page.click('#action-menu [data-action="buy:panino"]');
     await expect(page.locator("#action-progress")).toContainText(/panino/i);
@@ -181,7 +182,7 @@ test("desktop: café → eat → study, all visible in the character panel, and 
     expect(reloaded.traits).toEqual(["organised"]);
     expect(reloaded.skills.academic!.xp).toBeCloseTo(afterStudy.skills.academic!.xp, 5);
     // Same balance, unless the game day changed during the test (one more daily allowance).
-    expect([afterStudy.money.balanceCents, afterStudy.money.balanceCents + 1500]).toContain(reloaded.money.balanceCents);
+    expect([afterStudy.money.balanceCents, afterStudy.money.balanceCents + 750]).toContain(reloaded.money.balanceCents);
     expect(reloaded.money.recent.some((entry) => entry.category === "purchase" && entry.description === "Panino")).toBe(true);
     // Needs keep their values (a reload is seconds of offline time).
     expect(Math.abs(reloaded.needs.hunger - afterStudy.needs.hunger)).toBeLessThan(3);

@@ -5,6 +5,7 @@
 import type { Room } from "@colyseus/sdk";
 import {
   ClientMessage,
+  ECONOMY_CONFIG,
   NEEDS_CONFIG,
   gameDayOf,
   gameMinuteAt,
@@ -16,6 +17,9 @@ import type { Database } from "../src/db/database.ts";
 import type { TuningOverrides } from "../src/tuning.ts";
 import { connectAndPlay, joinWithNewCharacter, sleep, startTestServer, waitFor, type ProfileClient, type TestServer } from "./helpers/gameClient.ts";
 import { migratedTestDatabase } from "./helpers/testDatabase.ts";
+
+/** Starting money plus today's daily allowance (paid on entering). */
+const START_PLUS_DAY = 10_000 + ECONOMY_CONFIG.dailyAllowanceCents;
 
 const FAST: TuningOverrides = {
   walkSpeed: 9,
@@ -94,8 +98,9 @@ describe("the first life loop", () => {
 
   it("enters with starting needs, money and an empty skill sheet, and the clock comes from the server", async () => {
     const alice = track(await joinWithNewCharacter(context.server.url, "Alice"));
-    const life = await lifeAfter(alice, (l) => l.money.balanceCents === 11_500, "starting allowance + daily allowance");
-    expect(Object.keys(life).sort()).toEqual(["gameMinute", "money", "mood", "needs", "skills", "traits"]);
+    const life = await lifeAfter(alice, (l) => l.money.balanceCents === START_PLUS_DAY, "starting allowance + daily allowance");
+    expect(Object.keys(life).sort()).toEqual(["gameMinute", "job", "money", "mood", "needs", "skills", "traits"]);
+    expect(life.job).toBeNull();
     expect(life.needs).toEqual(NEEDS_CONFIG.initial);
     expect(Object.values(life.skills).every((s) => s.xp === 0 && s.level === 0)).toBe(true);
     expect(life.traits).toEqual([]);
@@ -109,17 +114,17 @@ describe("the first life loop", () => {
     const token = await leaveWithNeeds(context.server, first, { hunger: 30, energy: 60 });
     const alice = track(await connectAndPlay(context.server.url, token));
     const start = await lifeAfter(alice, (l) => l.needs.hunger < 31, "hungry on entry");
-    expect(start.money.balanceCents).toBe(11_500);
+    expect(start.money.balanceCents).toBe(START_PLUS_DAY);
 
     // Walk to the café and buy. A price sent by the client is ignored.
     const reply = await act(alice, "object", "cafe-counter", "buy", { itemId: "panino", requestId: "req_loop_0001", priceCents: 1 });
     expect(reply).toMatchObject({ status: "queued", action: "buy", itemId: "panino" });
     await waitFor(() => me(alice)?.activity === "eating", 8000, "eating at the counter");
     expect(await finished(alice, "buy")).toMatchObject({ status: "completed" });
-    const fed = await lifeAfter(alice, (l) => l.money.balanceCents === 11_050 && l.needs.hunger > 70, "paid and fed");
+    const fed = await lifeAfter(alice, (l) => l.money.balanceCents === START_PLUS_DAY - 450 && l.needs.hunger > 70, "paid and fed");
     expect(fed.needs.hunger).toBeGreaterThan(74);
     expect(fed.needs.hunger).toBeLessThanOrEqual(75);
-    expect(fed.money.recent[0]).toMatchObject({ direction: "expense", category: "purchase", itemId: "panino", amountCents: 450, balanceAfterCents: 11_050 });
+    expect(fed.money.recent[0]).toMatchObject({ direction: "expense", category: "purchase", itemId: "panino", amountCents: 450, balanceAfterCents: START_PLUS_DAY - 450 });
     expect(fed.mood.reasons.map((r) => r.label)).toContain("Good meal");
     await waitFor(() => me(alice)?.activity === "idle", 2000, "done eating");
 
@@ -138,7 +143,7 @@ describe("the first life loop", () => {
     await sleep(300);
     const again = track(await connectAndPlay(context.server.url, token));
     const restored = await lifeAfter(again, () => true, "life after rejoining");
-    expect(restored.money.balanceCents).toBe(11_050);
+    expect(restored.money.balanceCents).toBe(START_PLUS_DAY - 450);
     expect(restored.skills.academic.xp).toBeCloseTo(before.skills.academic.xp, 1);
     expect(restored.needs.hunger).toBeCloseTo(before.needs.hunger, 0);
     expect(restored.mood.events.map((e) => e.id).sort()).toEqual(["good_meal", "learned_something"]);
@@ -155,7 +160,7 @@ describe("the first life loop", () => {
     expect(await finished(alice, "buy")).toMatchObject({ status: "failed", reason: "duplicate_request" });
     const purchases = (await ledger(context.server, characterId)).filter((t) => t.category === "purchase");
     expect(purchases).toHaveLength(1);
-    await lifeAfter(alice, (l) => l.money.balanceCents === 11_500 - 150, "charged once");
+    await lifeAfter(alice, (l) => l.money.balanceCents === START_PLUS_DAY - 150, "charged once");
   });
 
   it("charges only for the order that reaches the counter when requests are sent in a burst", async () => {
@@ -236,7 +241,7 @@ describe("the first life loop", () => {
     for (const secret of ["hunger", "energy", "needs", "skills", "balanceCents", "money", "traits"]) expect(fields).not.toContain(secret);
     // Bruno only ever receives his own wallet: starting money, then the daily allowance. Never Alice's purchase.
     expect(bruno.lives.length).toBeGreaterThan(0);
-    expect(bruno.lives.every((l) => [10_000, 11_500].includes(l.money.balanceCents))).toBe(true);
+    expect(bruno.lives.every((l) => [10_000, START_PLUS_DAY].includes(l.money.balanceCents))).toBe(true);
     expect(bruno.lives.some((l) => l.money.recent.some((t) => t.category === "purchase"))).toBe(false);
   });
 });
@@ -277,7 +282,7 @@ describe("cancelling while paying", () => {
   it("refunds an order abandoned during payment", async () => {
     const alice = track(await joinWithNewCharacter(context.server.url, "Changed Mind"));
     const characterId = characterIdOf(alice);
-    await lifeAfter(alice, (l) => l.money.balanceCents === 11_500, "starting money");
+    await lifeAfter(alice, (l) => l.money.balanceCents === START_PLUS_DAY, "starting money");
     await act(alice, "object", "cafe-counter", "buy", { itemId: "panino" });
     await waitFor(() => me(alice)?.activity === "ordering", 8000, "paying at the counter");
     alice.room.send(ClientMessage.CancelAction);
@@ -286,7 +291,7 @@ describe("cancelling while paying", () => {
     const rows = await ledger(context.server, characterId);
     expect(rows.filter((t) => t.category === "purchase")).toHaveLength(1);
     expect(rows.filter((t) => t.category === "refund")).toMatchObject([{ direction: "income", amount_cents: 450, item_id: "panino" }]);
-    await lifeAfter(alice, (l) => l.money.balanceCents === 11_500 && l.money.recent[0]?.category === "refund", "refund visible");
+    await lifeAfter(alice, (l) => l.money.balanceCents === START_PLUS_DAY && l.money.recent[0]?.category === "refund", "refund visible");
     expect(me(alice).activity).toBe("idle");
   });
 });

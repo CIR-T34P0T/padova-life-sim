@@ -169,6 +169,11 @@ export class GameConnection {
     this.room?.send(ClientMessage.DeleteCharacter, { characterId, confirmName });
   }
 
+  /** Asks the server to end this character's job (M7). */
+  quitJob(): void {
+    this.room?.send(ClientMessage.QuitJob);
+  }
+
   get joined(): boolean {
     return this.room !== null;
   }

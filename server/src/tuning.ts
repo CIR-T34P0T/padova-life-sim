@@ -1,5 +1,5 @@
-// Per-room tuning. Production uses the shared defaults (plus GAME_TIME_SCALE
-// and GUEST_CREATIONS_PER_IP_PER_HOUR from the environment); tests override
+// Per-room tuning. Production uses the shared defaults (plus GAME_TIME_SCALE,
+// GAME_CLOCK_OFFSET_MINUTES and GUEST_CREATIONS_PER_IP_PER_HOUR from the environment); tests override
 // values (shorter durations, faster clocks, a custom world) through createGameServer().
 
 import {
@@ -19,6 +19,8 @@ export interface ActionDurations {
   sketch: number;
   wash: number;
   greet: number;
+  /** One work shift (M7). */
+  work: number;
 }
 
 export interface RoomTuning {
@@ -35,6 +37,8 @@ export interface RoomTuning {
   autosaveIntervalMs: number;
   /** Game minutes per real minute (D-021). */
   timeScale: number;
+  /** Shifts the game clock by whole game minutes (GAME_CLOCK_OFFSET_MINUTES; development and tests). */
+  clockOffsetMinutes: number;
   startingBalanceCents: number;
   dailyAllowanceCents: number;
 }
@@ -48,12 +52,14 @@ export const DEFAULT_TUNING: RoomTuning = {
     sketch: ACTION_EFFECTS.sketch.durationMs,
     wash: ACTION_EFFECTS.wash.durationMs,
     greet: GREETING_EFFECTS.durationMs,
+    work: ACTION_EFFECTS.work.durationMs,
   },
   consumeDurationFactor: 1,
   guestCreationsPerIpPerHour: PROFILE_CONFIG.guestCreationsPerIpPerHour,
   maxCharactersPerAccount: PROFILE_CONFIG.maxCharactersPerAccount,
   autosaveIntervalMs: PROFILE_CONFIG.autosaveIntervalMs,
   timeScale: TIME_CONFIG.defaultScale,
+  clockOffsetMinutes: 0,
   startingBalanceCents: ECONOMY_CONFIG.startingBalanceCents,
   dailyAllowanceCents: ECONOMY_CONFIG.dailyAllowanceCents,
 };

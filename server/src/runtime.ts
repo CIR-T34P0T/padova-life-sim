@@ -1,4 +1,16 @@
-import type { ActionId, MovingCharacter, ResolvedEffect, TargetKind, Vec2 } from "@padova/shared";
+import type { ActionId, JobId, MovingCharacter, ResolvedEffect, TargetKind, Vec2 } from "@padova/shared";
+
+/** A shift being worked (M7). Decided by the server when the shift starts; paid only on completion. */
+export interface ShiftInProgress {
+  /** Server-chosen UUID; the wage's ledger key is `wage:<id>`. */
+  id: string;
+  jobId: JobId;
+  gradeId: string;
+  gradeLabel: string;
+  wageCents: number;
+  gameDay: number;
+  startedGameMinute: number;
+}
 
 /** The one action a player is currently walking to or performing. */
 export interface PendingAction {
@@ -13,8 +25,9 @@ export interface PendingAction {
   /** Seat or standing spot reserved for this action ("" for actions without one). */
   seatId: string;
   /**
-   * "approach": walking to the interaction point. "paying": at the counter,
-   * payment in progress. "active": doing it.
+   * "approach": walking to the interaction point. "paying": waiting for the
+   * database (a purchase being charged, a hire being written, a finished
+   * shift's wage being paid). "active": doing it.
    */
   phase: "approach" | "paying" | "active";
   /** Interaction point the character is walking to. */
@@ -29,6 +42,8 @@ export interface PendingAction {
   appliedFraction: number;
   /** Times a greeting re-planned because the other player moved. */
   replans: number;
+  /** The shift, for "work" once it has started. */
+  shift?: ShiftInProgress;
 }
 
 /** Server-only data per player. Never sent to clients. */

@@ -179,7 +179,8 @@ gardens and portico are places to walk and meet; doors don't open yet.
 
 **What can be used today (implemented):** benches (sit, sketch, stand up),
 study desks and café tables (sit, study), the café counter (buy, with
-prices), the fountain (wash up), other players (greet). Clicking yourself
+prices; *Ask about work* without a job, *Work a shift* for employees, M7),
+the fountain (wash up), other players (greet). Clicking yourself
 opens *Character* and *Edit look* (standing) or the seat's actions plus
 *Character* (seated). Only valid actions are shown; the server re-checks
 every one.
@@ -192,7 +193,7 @@ desktop layout.
 | --- | --- | --- | --- |
 | Select characters, objects and places by pointing at them | Left-click | Tap | Implemented (M3); tested on desktop and in phone emulation |
 | Contextual menu near the target with only valid actions; closes or updates on a new selection | Radial fan (becomes a column for long labels) | Bottom sheet, docked right in landscape | Implemented (M3); tested |
-| Menus scroll or page when many actions are available | — | — | **Not built:** at most three options exist today (the café); needed before objects with more actions |
+| Menus scroll or page when many actions are available | — | — | **Not built:** at most four options exist today (the café: three items and one work option); needed before objects with more actions |
 | Walk by pointing at the ground, with pathfinding | Click | Tap | Implemented (M1) |
 | Direct movement | WASD or arrow keys | Optional on-screen joystick | Implemented (M1). Key bindings are fixed; configurable bindings are **proposed** (a Settings option) |
 | Camera control | Drag to orbit, wheel to zoom | One-finger drag, two-finger pinch | Implemented (M1) |
@@ -203,7 +204,7 @@ desktop layout.
 | Large touch targets | — | Menu items ≥ 44 px; action-sheet buttons 56 px | Implemented; tested in emulation |
 | Essential controls within thumb reach | — | Sheet and joystick at the bottom; status chips at the top | Implemented; not yet checked on a real phone |
 | Portrait and landscape | — | Both; landscape preferred for the 3D view | Implemented for the title screens, creator and world; tested in emulation |
-| Your own character: info panel and actions | Click yourself → Character | Tap yourself | Implemented for needs, mood, skills, money and current action (M5); inventory and relationships don't exist yet |
+| Your own character: info panel and actions | Click yourself → Character | Tap yourself | Implemented for needs, mood, skills, money and current action (M5) and work (M7); inventory and relationships don't exist yet |
 | Another character: public information and social actions | Click → menu | Tap → menu | **Partial:** name and activity tag, *Greet* only. A public info panel and more social actions are **proposed** (M9) |
 | Private information stays private | — | — | Implemented (D-024): life data goes only to its owner |
 | Drag or place objects | — | — | **Not built:** comes with housing (proposed M10) |
@@ -274,8 +275,8 @@ is the only authority.
 removes a character, and there is no "game over"):
 - Every need feeds **mood**; low needs hurt mood twice as much as high needs help it.
 - **Mood scales skill gains** (below).
-- **Energy below 10:** studying and sketching can't be started ("too tired").
-  Rest on a bench or have an espresso.
+- **Energy below 10:** studying, sketching and café shifts can't be started
+  ("too tired"). Rest on a bench or have an espresso.
 - **Hygiene below 20:** greetings give half the usual social gain.
 
 ### Mood
@@ -288,7 +289,8 @@ and the character panel shows the reasons.
   refreshes the timer): *Good meal* +10 (3 game h), *Caffeine boost* +5 (1 h),
   *Learned something* +8 (2 h), *Creative flow* +8 (2 h), *Freshened up* +5
   (1.5 h), *Friendly hello* +10 (2 h), *Someone said hello* +6 (1.5 h),
-  *Couldn't afford it* −5 (1 h).
+  *Couldn't afford it* −5 (1 h), *Good day's work* +6 (2 h, after a completed
+  shift, M7).
 - Score −100…100 → **Miserable** (≤ −40), **Low** (≤ −15), **Okay**, **Good**
   (≥ 15), **Great** (≥ 40).
 - Skill gain multiplier: Miserable ×0.5, Low ×0.75, Okay ×1, Good ×1.1, Great ×1.25.
@@ -302,13 +304,14 @@ from experience points: level *n* needs 50 × n × (n + 1) XP in total (100,
 | Skill | Improves by (M5) |
 | --- | --- |
 | Academic ability | studying at a desk: 20 XP per session |
-| Communication | greeting someone: 5 XP |
+| Communication | greeting someone: 5 XP; a completed café shift: 10 XP (M7) |
 | Creativity | sketching on a bench: 15 XP per session |
 | Fitness | walking: 0.1 XP per metre |
 | Cooking | nothing yet; kitchens come with housing |
 
-Planned unlocks (not built) are in "Life simulation: proposed next steps"
-below.
+**First unlock (M7):** communication level 2 makes café shifts pay the
+barista wage (€8 instead of €6). Further unlocks (not built) are in "Life
+simulation: proposed next steps" below.
 
 ### Personality traits
 
@@ -328,9 +331,10 @@ outcomes stay deterministic and testable.
   is no debt mechanic.
 - Every change is a server-side transaction in a ledger (income or expense,
   amount, balance after, item, reason). Repeating a request never charges twice.
-- Income: **€100 starting allowance**; **€15 daily allowance** once per game
-  day while playing (no back pay). Jobs come in M7, when the daily allowance
-  halves to €7.50 (D-035; see "Work (M7)").
+- Income: **€100 starting allowance**; **€7.50 daily allowance** once per
+  game day while playing (no back pay; €15 until jobs arrived in M7, halved
+  as approved in D-035); **wages** of €6 or €8 per completed café shift (see
+  "Work (M7)"). Balances earned before the change were not touched.
 - Expenses: café purchases. The café kiosk (in the open square, east of
   where players arrive; a kiosk with a canopy since the world art pass)
   sells **Espresso €1.50** (+15 energy, +5 fun), **Cornetto €1.80**
@@ -358,92 +362,87 @@ injures a character, there is no game over, absence never creates a crisis
 | System | Today (implemented) | Proposed next | Milestone (proposed) |
 | --- | --- | --- | --- |
 | Needs | Hunger, energy, hygiene, social, fun | **Comfort**, which the owner's brief lists (*approved*: added in M10 with furniture of different comfort, not now while every seat is a bench or chair); **sleep** in a bed as the main energy source; showers at home for hygiene (the fountain stays a quick wash) | M10 |
-| Mood | Score from needs plus recent events, with reasons | New events from new systems (shift done, exam passed or failed, new friend, rent paid); mood visible on the character (poses first; faces need expressions the procedural model lacks) | M7–M10 |
-| Skills | Five skills, levels 0–10, nothing unlocked | Communication raises café pay or unlocks the second job grade (M7); academic level improves exam results (M8); cooking unlocks home recipes (M10); fitness unlocks running (needs a movement design: speed, energy cost, server limits) | M7, M8, M10 |
+| Mood | Score from needs plus recent events, with reasons; *Good day's work* after a shift (M7) | New events from new systems (exam passed or failed, new friend, rent paid); mood visible on the character (poses first; faces need expressions the procedural model lacks) | M8–M10 |
+| Skills | Five skills, levels 0–10; communication level 2 unlocks the barista wage (M7) | Academic level improves exam results (M8); cooking unlocks home recipes (M10); fitness unlocks running (needs a movement design: speed, energy cost, server limits) | M8, M10 |
 | Personality | Four traits, chosen at creation, fixed | Keep four until a new trait has a distinct, testable effect; traits stay fixed after creation | — |
-| Money in | €100 start, €15 per game day played | **Wages** from shifts, paid per completed shift through the ledger (M7; design in "Work (M7)"). The daily allowance halves to €7.50 per game day when jobs arrive (*approved*) | M7 |
+| Money in | €100 start, €7.50 per game day played, wages per completed café shift (M7) | More jobs or grades as new places open (e.g. the university in M8) | Later |
 | Money out | Café food and drinks | Rent and bills with housing, charged on a game-week schedule from the ledger; furniture and groceries into an inventory. With no debt (D-023), rent that can't be paid gives a notice and a mood event, then a move to a cheaper room (*approved*) | M10 |
 | Money between players | None | Not planned: gifts or trades would need anti-exploit design (duplication, laundering through alt characters) before they exist | — |
 
-## Work (M7) — planned, not built yet
+## Work (M7)
 
-**Planned, not implemented.** M7 is the next milestone (order approved,
-D-035). This is its design, written against the current code; the numbers
-are first tuning values for `shared/src/life/config.ts`, to be play-tested.
+**Implemented in M7** (multiplayer functional and persistence verified in
+automated tests; see TESTING.md for results). Numbers are tuning values in
+`shared/src/life/config.ts` (`JOBS`, `ACTION_EFFECTS.work`,
+`ECONOMY_CONFIG`) and still need play-testing by the product owner.
 
-**The job.** One workplace to start: the café kiosk. Two grades, decided by
-the server from the character's communication level when a shift starts (a
-pure rule in `shared/src/life/`):
+**The job.** One workplace: the café kiosk. Two grades, decided by the
+server from the character's communication level each time a shift starts
+(`gradeFor` in `shared/src/life/work.ts`):
 
 | Grade | Requirement | Wage per completed shift |
 | --- | --- | --- |
 | Café assistant | None | €6.00 |
 | Barista | Communication level 2 (300 XP) | €8.00 |
 
-**Getting the job.** The café counter's menu offers *Ask about work* (with
-the wage shown) to anyone who doesn't work there; choosing it walks you to
-the counter and hires you at once. *Quit job* is a button in the character
-panel. There is one job per character for now.
+**Getting the job.** Without a job, the café counter's menu offers *Ask
+about work* with the wage shown ("€6.00 a shift"). Choosing it walks the
+character to a customer spot at the counter and hires them as soon as the
+database records it ("You got the job: Café assistant, €6.00 a shift").
+Hiring works at any hour. One job per character; *Quit job* is a button in
+the character panel's Work section, and asking again later hires again.
 
-**Working a shift.** For employees, the counter offers *Work a shift* (with
-wage and length shown) while the café is open, a staff spot is free and
-today's limit isn't reached.
+**Working a shift.** For employees the counter offers *Work a shift* with
+wage and length ("€6.00 · 90 s").
 - The character walks to one of two **staff spots behind the counter** (the
-  south side; customers keep the two spots in front). Spots get a use tag so
-  customers and staff never take each other's places.
-- A shift is a server-timed action like studying: **90 real seconds**
-  (15 game minutes), activity `working` (others see "working" and a serving
-  pose), with progress and Cancel.
-- Effects while working, in proportion to time: energy −8 and fun −4 per
-  full shift. On completion: +10 communication XP (with the usual trait and
-  mood multipliers) and a new mood event, *Good day's work* (+6 for 2 game
-  hours).
-- **Pay on completion only:** €6 or €8 through `applyMoneyChange`, category
-  `wage`, idempotency key `wage:<shift id>`. A cancelled, interrupted or
-  dropped shift pays nothing; the short length keeps that fair.
-- **Limits:** the café is open 06:00–23:00 game time; at most 4 completed
-  shifts per game day; not while too tired (energy below 10, the same rule
-  as studying).
-- **The daily allowance halves** to €7.50 per game day (approved, D-035);
-  balances already earned are untouched.
+  south side, under the kiosk canopy's barista end; customers keep the two
+  spots in front). Staff spots are tagged `use: "staff"` in
+  `shared/src/world.ts`: customers never take them and staff never take the
+  customers' spots, so customers can still buy while two people work.
+- A shift is a server-timed action: **90 real seconds** (15 game minutes at
+  the default clock), activity `working` (others see "· working" on the name
+  tag and a serving pose), with progress and Cancel.
+- While working, energy −8 and fun −4 per full shift, applied gradually. On
+  completion: +10 communication XP (with the usual trait and mood
+  multipliers) and the mood event *Good day's work* (+6 for 2 game hours).
+- **Paid on completion only:** €6 or €8 through `applyMoneyChange`, category
+  `wage`, ledger key `wage:<shift id>`, shown as "Wage: Café assistant" (or
+  "Wage: Barista"). The shift counts as completed only once the wage and the
+  shift record are written (one database transaction); the toast says
+  "Shift done: +€6.00 wage". A cancelled, interrupted (walking away,
+  choosing another action, quitting) or dropped shift pays nothing and is
+  not recorded; the short length keeps that fair.
+- The grade and wage are fixed when the shift starts; levelling up during a
+  shift pays the higher wage from the next one.
 
-**What the player sees.** The character panel gains a *Work* section: job and
-grade, wage, shifts today (n of 4), whether the café is open or when it
-opens, and *Quit job*; wages appear in the transaction list. Refusals are
-explained ("The café is closed until 06:00", "That's enough shifts for
-today", "Too tired to work").
+**Limits.**
+- The café is open **06:00–23:00** game time; a shift can start while it is
+  open (one started at 22:55 may finish after 23:00).
+- At most **4 completed shifts per game day**, counted by the day the shift
+  started and checked again in the database when the wage is paid.
+- Not while too tired: energy below 10, the same rule as studying.
+- When a limit applies, *Work a shift* stays in the menu, greyed out with
+  the reason ("Opens at 06:00", "4 of 4 shifts done today", "Too tired"), so
+  players can see why; the server refuses with the same reasons if asked
+  anyway. When both staff spots are taken the option is not shown, and a
+  request is answered "Someone else is using that".
 
-**How it fits the code.**
-- Rules (`shared/src/life/`): job catalogue, grade from communication level,
-  opening hours from the game minute, shifts left today, the `work` effect in
-  `ACTION_EFFECTS`; unit-tested.
-- Interactions: new action ids `ask_work` (untimed, runs on arrival) and
-  `work` (timed) for the `cafe` kind; seats gain an optional use tag
-  (`customer` or `staff`) that `chooseSeat` and validation respect; new
-  refusal reasons `closed`, `shift_limit`, `not_employed`, `already_employed`.
-- Server: `LifeSystem` hooks check the limits (`checkStart`), apply the
-  effect, and on completion record the shift and pay the wage; SQL in
-  `lifeRepository.ts`, owner-scoped like the rest.
-- Data (migration 0005): `character_employment` and `work_shifts` (DATA_MODEL
-  "Proposed"), and the ledger's `category` CHECK gains `wage`; the `down`
-  step refuses to run while wage rows exist, like 0004.
-- Messages: `life` gains a `job` section (private to the owner); a new
-  `quitJob` message (no payload). Nothing about pay is replicated.
-- Client: menu options with details, the panel section, the working pose,
-  refusal texts.
+**What the player sees.** The character panel has a **Work** section between
+Skills and Money: job and grade ("Café kiosk · Café assistant"), wage and
+the next grade ("€6.00 per completed shift · Barista €8.00 at Communication
+Lv 2"), shifts today ("Shifts today 1 of 4"), whether the café is open
+("Open now, until 23:00" or "Closed · opens at 06:00") and *Quit job*.
+Without a job it says how to get one. Wages appear in the money list.
 
-**Tests planned:** unit (grades, opening hours, limits, effect, wage);
-database (migration 0005 up, down and up on PGlite and PostgreSQL; a wage
-paid once per key; shifts counted per game day; owner scoping); integration
-(hire → shift → wage exactly once; cancel and drop pay nothing; the daily
-limit; closed hours; two employees on the two staff spots and a third
-refused; customers can still buy while staff work; others never see pay);
-browser (desktop: ask about work, work a shift, see the wage, reload keeps
-job and wage; phone: menu and panel layout).
+**Economy check.** The halved allowance (€7.50) no longer pays for a day of
+food on its own (the cheapest food costs about €13 per game day of hunger);
+the allowance plus one assistant shift does. A unit test keeps that true
+(`shared/test/work.test.ts`).
 
 **Defaults chosen, open to change:** wages, shift length, opening hours and
-the daily limit are tuning values; unpaid partial shifts are a design
-choice the product owner can reverse (proportional pay instead).
+the daily limit are tuning values; unpaid partial shifts are a design choice
+the product owner can reverse (proportional pay instead); showing
+unavailable shifts greyed out with a reason is recorded in D-036.
 
 ## Open design questions
 

@@ -8,14 +8,19 @@ import * as THREE from "three";
 import {
   ACTION_LABELS,
   CAFE_MENU,
+  JOBS,
   PLAZA_LAYOUT,
   findInteractable,
   findMenuItem,
   findSeat,
   formatEuros,
+  formatTimeOfDay,
+  gameDayOf,
+  gradeFor,
   isTooTired,
   objectActions,
   playerActions,
+  shiftRefusal,
   timedEffectFor,
   type ActionId,
   type ActionUpdatePayload,
@@ -71,6 +76,7 @@ const ACTIVITY_SUBTITLE: Record<string, string> = {
   eating: "Eating",
   drinking: "Having a coffee",
   washing: "Washing up",
+  working: "Working at the café",
 };
 
 /** Idempotency id for purchases. Uses getRandomValues, which works on plain-http LAN pages too. */
@@ -192,6 +198,9 @@ export class InteractionController {
         progress.hide();
         if (update.action === "study") hud.toast("Study session complete.");
         if (update.action === "sketch") hud.toast("Sketch finished.");
+        // Longer than other toasts: these carry the news of a job or a wage.
+        if (update.action === "ask_work") hud.toast(this.hiredText(), 4500);
+        if (update.action === "work") hud.toast(this.shiftDoneText(), 4500);
         return;
       case "failed":
         this.currentAction = null;
@@ -317,6 +326,11 @@ export class InteractionController {
   /** Menu entries for one action. The café expands into its menu, with prices; the server re-checks everything. */
   private optionsFor(action: ActionId): MenuOption[] {
     const life = this.deps.life();
+    if (action === "ask_work") {
+      const wage = life ? gradeFor(JOBS.cafe, skillLevels(life)).wageCents : JOBS.cafe.grades[0]!.wageCents;
+      return [{ id: action, label: ACTION_LABELS[action], detail: `${formatEuros(wage)} a shift` }];
+    }
+    if (action === "work") return [this.workOption(life)];
     if (action === "buy") {
       return CAFE_MENU.map((item) => {
         const short = life !== null && life.money.balanceCents < item.priceCents;
@@ -335,10 +349,41 @@ export class InteractionController {
     return [{ id: action, label: ACTION_LABELS[action] }];
   }
 
+  /** "Work a shift" with wage and length, or greyed out with the reason it can't start now. */
+  private workOption(life: LifePayload | null): MenuOption {
+    const label = ACTION_LABELS.work;
+    if (!life?.job) return { id: "work", label };
+    const job = JOBS[life.job.jobId];
+    // The server's shiftsToday already counts only the current game day.
+    const work = { jobId: life.job.jobId, shiftsDay: gameDayOf(life.gameMinute), shiftsToday: life.job.shiftsToday };
+    switch (shiftRefusal(work, life.gameMinute, life.needs)) {
+      case "closed":
+        return { id: "work", label, detail: `Opens at ${formatTimeOfDay(job.opensAt)}`, disabled: true };
+      case "shift_limit":
+        return { id: "work", label, detail: `${job.maxShiftsPerDay} of ${job.maxShiftsPerDay} shifts done today`, disabled: true };
+      case "too_tired":
+        return { id: "work", label, detail: "Too tired", disabled: true };
+    }
+    const wage = gradeFor(job, skillLevels(life)).wageCents;
+    return { id: "work", label, detail: `${formatEuros(wage)} · ${Math.round(timedEffectFor("work")!.durationMs / 1000)} s` };
+  }
+
+  private hiredText(): string {
+    const life = this.deps.life();
+    const grade = gradeFor(JOBS.cafe, life ? skillLevels(life) : {});
+    return `You got the job: ${grade.label}, ${formatEuros(grade.wageCents)} a shift. Work from the café counter.`;
+  }
+
+  private shiftDoneText(): string {
+    const wage = this.deps.life()?.money.recent.find((entry) => entry.category === "wage");
+    return wage ? `Shift done: +${formatEuros(wage.amountCents)} wage.` : "Shift done.";
+  }
+
   private seatSubtitle(item: Interactable, actor: ActorView): string {
     if (item.kind === "cafe") {
       const life = this.deps.life();
-      return life ? `You have ${formatEuros(life.money.balanceCents)}` : "Café";
+      if (!life) return "Café";
+      return life.job ? `You have ${formatEuros(life.money.balanceCents)} · you work here` : `You have ${formatEuros(life.money.balanceCents)}`;
     }
     if (item.kind === "fountain") return "Freshen up";
     if (item.seats.some((seat) => seat.id === actor.seatId)) return "You're sitting here";
@@ -428,7 +473,7 @@ export class InteractionController {
     const id = this.deps.entities.selfId();
     const self = id ? this.deps.entities.get(id)?.latest : undefined;
     if (!id || !self) return null;
-    return { id, x: self.x, z: self.z, seatId: self.seatId, activity: self.activity };
+    return { id, x: self.x, z: self.z, seatId: self.seatId, activity: self.activity, job: this.deps.life()?.job?.jobId ?? null };
   }
 
   private selfSeat(): Interactable | null {
@@ -462,6 +507,11 @@ export class InteractionController {
   }
 }
 
+/** Skill levels from the owner's life data, for the shared grade rules. */
+function skillLevels(life: LifePayload): Record<string, number> {
+  return Object.fromEntries(Object.entries(life.skills).map(([skill, view]) => [skill, view.level]));
+}
+
 function itemName(update: ActionUpdatePayload): string {
   const item = update.itemId ? findMenuItem(update.itemId) : null;
   if (!item) return "something";
@@ -477,6 +527,10 @@ function queuedText(update: ActionUpdatePayload, targetName: string): string {
       return `Going to buy ${itemName(update)}…`;
     case "wash":
       return "Going to wash up…";
+    case "ask_work":
+      return "Going to ask about work…";
+    case "work":
+      return "Going to start a shift…";
     default:
       return `Going to ${ACTION_LABELS[update.action].toLowerCase()}…`;
   }
@@ -493,6 +547,10 @@ function activeText(update: ActionUpdatePayload, targetName: string): string {
       return "Sketching";
     case "wash":
       return "Washing up";
+    case "work":
+      return "Working a shift";
+    case "ask_work":
+      return "Asking about work";
     case "buy": {
       const item = update.itemId ? findMenuItem(update.itemId) : null;
       return item?.activity === "drinking" ? `Drinking ${itemName(update)}` : `Eating ${itemName(update)}`;

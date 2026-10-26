@@ -6,9 +6,13 @@ import { TIME_CONFIG } from "./config.ts";
 
 export const MINUTES_PER_DAY = 24 * 60;
 
-/** Game minutes (fractional) at a real moment. Minute 480 = 08:00 on Day 1. */
-export function gameMinuteAt(realMs: number, scale: number = TIME_CONFIG.defaultScale): number {
-  return TIME_CONFIG.anchorGameMinute + ((realMs - TIME_CONFIG.anchorRealMs) / 60_000) * scale;
+/**
+ * Game minutes (fractional) at a real moment. Minute 480 = 08:00 on Day 1.
+ * `offsetMinutes` shifts the whole clock (GAME_CLOCK_OFFSET_MINUTES, for
+ * development and tests); it is still a pure function of real time.
+ */
+export function gameMinuteAt(realMs: number, scale: number = TIME_CONFIG.defaultScale, offsetMinutes = 0): number {
+  return TIME_CONFIG.anchorGameMinute + ((realMs - TIME_CONFIG.anchorRealMs) / 60_000) * scale + offsetMinutes;
 }
 
 /** Game hours that pass during `realMs` milliseconds of real time. */
@@ -44,6 +48,16 @@ export function parseTimeScale(raw: string | undefined): number {
   const value = Number(raw);
   if (!Number.isFinite(value) || value < TIME_CONFIG.minScale || value > TIME_CONFIG.maxScale) {
     throw new Error(`GAME_TIME_SCALE must be a number from ${TIME_CONFIG.minScale} to ${TIME_CONFIG.maxScale} (got "${raw}")`);
+  }
+  return value;
+}
+
+/** Validates a configured clock offset in game minutes (GAME_CLOCK_OFFSET_MINUTES); at most a week either way. */
+export function parseClockOffset(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return 0;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || Math.abs(value) > 7 * MINUTES_PER_DAY) {
+    throw new Error(`GAME_CLOCK_OFFSET_MINUTES must be a whole number from ${-7 * MINUTES_PER_DAY} to ${7 * MINUTES_PER_DAY} (got "${raw}")`);
   }
   return value;
 }

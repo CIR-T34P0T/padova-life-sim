@@ -5,9 +5,12 @@
 //   free, character able, route exists) → reserve the seat/spot → walk to the
 //   interaction point ("approach") → on arrival re-check and execute:
 //     seat:        sit down, then sitting / studying / sketching
-//     standing:    stand at the spot; café: pay ("paying") then eat or drink;
-//                  fountain: wash
+//     standing:    stand at the spot; café: pay ("paying") then eat or drink,
+//                  or ask about work (hired once the database confirms),
+//                  or (staff spot) work a shift; fountain: wash
 //   → finish (timed actions end on a server timer) or keep state (sitting).
+// A finished shift is paid ("paying") before it counts as completed; a shift
+// that ends early is never paid.
 // The client is told about each step but never decides one: arrival, timers,
 // payments and completion are all measured here. Life effects (needs, skills,
 // money) are applied through `hooks`, implemented by the LifeSystem.
@@ -33,6 +36,7 @@ import {
   type GreetedPayload,
   type InteractPayload,
   type InteractionFailure,
+  type JobId,
   type PathFailure,
   type RejectedPayload,
   type ResolvedEffect,
@@ -58,6 +62,14 @@ export interface InteractionHooks {
   onCompleted(sessionId: string, pending: PendingAction): void;
   /** A greeting started. */
   onGreeting(greeterId: string, targetId: string): void;
+  /** The character's job, or null (decides whether the counter offers "ask about work" or a shift). */
+  jobOf(sessionId: string): JobId | null;
+  /** Hires the character on arrival at the counter. */
+  hire(sessionId: string, pending: PendingAction): Promise<"ok" | InteractionFailure>;
+  /** At the staff spot: re-checks the shift can start and decides its grade and wage (sets `pending.shift`). */
+  startShift(sessionId: string, pending: PendingAction): InteractionFailure | null;
+  /** The shift's time is up: records it and pays the wage. */
+  payShift(sessionId: string, pending: PendingAction): Promise<"ok" | InteractionFailure>;
 }
 
 const NO_HOOKS: InteractionHooks = {
@@ -67,6 +79,10 @@ const NO_HOOKS: InteractionHooks = {
   refund: () => undefined,
   onCompleted: () => undefined,
   onGreeting: () => undefined,
+  jobOf: () => null,
+  hire: async () => "hire_failed",
+  startShift: () => "not_employed",
+  payShift: async () => "wage_failed",
 };
 
 export interface InteractionDeps {
@@ -89,6 +105,8 @@ const PATH_FAILURE_TO_REASON: Record<PathFailure, InteractionFailure> = {
 
 /** Seated timed actions: begin at the seat, return to "sitting" afterwards. */
 const SEATED_TIMED: readonly ActionId[] = ["study", "sketch"];
+/** Actions done at a standing spot, which is free again as soon as they end. */
+const STANDING: readonly ActionId[] = ["buy", "wash", "ask_work", "work"];
 
 export class InteractionSystem {
   private nextActionId = 1;
@@ -150,7 +168,7 @@ export class InteractionSystem {
 
     // Sitting elsewhere? Stand up first, then walk over.
     if (player.seatId) this.standUp(sessionId);
-    const seat = chooseSeat(item, this.deps.state.seats, this.actorView(sessionId));
+    const seat = chooseSeat(item, this.deps.state.seats, this.actorView(sessionId), request.action);
     if (!seat) return this.reject(sessionId, request, seatIsStanding(item.seats[0]) ? "busy" : "no_free_seat");
     const path = this.deps.nav.findPath(runtime.character, seat.approach);
     if (!path.ok) return this.reject(sessionId, request, PATH_FAILURE_TO_REASON[path.reason]);
@@ -218,7 +236,8 @@ export class InteractionSystem {
       }
 
       if (pending.phase === "active" && pending.endsAt > 0 && now >= pending.endsAt) {
-        this.complete(sessionId, pending);
+        if (pending.action === "work") this.finishShift(sessionId, pending);
+        else this.complete(sessionId, pending);
       }
     }
   }
@@ -246,6 +265,11 @@ export class InteractionSystem {
     if (!runtime || !player) return null;
     const seated = player.seatId ? findSeat(this.deps.tuning.world, player.seatId) : null;
     return seated ? { ...seated.seat.approach } : { x: runtime.character.x, z: runtime.character.z };
+  }
+
+  /** Stops a shift being walked to, worked or paid (quitting the job). Unpaid unless its wage was already being paid. */
+  cancelWork(sessionId: string): void {
+    if (this.deps.runtimes.get(sessionId)?.pending?.action === "work") this.cancel(sessionId, "cancelled");
   }
 
   /** Connection dropped: stop what they were doing but keep their seat while they may reconnect. */
@@ -281,6 +305,12 @@ export class InteractionSystem {
       return;
     }
     if (pending.action === "buy") return this.pay(sessionId, pending);
+    if (pending.action === "ask_work") return this.hire(sessionId, pending);
+    if (pending.action === "work") {
+      // Opening hours, the daily limit and tiredness are checked again now that the shift really starts.
+      const refused = this.hooks.startShift(sessionId, pending);
+      if (refused) return this.fail(sessionId, refused);
+    }
     this.beginTimed(sessionId, pending);
   }
 
@@ -315,6 +345,29 @@ export class InteractionSystem {
     });
   }
 
+  /** At the counter: hired as soon as the database records it. */
+  private hire(sessionId: string, pending: PendingAction): void {
+    if (!this.context(sessionId)) return;
+    pending.phase = "paying";
+    void this.hooks.hire(sessionId, pending).then((result) => {
+      // Cancelled meanwhile: nothing to undo (the job, if recorded, shows in the character panel).
+      if (this.deps.runtimes.get(sessionId)?.pending !== pending) return;
+      if (result === "ok") this.complete(sessionId, pending);
+      else this.fail(sessionId, result);
+    });
+  }
+
+  /** The shift's time is up: it counts as completed only once its wage is recorded. */
+  private finishShift(sessionId: string, pending: PendingAction): void {
+    pending.phase = "paying";
+    void this.hooks.payShift(sessionId, pending).then((result) => {
+      // Stopped while the wage was being paid: the shift was fully worked, so a recorded wage stands.
+      if (this.deps.runtimes.get(sessionId)?.pending !== pending) return;
+      if (result === "ok") this.complete(sessionId, pending);
+      else this.fail(sessionId, result);
+    });
+  }
+
   /** Starts a timed action whose effects the life system applies as time passes. */
   private beginTimed(sessionId: string, pending: PendingAction): void {
     const context = this.context(sessionId);
@@ -337,7 +390,7 @@ export class InteractionSystem {
       const item = pending.itemId ? findMenuItem(pending.itemId) : null;
       return Math.max(1, Math.round((item?.consumeMs ?? 5_000) * consumeDurationFactor));
     }
-    if (pending.action === "study" || pending.action === "sketch" || pending.action === "wash") {
+    if (pending.action === "study" || pending.action === "sketch" || pending.action === "wash" || pending.action === "work") {
       return actionDurationsMs[pending.action];
     }
     return effect?.durationMs ?? actionDurationsMs.greet;
@@ -406,7 +459,7 @@ export class InteractionSystem {
       player.activity = "idle";
       player.targetId = "";
     }
-    if (pending.action === "buy" || pending.action === "wash") {
+    if (STANDING.includes(pending.action)) {
       player.activity = "idle";
       this.releaseStandingSpot(sessionId, pending);
     }
@@ -443,7 +496,7 @@ export class InteractionSystem {
     } else if (pending.action === "greet") {
       player.activity = "idle";
       player.targetId = "";
-    } else if (pending.action === "buy" || pending.action === "wash") {
+    } else if (STANDING.includes(pending.action)) {
       player.activity = "idle";
       this.releaseStandingSpot(sessionId, pending);
     }
@@ -515,6 +568,7 @@ export class InteractionSystem {
       z: context.runtime.character.z,
       seatId: context.player.seatId,
       activity: context.player.activity,
+      job: this.hooks.jobOf(sessionId),
     };
   }
 
@@ -535,7 +589,7 @@ interface Context {
 const seatIsStanding = (seat: Seat | undefined) => seat?.pose === "stand";
 
 /** Public activity for timed actions when no life system supplies an effect. */
-const FALLBACK_ACTIVITY: Partial<Record<ActionId, string>> = { study: "studying", sketch: "sketching", wash: "washing", buy: "eating" };
+const FALLBACK_ACTIVITY: Partial<Record<ActionId, string>> = { study: "studying", sketch: "sketching", wash: "washing", buy: "eating", work: "working" };
 const activityFallback = (action: ActionId): string => FALLBACK_ACTIVITY[action] ?? "idle";
 
 const target = (source: Pick<InteractPayload, "action" | "targetKind" | "targetId" | "itemId">) => ({

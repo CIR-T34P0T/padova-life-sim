@@ -1,4 +1,4 @@
-import { parseTimeScale } from "@padova/shared";
+import { parseClockOffset, parseTimeScale } from "@padova/shared";
 import { createGameServer } from "./app.ts";
 import { databaseConfigFromEnv, openDatabase } from "./db/database.ts";
 import { migrate } from "./db/migrate.ts";
@@ -27,8 +27,10 @@ function guestLimitFromEnv(): number | undefined {
 const guestCreationsPerIpPerHour = guestLimitFromEnv();
 // Game minutes per real minute (D-021). Changing it moves the clock: for development and tests.
 const timeScale = parseTimeScale(process.env.GAME_TIME_SCALE);
-const server = createGameServer({ db, tuning: { timeScale, ...(guestCreationsPerIpPerHour ? { guestCreationsPerIpPerHour } : {}) } });
-log.info("server", `game time: ${timeScale} game minutes per real minute`);
+// Shifts the whole clock by whole game minutes (e.g. to try opening hours or night): for development and tests.
+const clockOffsetMinutes = parseClockOffset(process.env.GAME_CLOCK_OFFSET_MINUTES);
+const server = createGameServer({ db, tuning: { timeScale, clockOffsetMinutes, ...(guestCreationsPerIpPerHour ? { guestCreationsPerIpPerHour } : {}) } });
+log.info("server", `game time: ${timeScale} game minutes per real minute${clockOffsetMinutes ? `, clock shifted by ${clockOffsetMinutes} game minutes` : ""}`);
 await server.listen(port, "0.0.0.0");
 log.info("server", `Padova Life SIM server listening on ws://0.0.0.0:${port}`);
 

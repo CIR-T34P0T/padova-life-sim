@@ -119,17 +119,34 @@ wallet_transactions     append-only ledger; every money change is one row
   id                   uuid PK
   character_id         uuid → characters (cascade delete)
   direction            'income' | 'expense'
-  category             'allowance' | 'purchase' | 'refund'
+  category             'allowance' | 'purchase' | 'refund' | 'wage' (wage since M7)
   amount_cents         integer > 0 (the sign comes from direction)
   balance_after_cents  integer ≥ 0
   item_id              café item for purchases and refunds, else null
   description          shown in the panel, e.g. "Panino", "Daily allowance"
   request_key          UNIQUE per character: makes the change idempotent
                        ("purchase:<request id>", "refund:purchase:<request id>",
-                       "allowance:day-<n>", "starting-allowance")
+                       "allowance:day-<n>", "starting-allowance", "wage:<shift id>")
   game_minute          when it happened, in game time
   created_at
   index (character_id, created_at DESC) for the recent-history query
+
+character_employment    the character's current job (M7); one job per character
+  character_id       uuid PK → characters (cascade delete)
+  job                text   id from JOB_IDS (validated in code; unknown ids load as "no job")
+  hired_game_minute  when they were hired, in game time
+  hired_at
+
+work_shifts             completed, paid shifts only (M7); never updated
+  id                   uuid PK, chosen by the server when the shift starts
+  character_id         uuid → characters (cascade delete)
+  job, grade           text   ids from JOBS (grade as it was when the shift started)
+  game_day             integer ≥ 1   the game day the shift started (daily limit)
+  started_game_minute, ended_game_minute   ended ≥ started
+  wage_cents           integer > 0
+  transaction_id       uuid UNIQUE → wallet_transactions (the wage's ledger row)
+  created_at
+  index (character_id, game_day) for "shifts today"
 ```
 
 **Money changes** (`applyMoneyChange`): one database transaction that locks
@@ -140,6 +157,19 @@ original result is reported), `insufficient_funds` (nothing changes) or
 `not_owner`. Prices come from the server's catalogue (`CAFE_MENU`), never from
 the client. Concurrent requests for the same wallet are serialised by the lock;
 the CHECK constraints are a second line of defence.
+
+**Wages** (`recordShift`, M7): when a shift's time is up, one database
+transaction locks the wallet (scoped to the owning account), returns the
+original payment if this shift id was already recorded (`duplicate`),
+checks the character still has that job (`not_employed`) and has fewer than
+the job's daily limit of shifts on that game day (`shift_limit`), then pays
+the wage through the same ledger code as every other money change (key
+`wage:<shift id>`) and writes the `work_shifts` row. Either both are written
+or neither. A shift that ends early is never written, so it is never paid.
+Wages come from the server's job catalogue (`JOBS`), never from a client.
+Hiring (`hireCharacter`) and quitting (`quitJob`) are single owner-scoped
+statements; quitting deletes the job row and keeps the shift history and
+wages.
 
 **Migration 0002 for existing characters:** M4-era characters get starting
 needs (80/80/80/70/70), a €100 wallet with a "Starting allowance" ledger row,
@@ -165,10 +195,17 @@ account row. Its `down` section recreates the unique index; it fails, and
 changes nothing, while any account has more than one character (delete the
 extra characters deliberately first; nothing is deleted automatically).
 
+**Migration 0005 (first job, M7).** Adds `wage` to the ledger's category
+CHECK and creates `character_employment` and `work_shifts`. Existing
+characters start without a job; nothing else changes. Its `down` section
+fails, and changes nothing, while any wage was ever paid or any character
+has a job (remove that data deliberately first; nothing is deleted
+automatically).
+
 **Deleting a character** (`deleteCharacter`, title screen only, after the
 player typed its name): one `DELETE FROM characters` scoped by the owning
-account; appearance, position, traits, needs, skills, mood events, wallet
-and every ledger row cascade. The account, its credential and its other
+account; appearance, position, traits, needs, skills, mood events, wallet,
+every ledger row, the job and the shift history cascade. The account, its credential and its other
 characters stay. Deleting the whole guest account is not offered yet.
 
 **The title screen list** (`listCharactersByAccount`): the account's
@@ -227,7 +264,8 @@ verified guest token), never from client input
 starting needs + wallet + starting-allowance ledger row, in one transaction);
 later characters of the same profile the same way, without a new account.
 Appearance on every accepted change. **Money immediately**, in its own
-transaction, whenever it changes. Position, needs, skills and mood events
+transaction, whenever it changes; a wage together with its shift record.
+Hiring and quitting immediately. Position, needs, skills and mood events
 together, in one transaction (`LifeService.saveAll`), when the player leaves,
 goes back to the title screen, is evicted by a newer session or the room closes; every 30 s for every
 character in the world (`PROFILE_CONFIG.autosaveIntervalMs`; needs change all
@@ -236,8 +274,9 @@ character is saved at the spot it stands up to.
 
 **Not persisted (yet):** activity, seats, pending actions (including a meal
 being eaten: the price is already paid, the rest of the meal is lost if the
-player disconnects mid-meal), greeting cooldowns, online status. Inventory,
-relationships, jobs and housing do not exist yet; each will get its own tables.
+player disconnects mid-meal), a shift in progress (it ends unpaid), greeting
+cooldowns, online status. Inventory, relationships and housing do not exist
+yet; each will get its own tables.
 
 ## Replicated (`server/src/schema.ts`)
 
@@ -267,8 +306,9 @@ Character id, account id, age category, timestamps and the guest token are
 **not** replicated. A player's own full profile is sent only to that player
 (`profile` message).
 
-**Private life data (M5, D-024).** Needs, mood, skills, traits, balance and
-recent transactions are **not** in the shared state. Each player receives
+**Private life data (M5, D-024).** Needs, mood, skills, traits, balance,
+recent transactions and the job with today's shift count (M7) are **not** in
+the shared state. Each player receives
 only their own, as a `life` message (`LifePayload` in `shared/src/protocol.ts`):
 at most every 500 ms while something visible changed, and immediately after
 money changes or refusals. Other players see only the public activity
@@ -278,11 +318,12 @@ money changes or refusals. Other players see only the public activity
 
 - `PlayerRuntime` (`server/src/runtime.ts`): movement intent, rate-limit
   counters, pending action (with its phase — approach, paying, active — the
-  café item, request id and how much of its effect has been applied), last
-  greeting time per target.
+  café item, request id, how much of its effect has been applied and, for a
+  shift, its id, grade and wage), last greeting time per target.
 - `CharacterLife` (`server/src/life/LifeSystem.ts`): the in-memory needs,
-  skills, mood events, balance and recent ledger rows of each character in
-  the world, the allowance day, and when the last `life` message was sent.
+  skills, mood events, balance, recent ledger rows, job and today's shift
+  count of each character in the world, the allowance day, whether a hire or
+  quit is being written, and when the last `life` message was sent.
 - `Session` (`server/src/PlazaRoom.ts`): authenticated account id, owner
   (account + character), read-only flag, last saved position, pending removal.
 - `SessionRegistry`: which session currently plays each account (D-018).
@@ -297,7 +338,8 @@ money changes or refusals. Other players see only the public activity
   height, and optionally `facing` (rendering) and `partOf` (a chair belongs
   to its table). Each interactable has a stable id equal to its obstacle's,
   a kind that decides its actions (bench, desk, cafe, fountain), a menu
-  label and its interaction points. Twelve interactables since the world
+  label and its interaction points. The café counter's two spots behind it
+  are tagged `use: "staff"` (M7): only for working a shift. Twelve interactables since the world
   art pass: benches 1–5, study desks 1–2, café tables 1–3 (desk rules),
   the café counter and the fountain (D-034).
 - `appearance/`: the appearance catalogue (option ids, labels, colours, hair
@@ -309,7 +351,11 @@ money changes or refusals. Other players see only the public activity
 - `life/config.ts`: every M5 tuning value and catalogue — needs (initial
   values, rates, thresholds), offline rules, mood events, skills and XP
   curve, action effects, the café menu (`CAFE_MENU`, prices in cents),
-  traits (`TRAITS`), starting balance and daily allowance.
+  traits (`TRAITS`), starting balance and daily allowance, and the job
+  catalogue (`JOBS`: workplace, opening hours, daily limit, grades and
+  wages; M7).
+- `life/work.ts`: the work rules (grade from skill levels, opening hours,
+  shifts today, why a shift can't start).
 
 ## Rules to keep
 
@@ -332,11 +378,11 @@ money changes or refusals. Other players see only the public activity
 **Proposed, not implemented.** Sketches that show how the next systems
 would fit the rules above, so their milestones can be estimated; each is
 designed properly, and may change, when its milestone is planned (ROADMAP.md
-"Planned milestones"). None of these tables exists.
+"Planned milestones"). None of these tables exists. (M7's job tables were
+built as described above.)
 
 | Milestone (proposed) | Data | Notes |
 | --- | --- | --- |
-| M7 first job | Job catalogue as data in `shared/` (like `CAFE_MENU`); `character_employment` (character, job, hired at); `work_shifts` (character, job, game day, started/ended, wage, status, request key) | Wages go through `applyMoneyChange` with a key per shift (`wage:<shift id>`). The ledger's database CHECK allows only `allowance`, `purchase` and `refund` today, so a `wage` category needs a migration |
 | M8 university basics | Fictional course and timetable catalogue in `shared/`; `enrolments` (character, course, status); `lecture_attendance` (character, lecture slot, game day); `assessments` (character, course, kind, grade, game day) | Grades and attendance are decided by the server from game time and recorded actions, never sent by a client |
 | M9 relationships and safety | `relationships` (an ordered pair of characters, score, kind, last interaction); `blocks` (blocking account → blocked account); `reports` (reporter, reported character, reason, short context, status) | Relationship data is private to the two players unless they choose to show it. Reports keep only what moderation needs; retention to be decided |
 | M9 story log | `story_events` (character, kind, game minute, small validated details, visibility) | Written by the server when a meaningful event happens (first shift, exam result, new friend); never edited by clients |

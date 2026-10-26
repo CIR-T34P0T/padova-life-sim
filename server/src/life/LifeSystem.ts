@@ -1,11 +1,14 @@
-// In-room life simulation (M5). For every character in the world it advances
-// needs with game time, applies the effects of running actions, tracks skills,
-// mood events and money, and sends the owner their own data (D-024). Every
-// rule comes from shared/src/life; this class only applies them.
+// In-room life simulation (M5, work since M7). For every character in the
+// world it advances needs with game time, applies the effects of running
+// actions, tracks skills, mood events, money and the character's job, and
+// sends the owner their own data (D-024). Every rule comes from
+// shared/src/life; this class only applies them.
 
 import { randomUUID } from "node:crypto";
 import {
   ECONOMY_CONFIG,
+  JOBS,
+  JOB_IDS,
   SKILL_CONFIG,
   ServerMessage,
   SKILL_IDS,
@@ -16,9 +19,13 @@ import {
   effectPortion,
   findMenuItem,
   gameDayOf,
+  gradeFor,
   greetingEffect,
   isTooTired,
+  levelForXp,
   realMsToGameHours,
+  shiftRefusal,
+  shiftsOn,
   skillGain,
   skillProgress,
   stepNeeds,
@@ -26,6 +33,7 @@ import {
   type ActionId,
   type ActiveMoodEvent,
   type InteractionFailure,
+  type JobId,
   type LifePayload,
   type MoodEventId,
   type Needs,
@@ -34,6 +42,7 @@ import {
   type SkillXp,
   type TraitId,
   type TransactionView,
+  type WorkState,
 } from "@padova/shared";
 import { log } from "../log.ts";
 import type { Owner } from "../profiles/profileRepository.ts";
@@ -63,6 +72,10 @@ interface CharacterLife {
   /** Game day whose allowance was last requested. */
   allowanceDay: number;
   allowanceInFlight: boolean;
+  /** Job and completed shifts today (M7). Changed only after the database confirms. */
+  work: WorkState;
+  /** A hire or quit is being written: no other job change or shift until it lands. */
+  jobBusy: boolean;
   lastSentKey: string;
   lastSentAt: number;
 }
@@ -107,6 +120,8 @@ export class LifeSystem {
       lastZ: runtime?.character.z ?? 0,
       allowanceDay: 0,
       allowanceInFlight: false,
+      work: { ...loaded.work },
+      jobBusy: false,
       lastSentKey: "",
       lastSentAt: 0,
     });
@@ -169,6 +184,9 @@ export class LifeSystem {
   /** Reason an action can't be started now, or null. */
   checkStart(sessionId: string, action: ActionId, itemId?: string): InteractionFailure | null {
     const life = this.lives.get(sessionId);
+    if (life && (action === "ask_work" || action === "work") && life.jobBusy) return "busy";
+    if (life && action === "ask_work" && life.work.jobId) return "already_employed";
+    if (life && action === "work") return shiftRefusal(life.work, this.deps.clock.minute(), life.needs);
     const effect = timedEffectFor(action, itemId);
     if (!life || !effect) return null;
     if (effect.focus && isTooTired(life.needs)) return "too_tired";
@@ -233,16 +251,136 @@ export class LifeSystem {
       .catch((error) => log.error("life", `refund failed for ${sessionId}: ${(error as Error).message}`));
   }
 
-  /** A timed action finished: apply what is left of its effect and its mood event. */
+  /** A timed action finished: apply what is left of its effect, its completion skills and its mood event. */
   onCompleted(sessionId: string, pending: PendingAction): void {
     const life = this.lives.get(sessionId);
     if (!life || !pending.effect) return;
     const gameMinute = this.deps.clock.minute();
     const remaining = 1 - pending.appliedFraction;
     if (remaining > 0) this.applyEffectShare(life, pending, remaining, gameMinute);
+    const onCompletion = pending.effect.skillsOnCompletion ?? {};
+    for (const [skill, xp] of Object.entries(onCompletion) as [SkillId, number][]) this.addXp(life, skill, xp, gameMinute);
     if (pending.effect.moodEvent) this.addMoodEvent(life, pending.effect.moodEvent);
     this.sendUpdate(sessionId, true);
-    if (Object.keys(pending.effect.skills).length > 0) this.deps.requestSave(sessionId);
+    if (Object.keys(pending.effect.skills).length > 0 || Object.keys(onCompletion).length > 0) this.deps.requestSave(sessionId);
+  }
+
+  // ── Work (M7) ───────────────────────────────────────────────────────────
+
+  /** The character's job, or null. */
+  jobOf(sessionId: string): JobId | null {
+    return this.lives.get(sessionId)?.work.jobId ?? null;
+  }
+
+  /** Hires the character for the job done at the counter it walked to. */
+  async hire(sessionId: string, pending: PendingAction): Promise<"ok" | InteractionFailure> {
+    const life = this.lives.get(sessionId);
+    const jobId = JOB_IDS.find((id) => JOBS[id].workplaceId === pending.targetId);
+    if (!life || !jobId) return "hire_failed";
+    if (life.work.jobId) return "already_employed";
+    if (life.jobBusy) return "busy";
+    life.jobBusy = true;
+    try {
+      const result = await this.deps.service.hire(life.owner, jobId, this.deps.clock.minute());
+      if (result === "hired") {
+        life.work = { ...life.work, jobId };
+        log.info("life", `${sessionId} was hired (${jobId})`);
+        this.sendUpdate(sessionId, true);
+        return "ok";
+      }
+      return result === "already_employed" ? "already_employed" : "hire_failed";
+    } catch (error) {
+      log.error("life", `hire failed for ${sessionId}: ${(error as Error).message}`);
+      return "hire_failed";
+    } finally {
+      life.jobBusy = false;
+    }
+  }
+
+  /** At the staff spot: checks the shift may start now and fixes its grade and wage from today's skills. */
+  startShift(sessionId: string, pending: PendingAction): InteractionFailure | null {
+    const life = this.lives.get(sessionId);
+    if (!life) return "wage_failed";
+    if (life.jobBusy) return "busy";
+    const gameMinute = this.deps.clock.minute();
+    const refused = shiftRefusal(life.work, gameMinute, life.needs);
+    if (refused) return refused;
+    const jobId = life.work.jobId!;
+    const job = JOBS[jobId];
+    if (job.workplaceId !== pending.targetId) return "not_employed";
+    const levels = Object.fromEntries(SKILL_IDS.map((skill) => [skill, levelForXp(life.skills[skill])]));
+    const grade = gradeFor(job, levels);
+    pending.shift = {
+      id: randomUUID(),
+      jobId,
+      gradeId: grade.id,
+      gradeLabel: grade.label,
+      wageCents: grade.wageCents,
+      gameDay: gameDayOf(gameMinute),
+      startedGameMinute: gameMinute,
+    };
+    return null;
+  }
+
+  /** The shift's time is up: record it and pay the wage (once per shift, through the ledger). */
+  async payShift(sessionId: string, pending: PendingAction): Promise<"ok" | InteractionFailure> {
+    const life = this.lives.get(sessionId);
+    const shift = pending.shift;
+    if (!life || !shift) return "wage_failed";
+    try {
+      const result = await this.deps.service.payShift(life.owner, {
+        shiftId: shift.id,
+        jobId: shift.jobId,
+        gradeId: shift.gradeId,
+        gradeLabel: shift.gradeLabel,
+        wageCents: shift.wageCents,
+        gameDay: shift.gameDay,
+        startedGameMinute: shift.startedGameMinute,
+        endedGameMinute: Math.max(shift.startedGameMinute, this.deps.clock.minute()),
+        maxShiftsPerDay: JOBS[shift.jobId].maxShiftsPerDay,
+      });
+      switch (result.status) {
+        case "paid":
+        case "duplicate":
+          life.work = { ...life.work, shiftsDay: shift.gameDay, shiftsToday: result.shiftsToday };
+          this.recordMoney(sessionId, result.balanceCents, result.transaction);
+          log.info("life", `${sessionId} was paid ${result.transaction.amountCents} cents for shift ${shift.id}`);
+          return "ok";
+        case "shift_limit":
+          life.work = { ...life.work, shiftsDay: shift.gameDay, shiftsToday: result.shiftsToday };
+          this.sendUpdate(sessionId, true);
+          return "shift_limit";
+        case "not_employed":
+          life.work = { ...life.work, jobId: null };
+          this.sendUpdate(sessionId, true);
+          return "not_employed";
+        case "not_owner":
+          return "wage_failed";
+      }
+    } catch (error) {
+      log.error("life", `wage for ${sessionId} (shift ${shift.id}) failed: ${(error as Error).message}`);
+      return "wage_failed";
+    }
+  }
+
+  /** Quits the character's job (the room stops any shift first). The owner sees it in their next life update. */
+  quitJob(sessionId: string): void {
+    const life = this.lives.get(sessionId);
+    if (!life || !life.work.jobId || life.jobBusy) return;
+    life.jobBusy = true;
+    this.deps.service
+      .quit(life.owner)
+      .then((result) => {
+        if (result === "quit" || result === "not_employed") {
+          life.work = { ...life.work, jobId: null };
+          log.info("life", `${sessionId} quit their job`);
+        }
+      })
+      .catch((error) => log.error("life", `quitting failed for ${sessionId}: ${(error as Error).message}`))
+      .finally(() => {
+        life.jobBusy = false;
+        this.sendUpdate(sessionId, true);
+      });
   }
 
   /** A greeting started: both players feel it. */
@@ -328,6 +466,8 @@ export class LifeSystem {
       payload.mood.level,
       payload.mood.reasons.length,
       payload.money.balanceCents,
+      payload.job?.jobId ?? "",
+      payload.job?.shiftsToday ?? 0,
       Math.floor(payload.gameMinute),
     ]);
     if (!force && key === life.lastSentKey) return;
@@ -355,6 +495,7 @@ export class LifeSystem {
       ) as LifePayload["skills"],
       traits: [...life.traits],
       money: { balanceCents: life.balanceCents, recent: [...life.recent] },
+      job: life.work.jobId ? { jobId: life.work.jobId, shiftsToday: shiftsOn(life.work, gameMinute) } : null,
     };
   }
 }

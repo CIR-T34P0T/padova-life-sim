@@ -209,6 +209,8 @@ describe("title screen and several lives", () => {
     const first = await joinWithNewCharacter(context.server.url, "Tina");
     const characterId = first.lastProfile()!.profile!.characterId;
     await backToTitle(first);
+    // Give Tina a job (M7) so a quit message from the title screen would have something to remove.
+    await context.server.db.query("INSERT INTO character_employment (character_id, job, hired_game_minute) VALUES ($1, 'cafe', 0)", [characterId]);
     const rejected: unknown[] = [];
     first.room.onMessage(ServerMessage.Rejected, (payload: unknown) => rejected.push(payload));
     const actionsBefore = first.actions.length;
@@ -218,6 +220,9 @@ describe("title screen and several lives", () => {
     first.room.send(ClientMessage.Stop);
     first.room.send(ClientMessage.Interact, { targetKind: "object", targetId: "bench-1", action: "sit" });
     first.room.send(ClientMessage.Interact, { targetKind: "object", targetId: "cafe-counter", action: "buy", itemId: "espresso", requestId: "req_title_0001" });
+    first.room.send(ClientMessage.Interact, { targetKind: "object", targetId: "cafe-counter", action: "work" });
+    first.room.send(ClientMessage.Interact, { targetKind: "object", targetId: "cafe-counter", action: "ask_work" });
+    first.room.send(ClientMessage.QuitJob);
     first.room.send(ClientMessage.CancelAction);
     await sleep(800);
     // Nothing appeared, moved, was reserved, answered or charged.
@@ -227,6 +232,8 @@ describe("title screen and several lives", () => {
     expect(rejected).toEqual([]);
     const ledger = await context.server.db.query("SELECT description FROM wallet_transactions WHERE character_id = $1", [characterId]);
     expect(ledger.rows.map((row: any) => row.description)).not.toContain("Espresso");
+    const job = await context.server.db.query("SELECT job FROM character_employment WHERE character_id = $1", [characterId]);
+    expect(job.rows).toEqual([{ job: "cafe" }]);
     // And the session still works normally.
     await enterWorld(first, characterId);
     await waitFor(() => playerIn(watcher, first.room.sessionId)?.name === "Tina", 3000, "Tina in the world");

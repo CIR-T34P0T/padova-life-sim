@@ -487,3 +487,31 @@ given on 2026-10-20:
   (D-021, D-022) until play-tests suggest a change.
 - **Q13 deferred:** who reviews reports and how long they are kept is raised
   again, explained more simply, before M9.
+
+## D-036 — First job: implementation choices (2026-10-26)
+
+M7 was built as designed in GAME_DESIGN.md "Work (M7)", with these choices
+made while building it. Each is a default the product owner can change.
+
+- **Unavailable shifts are shown, greyed out, with the reason** ("Opens at
+  06:00", "4 of 4 shifts done today", "Too tired") instead of being hidden,
+  like café items you can't afford. Hiding the option would leave players
+  guessing why it vanished. D-032's rule (no option without a working
+  effect) still holds: the option works whenever the reason clears, and
+  the server refuses with the same reasons if asked anyway. When both
+  staff spots are taken the option is not shown ("Someone else is using
+  that" if requested).
+- **Grade and wage are fixed when a shift starts.** Reaching communication
+  level 2 during a shift pays the barista wage from the next shift.
+- **The daily limit counts the game day the shift started**, so a shift
+  started just before midnight counts for that day.
+- **Hiring works at any hour;** only shifts need the café to be open. A
+  shift started before 23:00 may finish after it.
+- **A finished shift counts only once its wage is stored.** The wage and the
+  shift record are written in one database transaction; if that fails the
+  player is told (`wage_failed`) and the shift does not count.
+- **`GAME_CLOCK_OFFSET_MINUTES`** (default 0) shifts the server clock by
+  whole game minutes, for development and tests, so opening hours can be
+  tried at any real time. The browser tests start at 09:00 game time with
+  it. It is not a per-player clock: everyone in a server shares one clock
+  (D-021).

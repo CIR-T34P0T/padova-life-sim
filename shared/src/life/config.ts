@@ -80,6 +80,7 @@ export const MOOD_EVENTS = {
   friendly_hello: { label: "Friendly hello", value: 10, durationGameMinutes: 120 },
   someone_said_hello: { label: "Someone said hello", value: 6, durationGameMinutes: 90 },
   couldnt_afford: { label: "Couldn't afford it", value: -5, durationGameMinutes: 60 },
+  good_days_work: { label: "Good day's work", value: 6, durationGameMinutes: 120 },
 } as const;
 export type MoodEventId = keyof typeof MOOD_EVENTS;
 
@@ -116,13 +117,27 @@ export const ACTION_EFFECTS = {
     moodEvent: "freshened_up",
     focus: false,
   },
+  /** One café shift (M7): 90 real seconds = 15 game minutes at the default clock. Paid on completion only (WORK_CONFIG). */
+  work: {
+    durationMs: 90_000,
+    activity: "working",
+    needs: { energy: -8, fun: -4 },
+    skills: {},
+    skillsOnCompletion: { communication: 10 },
+    moodEvent: "good_days_work",
+    focus: true,
+  },
 } as const satisfies Record<string, TimedEffect>;
 
 export interface TimedEffect {
   durationMs: number;
   activity: string;
+  /** Applied gradually: stopping halfway gives half. */
   needs: Partial<Needs>;
+  /** Applied gradually: stopping halfway gives half. */
   skills: Partial<Record<SkillId, number>>;
+  /** Given only when the action completes (a finished shift, not half of one). */
+  skillsOnCompletion?: Partial<Record<SkillId, number>>;
   moodEvent?: MoodEventId;
   /** Needs concentration: refused when too tired. */
   focus: boolean;
@@ -138,7 +153,8 @@ export const GREETING_EFFECTS = {
 /** Money (D-023). All amounts in euro cents. */
 export const ECONOMY_CONFIG = {
   startingBalanceCents: 10_000,
-  dailyAllowanceCents: 1_500,
+  /** Halved from €15 when jobs arrived in M7 (D-035, Q8). */
+  dailyAllowanceCents: 750,
   /** Ledger entries kept in memory and shown in the character panel. */
   recentTransactions: 5,
 } as const;
@@ -160,6 +176,46 @@ export const CAFE_MENU: readonly MenuItem[] = [
   { id: "cornetto", label: "Cornetto", priceCents: 180, consumeMs: 8_000, activity: "eating", needs: { hunger: 20, fun: 5 } },
   { id: "panino", label: "Panino", priceCents: 450, consumeMs: 15_000, activity: "eating", needs: { hunger: 45, energy: 5 }, moodEvent: "good_meal" },
 ];
+
+export const JOB_IDS = ["cafe"] as const;
+export type JobId = (typeof JOB_IDS)[number];
+
+export interface JobGrade {
+  id: string;
+  label: string;
+  /** Paid for each completed shift. */
+  wageCents: number;
+  /** Skill level needed for this grade (decided when a shift starts). */
+  requires?: { skill: SkillId; level: number };
+}
+
+export interface JobDefinition {
+  label: string;
+  /** Interactable where the job is done; its "staff" spots are the work positions. */
+  workplaceId: string;
+  /** Game minutes after midnight. Shifts can start from `opensAt` until `closesAt`. */
+  opensAt: number;
+  closesAt: number;
+  /** Completed shifts allowed per game day. */
+  maxShiftsPerDay: number;
+  /** Lowest grade first; the highest grade whose requirement is met applies. */
+  grades: readonly JobGrade[];
+}
+
+/** Jobs (M7). Wages are set here, never by clients; see docs/GAME_DESIGN.md "Work (M7)". */
+export const JOBS: Record<JobId, JobDefinition> = {
+  cafe: {
+    label: "Café kiosk",
+    workplaceId: "cafe-counter",
+    opensAt: 6 * 60,
+    closesAt: 23 * 60,
+    maxShiftsPerDay: 4,
+    grades: [
+      { id: "assistant", label: "Café assistant", wageCents: 600 },
+      { id: "barista", label: "Barista", wageCents: 800, requires: { skill: "communication", level: 2 } },
+    ],
+  },
+};
 
 export const TRAITS: Record<TraitId, TraitDefinition> = {
   organised: {

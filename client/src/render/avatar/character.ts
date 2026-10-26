@@ -351,6 +351,13 @@ export class CharacterModel {
           armLZ = 0.18;
           armRZ = -0.18;
           break;
+        case "working":
+          // Serving behind the counter: both hands busy at counter height, in turn.
+          armLX = -0.75 + Math.sin(t * 2.6) * 0.16;
+          armRX = -0.75 - Math.sin(t * 2.6) * 0.16;
+          armLZ = 0.12;
+          armRZ = -0.12;
+          break;
         default:
           armLX = Math.sin(t * 0.9) * 0.025;
           armRX = Math.sin(t * 0.9 + 1) * 0.025;

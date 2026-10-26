@@ -5,7 +5,7 @@
 | Command | Scope | Needs |
 | --- | --- | --- |
 | `npm run typecheck` | All packages, strict TypeScript | — |
-| `npm test` | `shared/test` unit tests, `client/test` (the district art against the collision layout, in Node) and `server/test` integration tests | — (starts its own servers on ports 2611–2629, each with an in-memory PGlite database) |
+| `npm test` | `shared/test` unit tests, `client/test` (the district art against the collision layout, in Node) and `server/test` integration tests | — (starts its own servers on ports 2611–2635, each with an in-memory PGlite database) |
 | `TEST_DATABASE_URL=… npm test` | The same, plus every database test repeated on a real PostgreSQL server | A PostgreSQL user allowed to create databases; each test creates and drops a throwaway database |
 | `npm run check` | Both of the above | — |
 | `npm run test:e2e` | Playwright, real server + real client + several browsers | A Chromium (`npx playwright install chromium`, or `CHROMIUM_PATH`). The test server uses an in-memory database (never `.data/`) and a raised guest-creation limit |
@@ -48,7 +48,9 @@ highs help), recent events with reasons and expiry, no stacking, thresholds;
 skills — XP curve (100, 300, 600 … 5500, max level 10), trait and mood
 multipliers, cleaning stored XP; traits — at most two distinct known ids;
 money — whole cents, euro formatting, no spending beyond the balance, **the
-daily allowance pays for a day of food**, safe request ids; action effects —
+daily allowance covers at least half a day of food** (a whole day until M7
+halved it; with one shift it still does, `shared/test/work.test.ts`), safe
+request ids; action effects —
 what each action and café item does, proportional shares when stopped early,
 halved social gain when grubby.
 
@@ -133,6 +135,52 @@ negative even by a direct UPDATE; another account's money can't be moved;
 **of two simultaneous purchases that the balance covers once, exactly one
 succeeds**; refunds and allowances once per key. Runs on PGlite and, with
 `TEST_DATABASE_URL`, on PostgreSQL too.
+
+**Work rules (15 tests, `shared/test/work.test.ts`, M7):** the café job has
+two grades with whole-cent wages and the counter as workplace; the barista
+grade from communication level 2; open 06:00–23:00 every day; time-of-day
+formatting; a shift is allowed for an employee while open, under the daily
+limit and not too tired, and refused with the reason the player sees
+otherwise; yesterday's shifts don't count today; the shift effect (90 s,
+energy −8, fun −4, communication only on completion, *Good day's work*);
+**the halved allowance plus one shift still buys a day of the cheapest
+food**; the counter has two customer spots in front and two staff spots
+behind, all walkable and reachable; menus offer *Ask about work* without a
+job and a shift to employees; customers and staff keep to their own spots;
+server validation of work requests; the new actions accepted in `interact`
+messages; the clock offset and its validation.
+
+**Work through the real room (13 tests, `server/test/work.test.ts`, M7)** —
+real servers, databases and WebSocket clients with a 1.2 s shift and the
+clock set to 10:00 game time: hired at the counter, a shift at a staff spot
+behind it, the wage paid once (ledger and `work_shifts` checked in the
+database), communication XP and energy change; **nothing paid** for a shift
+cancelled, walked away from, ended by leaving, or cut by a network drop (the
+job survives the drop and the next shift is paid); four shifts a game day
+and the fifth refused; hiring someone already employed and shifts for
+someone without the job refused; too tired refused; quitting mid-shift
+pays nothing and removes the job, asking again hires again, repeated quit
+messages change nothing; **the barista wage** (€8, "Wage: Barista") for a
+character at communication level 2; **job and pay private** (another player
+never receives them; the replicated player has no job, grade or pay fields);
+the allowance setting is the halved €7.50 (the amount actually paid is
+checked by the life tests); two employees on the two staff spots, a
+third told `busy`, a customer still served meanwhile; hiring at night but
+shifts refused while closed; job, today's shifts and wage kept across a
+server restart on the same database.
+
+**Work database (9 tests, `server/test/workDatabase.test.ts`, M7)** —
+migration 0005 down and up again with no job data, the ledger accepting
+`wage` only while it is applied; **rollback refused, changing nothing,
+while a character has a job or was ever paid a wage**; hire once, quit, and
+never touch another account's character; a shift paid once however often
+it is recorded; the daily limit enforced in the database per game day; no
+pay for a character without the job or another account's character;
+**a shift recorded twice at the same moment is paid once, and of two shifts
+racing for the last free place only one passes**; database CHECKs refuse
+wages and shift rows that break the rules; job and shift history deleted
+with the character. Runs on PGlite and, with `TEST_DATABASE_URL`, on
+PostgreSQL too.
 
 **Database (`server/test/database.test.ts`)** — on in-memory PGlite and, with
 `TEST_DATABASE_URL`, on a real PostgreSQL server: migration files numbered
@@ -327,7 +375,26 @@ needs back. Every click is checked to reach the 3D view, not the panel. Phone
 (Pixel 7 emulation): the HUD chip doesn't overlap the connection pills and is
 ≥ 44 px tall; tap yourself → Character opens a bottom sheet under half the
 screen height, hides the joystick, scrolls to the money section; closing
-restores the joystick; the chip toggles the panel.
+restores the joystick; the chip toggles the panel. Since M7 the café menu
+also lists *Ask about work*.
+
+**End to end, first job (`e2e/work.spec.ts`, M7)** — desktop, with the
+game's real 90-second shift and the test server's clock at 09:00 game time:
+the counter lists the menu and *Ask about work* (€6.00 a shift); choosing it
+hires ("You got the job: Café assistant"); the counter then offers *Work a
+shift* (€6.00 · 90 s) and says "you work here"; the character works south of
+the counter (the staff side) with "Working a shift" in the action bar, and a
+second player sees the `working` activity; after 90 s "Shift done: +€6.00
+wage", one wage of €6.00 in the ledger, the balance up by exactly the wage
+(plus an allowance if the game day changed), communication XP up and energy
+down; the panel's Work section shows job, grade, wage, the next grade,
+"Shifts today 1 of 4 · Open now, until 23:00" and the wage in the money
+list; after a reload the job, today's shift and the wage come back; *Quit
+job* ends the job ("You quit your job at the café") and keeps the wage in
+the history. Phone (Pixel 7 emulation): tapping the counter opens the sheet
+with *Ask about work* as a button ≥ 48 px showing the wage; tapping it
+hires; the panel sheet scrolls to the Work section, *Quit job* is at least
+44 × 44 px and the sheet stays under half the screen height.
 
 **End to end, interactions (`e2e/interactions.spec.ts`)** — desktop: dragging
 across an object selects nothing; hover shows a pointer; clicking a bench
@@ -357,6 +424,9 @@ the code exists but no automated test covers it; **Partial**; **Missing**;
 **Blocked** = needs something unavailable here (the product owner's devices,
 art, a decision). "Verified" here is automated evidence only: the roadmap's
 owner sign-off and real-device checks are separate and still open.
+M7 (the first job, built after this audit) has its criteria and evidence in
+ROADMAP.md "M7 first job: acceptance criteria"; rows below changed by M7
+say so.
 
 | Milestone | Feature | Label | Code | Evidence |
 | --- | --- | --- | --- | --- |
@@ -383,7 +453,7 @@ owner sign-off and real-device checks are separate and still open.
 | M5 | Five needs with rates and gentle consequences; offline catch-up capped | Verified | `needs.ts`, `server/src/life/LifeSystem.ts` | `shared/test/life.test.ts`, `server/test/life.test.ts` |
 | M5 | Mood from needs and events, with reasons | Verified | `mood.ts` | unit and integration tests; `journey.spec.ts` ("Freshened up") |
 | M5 | Five skills, XP curve, trait and mood multipliers | Verified (cooking has no source yet) | `skills.ts` | unit and integration tests; `life.spec.ts`, `journey.spec.ts` |
-| M5 | Skills unlocking anything | Missing | — | Planned from M7 |
+| M5 | Skills unlocking anything | Missing at the audit; started in M7 (communication level 2 → barista wage) | `shared/src/life/work.ts` | `shared/test/work.test.ts`, `server/test/work.test.ts` (added with M7, 2026-10-26) |
 | M5 | Four traits chosen at creation | Verified | `traits.ts`, `setupScreen.ts` | `life.spec.ts`, `journey.spec.ts` |
 | M5 | Money ledger: idempotent, row-locked, never negative; café purchases; allowances | Verified | `lifeRepository.ts` (`applyMoneyChange`) | `lifeDatabase.test.ts` on both databases, `server/test/life.test.ts`, `life.spec.ts` |
 | M5 | Life data private to its owner | Verified | `LifeSystem.ts` (`life` message) | `server/test/life.test.ts` |
@@ -452,6 +522,10 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-26 (M7) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server); no linter is configured |
+| 2026-10-26 (M7) | unit + integration | 292/292 pass | With `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: 258 tests, 34 database tests repeated on PostgreSQL (including the 9 new work-database tests). Without PostgreSQL, `npm run check` 257/257 before the barista integration test was added; `server/test/work.test.ts` 13/13 after |
+| 2026-10-26 (M7) | e2e | 22/22 pass (one full run) | Includes the two new work tests with the real 90-second shift. `work.spec.ts` also passed alone on the in-memory database and on PostgreSQL (next row). Its first run, on 2026-10-20, failed one step: the panel redrew while the test scrolled to the Work section (a test timing problem; the scroll now retries) |
+| 2026-10-26 (M7) | e2e on PostgreSQL 16.15 + upgrade | 2/2 pass | `E2E_DATABASE_URL` on the existing `padova_e2e` database, which held 12 characters at migration 4: the server applied 0005 on start; afterwards the 12 earlier characters had the same balances and ledger rows, and the new shift had exactly one matching €6.00 wage (no duplicate keys, no shift without its wage) |
 | 2026-10-20 (integration audit) | typecheck + build | Pass | shared, server, client (including `client/test`); no linter is configured, so none ran |
 | 2026-10-20 (integration audit) | unit + integration | 246/246 pass | With `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15 (221 tests, 25 database tests repeated on PostgreSQL). New: double-clicked Begin, title-screen gameplay messages ignored, reconnection window ending, client/server player contract, wider appearance boundary. Each new test also passed on its own first |
 | 2026-10-20 (integration audit) | e2e | 20/20 pass (one full run) | Includes the new journey test. Before the final run the journey test ran 3 times alone: 2 passed, 1 failed at its last step (a third page's title screen took over 30 s while a production-build check shared the CPU; wait raised to 90 s). Its earlier full-suite failure (skills read before a reload vs after) was a stale snapshot, not lost data (see "Integration audit"). Journey, persistence and title-screen specs also on PostgreSQL 16.15 (`E2E_DATABASE_URL`): 9/9; rows checked with SQL (one character per name, no repeated ledger keys, skills saved) |
@@ -685,7 +759,7 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     window".
 15. **Life simulation (M5):** create a new character and pick a personality
     trait. Tap/click yourself → **Character**: the panel shows mood, needs,
-    skills and €115.00 (€100 start + today's €15). On a phone it is a bottom
+    skills and €107.50 (€100 start + today's €7.50; €115.00 before M7). On a phone it is a bottom
     sheet covering less than half the screen.
 16. Walk east to the café counter, open it and buy a **Panino** (€4.50). The
     balance drops once, the panel says "Eating a panino" and hunger rises over
@@ -744,3 +818,21 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     the same time as the clock chip.
 32. On a phone, check the frame rate feels smooth in the square (graphics
     "Automatic" picks the lighter detail there).
+33. **First job (M7):** the café is open 06:00–23:00 game time (the clock
+    chip). If it shows night, stop the server and start it with the clock
+    shifted, e.g. in PowerShell `$env:GAME_CLOCK_OFFSET_MINUTES=600; npm run
+    dev` (then `Remove-Item Env:GAME_CLOCK_OFFSET_MINUTES` afterwards). Tap
+    the café counter: the menu lists the three items and **Ask about work**
+    (€6.00 a shift). Choose it: the character walks to the counter and a
+    message says "You got the job: Café assistant".
+34. Tap the counter again: **Work a shift** (€6.00 · 90 s). Choose it: the
+    character walks behind the counter, the action bar says "Working a
+    shift", and a second player sees "· working" over the name. Wait 90
+    seconds: "Shift done: +€6.00 wage"; the panel's Money list shows "Wage:
+    Café assistant".
+35. Start another shift and press **Cancel** halfway: no wage. Open the
+    panel's **Work** section: "Shifts today 1 of 4", the opening hours, and
+    **Quit job** (on a phone, scroll the sheet; the button is easy to tap).
+36. Reload (and, once, restart the server): the job, today's shifts and the
+    wage are still there. **Quit job**: "You quit your job at the café", and
+    the counter offers Ask about work again.

@@ -7,6 +7,7 @@ import {
   activeMoodEvents,
   findMenuItem,
   gameDayOf,
+  isJobId,
   offlineCatchUp,
   realMsToGameHours,
   sanitizeMoodEvents,
@@ -14,14 +15,28 @@ import {
   sanitizeSkills,
   sanitizeStoredTraits,
   type ActiveMoodEvent,
+  type JobId,
   type Needs,
   type SkillXp,
   type TraitId,
   type TransactionView,
+  type WorkState,
 } from "@padova/shared";
 import type { Database } from "../db/database.ts";
 import { saveState, type Owner, type SavedState } from "../profiles/profileRepository.ts";
-import { applyMoneyChange, loadLife, saveLife, type LifeSnapshot, type MoneyChangeResult } from "./lifeRepository.ts";
+import {
+  applyMoneyChange,
+  hireCharacter,
+  loadLife,
+  loadWork,
+  quitJob,
+  recordShift,
+  saveLife,
+  type CompletedShift,
+  type LifeSnapshot,
+  type MoneyChangeResult,
+  type ShiftResult,
+} from "./lifeRepository.ts";
 
 /** A character's life as the room simulates it. */
 export interface LoadedLife {
@@ -31,6 +46,8 @@ export interface LoadedLife {
   moodEvents: ActiveMoodEvent[];
   balanceCents: number;
   recent: TransactionView[];
+  /** Job and today's completed shifts (M7). */
+  work: WorkState;
   /** Game hours of offline time that were applied (after the cap is applied by the rules). */
   offlineGameHours: number;
 }
@@ -53,8 +70,9 @@ export class LifeService {
 
   /** Loads life data and applies the capped offline catch-up (D-022). Null if not the owner's. */
   async load(owner: Owner, gameMinute: number): Promise<LoadedLife | null> {
-    const stored = await loadLife(this.db, owner, ECONOMY_CONFIG.recentTransactions);
-    if (!stored) return null;
+    const day = gameDayOf(gameMinute);
+    const [stored, storedWork] = await Promise.all([loadLife(this.db, owner, ECONOMY_CONFIG.recentTransactions), loadWork(this.db, owner, day)]);
+    if (!stored || !storedWork) return null;
     const traits = sanitizeStoredTraits(stored.traits);
     const savedNeeds = sanitizeNeeds(stored.needs);
     const offlineMs = stored.needsSavedAt ? Math.max(0, this.now() - stored.needsSavedAt.getTime()) : 0;
@@ -66,6 +84,8 @@ export class LifeService {
       moodEvents: activeMoodEvents(sanitizeMoodEvents(stored.moodEvents), gameMinute),
       balanceCents: stored.balanceCents,
       recent: stored.recent,
+      // A job id this server doesn't know (from a newer version) is treated as no job; the row is left alone.
+      work: { jobId: isJobId(storedWork.jobId) ? storedWork.jobId : null, shiftsDay: day, shiftsToday: storedWork.shiftsToday },
       offlineGameHours,
     };
   }
@@ -122,5 +142,20 @@ export class LifeService {
       requestKey: `allowance:day-${day}`,
       gameMinute,
     });
+  }
+
+  /** Gives the character a job (one at a time). */
+  hire(owner: Owner, jobId: JobId, gameMinute: number): Promise<"hired" | "already_employed" | "not_owner"> {
+    return hireCharacter(this.db, owner, jobId, gameMinute);
+  }
+
+  /** Ends the character's job. */
+  quit(owner: Owner): Promise<"quit" | "not_employed" | "not_owner"> {
+    return quitJob(this.db, owner);
+  }
+
+  /** Records a completed shift and pays its wage, once per shift id. */
+  payShift(owner: Owner, shift: CompletedShift): Promise<ShiftResult> {
+    return recordShift(this.db, owner, shift);
   }
 }

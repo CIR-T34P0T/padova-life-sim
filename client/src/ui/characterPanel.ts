@@ -1,16 +1,21 @@
 // Character panel (M5): the player's own needs, mood (with reasons), skills,
-// money and current action. Opened by clicking/tapping your own character
+// work (M7), money and current action. Opened by clicking/tapping your own character
 // (→ "Character") or the HUD chip. Desktop: a narrow panel on the right.
 // Touch: a bottom sheet capped below half the screen height. Everything shown
 // comes from the server's `life` message; nothing here is calculated as truth.
 
 import {
+  JOBS,
   NEEDS_CONFIG,
   NEED_IDS,
   SKILL_CONFIG,
   SKILL_IDS,
   TRAITS,
   formatEuros,
+  formatTimeOfDay,
+  gradeFor,
+  isOpen,
+  nextGradeFor,
   readClock,
   xpForLevel,
   type LifePayload,
@@ -47,6 +52,7 @@ const MOOD_LABELS: Record<MoodLevel, string> = {
 export interface CharacterPanelActions {
   onEditAppearance(): void;
   onLeaveToTitle(): void;
+  onQuitJob(): void;
 }
 
 export class CharacterPanel {
@@ -55,6 +61,8 @@ export class CharacterPanel {
   private readonly nameElement: HTMLElement;
   private readonly traitsElement: HTMLElement;
   private readonly body: HTMLElement;
+  /** Kept across re-renders (the body is rebuilt on every update) so a tap on it is never lost. */
+  private readonly quitButton: HTMLButtonElement;
   private life: LifePayload | null = null;
   private currentAction: string | null = null;
   private openState = false;
@@ -105,6 +113,13 @@ export class CharacterPanel {
     leave.title = "Saves and takes your character out of the piazza";
     leave.addEventListener("click", () => actions.onLeaveToTitle());
     footer.append(edit, leave);
+    this.quitButton = document.createElement("button");
+    this.quitButton.type = "button";
+    this.quitButton.className = "cp-action cp-quit";
+    this.quitButton.dataset.action = "quit-job";
+    this.quitButton.textContent = "Quit job";
+    this.quitButton.title = "A shift in progress ends unpaid. You can ask about work again any time.";
+    this.quitButton.addEventListener("click", () => actions.onQuitJob());
     this.element.append(header, this.body, footer);
     // Taps inside the panel never reach the game view.
     this.element.addEventListener("pointerdown", (event) => event.stopPropagation());
@@ -172,7 +187,14 @@ export class CharacterPanel {
       this.body.replaceChildren(text("p", "cp-muted", "Loading your character…"));
       return;
     }
-    this.body.replaceChildren(this.moodSection(life), this.nowSection(life), this.needsSection(life), this.skillsSection(life), this.moneySection(life));
+    this.body.replaceChildren(
+      this.moodSection(life),
+      this.nowSection(life),
+      this.needsSection(life),
+      this.skillsSection(life),
+      this.workSection(life),
+      this.moneySection(life),
+    );
   }
 
   private moodSection(life: LifePayload): HTMLElement {
@@ -214,6 +236,30 @@ export class CharacterPanel {
       const next = view.level >= SKILL_CONFIG.maxLevel ? "max" : `${Math.floor(view.xp)}/${xpForLevel(view.level + 1)} XP`;
       section.append(meter(`${SKILL_LABELS[skill]} · Lv ${view.level}`, view.progress, next, false, `skill-${skill}`, true));
     }
+    return section;
+  }
+
+  private workSection(life: LifePayload): HTMLElement {
+    const section = sectionWithTitle("Work");
+    section.dataset.testid = "work";
+    if (!life.job) {
+      section.append(text("p", "cp-muted", "No job yet. The café kiosk is hiring: tap the café counter and choose “Ask about work”."));
+      return section;
+    }
+    const job = JOBS[life.job.jobId];
+    const levels = Object.fromEntries(Object.entries(life.skills).map(([skill, view]) => [skill, view.level]));
+    const grade = gradeFor(job, levels);
+    const next = nextGradeFor(job, levels);
+    section.append(text("p", "cp-job", `${job.label} · ${grade.label}`));
+    const pay = `${formatEuros(grade.wageCents)} per completed shift`;
+    const promotion = next?.requires ? ` · ${next.label} ${formatEuros(next.wageCents)} at ${SKILL_LABELS[next.requires.skill]} Lv ${next.requires.level}` : "";
+    section.append(text("p", "cp-muted", pay + promotion));
+    const hours = isOpen(job, life.gameMinute)
+      ? `Open now, until ${formatTimeOfDay(job.closesAt)}`
+      : `Closed · opens at ${formatTimeOfDay(job.opensAt)}`;
+    const shifts = text("p", "cp-shifts", `Shifts today ${life.job.shiftsToday} of ${job.maxShiftsPerDay} · ${hours}`);
+    shifts.dataset.testid = "shifts";
+    section.append(shifts, this.quitButton);
     return section;
   }
 

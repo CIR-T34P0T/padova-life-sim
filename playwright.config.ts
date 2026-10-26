@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { gameMinuteAt } from "@padova/shared";
 
 // End-to-end tests run the real server and the real client in real browsers.
 // Ports differ from the dev defaults so tests never collide with `npm run dev`.
@@ -8,6 +9,14 @@ const CLIENT_PORT = 5179;
 // Optional: use an already-installed Chromium (e.g. where Playwright's browser
 // download is blocked). Otherwise Playwright's bundled browser is used.
 const executablePath = process.env.CHROMIUM_PATH || undefined;
+
+// The game clock follows real time, so the café (open 06:00–23:00 game time)
+// could be closed whenever the suite happens to run. Shift the test server's
+// clock so the run starts at 09:00 game time: that leaves 14 game hours (84
+// real minutes at the default speed) of opening time, longer than the suite.
+// E2E_CLOCK_OFFSET_MINUTES overrides it (e.g. to try the closed café).
+const now = gameMinuteAt(Date.now());
+const clockOffset = process.env.E2E_CLOCK_OFFSET_MINUTES ?? String(Math.round(Math.floor(now / 1440) * 1440 + 9 * 60 - now));
 
 const launchOptions = {
   executablePath,
@@ -39,6 +48,7 @@ export default defineConfig({
         PGLITE_DATA_DIR: "memory://",
         // The suite creates many characters from one address; lift the abuse limit for tests only.
         GUEST_CREATIONS_PER_IP_PER_HOUR: "1000",
+        GAME_CLOCK_OFFSET_MINUTES: clockOffset,
         DATABASE_URL: process.env.E2E_DATABASE_URL ?? "",
       },
       port: SERVER_PORT,

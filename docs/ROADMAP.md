@@ -15,8 +15,8 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M6 | Characters | Tested (persistence verified); Stage-1 procedural art | Versioned appearance config; procedural anime-inspired characters for every option (skin tones, 17 hair styles, face, body, wardrobe); character creator with live 3D preview; saved, upgraded from M5, replicated. Authored (artist-made) models not available yet (D-027) |
 | M6b | Title screen and character creation flow | Tested (persistence verified on PGlite and PostgreSQL 16); real phone and Windows not yet | Title screen (New life, Continue, Manage characters, Settings, Credits); up to 3 lives per guest profile (D-031); new life in three steps (name and personality → live 3D look in six categories → review and confirm); entering transition; edit a look from the title screen or the world without touching life data; original menu identity (D-032) |
 | M6c | World art pass: the first district | Tested (see acceptance below); Stage-1 procedural art; not yet seen by the product owner, on Windows or on a phone | The greybox becomes a fictional Padua-inspired university square: six detailed buildings (hall with walk-in porch and clock tower, library, portico you can walk through), market, café with tables, gardens, trees, lamps, paving; streets and skyline beyond; collision-first art checked by a test; buildings and trees that hide you fade (D-033, D-034) |
-| M7 | A first job | Planned, next (order approved, D-035); design in GAME_DESIGN.md "Work (M7)" | Café shift pays a wage into the M5 ledger; skills start to matter (e.g. pay or eligibility) |
-| M7b | Day and night | Planned (approved, D-035) | Light, sky, lamps and windows follow the shared game clock; night stays readable; no gameplay effect |
+| M7 | A first job | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | Café kiosk job: ask about work, 90 s shifts on two staff spots behind the counter, a wage paid once per completed shift through the M5 ledger, barista grade at communication level 2, opening hours and a daily limit, quit; daily allowance halved (D-035, D-036) |
+| M7b | Day and night | Planned, next (approved, D-035) | Light, sky, lamps and windows follow the shared game clock; night stays readable; no gameplay effect |
 | M8 | University basics | Planned (order approved; details proposed) | One fictional course: enrolment, a timetable in game time, lectures, an exam with a server-computed grade |
 | M9 | Relationships, public profiles and safety | Planned (order approved; details proposed) | Public info panel for other players, relationships grown from shared actions, block and report, a private story log |
 | M10 | A place to live | Planned (order approved; details proposed) | A rented room, sleep, comfort, a small furniture catalogue with server-validated placement |
@@ -87,7 +87,7 @@ Not yet **verified** by the owner: real phone, Windows, sign-off.
 | Needs 0–100 with defined meanings, rates and consequences; not punishing | Implemented, tested | GAME_DESIGN "Life simulation"; unit tests incl. "nothing empties in under 90 real minutes"; consequences are gentle (mood, slower learning, "too tired" below 10 energy, halved greeting gain when grubby) |
 | Mood derived from needs and recent events | Implemented, tested | `shared/src/life/mood.ts`; unit tests; reasons shown in the panel (e2e screenshots: "Good meal +10", "Learned something +8") |
 | Five skills improved by appropriate actions | Implemented, tested (cooking has no source yet) | Academic (study), creativity (sketch), communication (greet), fitness (walking); integration + e2e. Cooking waits for a kitchen |
-| Skills eventually unlock opportunities | Not started | Levels exist (max 10); nothing is unlocked yet. First use planned for M7 (job) |
+| Skills eventually unlock opportunities | Started in M7 | Levels exist (max 10); communication level 2 makes café shifts pay the barista wage (M7, tested). More unlocks come with M8 and M10 |
 | Small deterministic trait system | Implemented, tested | Organised, Sociable, Creative, Ambitious; chosen at creation (up to 2); unit tests; Organised learns 15–25 % more (integration) |
 | Finances: balance, income, expenses, purchase history; no negative balance; server-validated | Implemented, tested, persistence verified | Ledger tables with CHECK constraints; row-locked idempotent `applyMoneyChange`; database tests on PGlite and PostgreSQL 16 incl. simultaneous purchases; prices only from the server menu |
 | The complete loop (enter → inspect → café → buy → eat → study → see changes → reload keeps progress) | Tested | Integration test (fast tuning) and e2e test with the real durations in a real browser |
@@ -157,11 +157,33 @@ real phone, and the art direction of the new menus.
 Not yet **verified** by the product owner: the look of the district on
 Windows and on a phone, and the frame rate on real hardware.
 
+## M7 first job: acceptance criteria
+
+Design and rules: GAME_DESIGN.md "Work (M7)"; choices made while building:
+D-036. Test counts and results: TESTING.md.
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| The café counter offers *Ask about work* (hires at once) and, to employees, *Work a shift* | Tested | Shared menu rules; integration test (hire on arrival, then a shift); e2e desktop and phone. Changed from the plan: an unavailable shift is shown greyed out with its reason instead of hidden (D-036) |
+| A shift is a server-timed action at a staff spot behind the counter, with progress and Cancel; its effect on needs is data in `shared/src/life/config.ts` | Tested | `ACTION_EFFECTS.work` (90 s, energy −8, fun −4); integration test checks the staff spot and effects; e2e shows "Working a shift" and the working activity |
+| A completed shift pays a wage once, through the ledger, never from a client value; a cancelled, interrupted or dropped shift pays nothing | Tested | Database tests (one payment per shift id, also when recorded twice at once; wage and shift written together); integration tests for completion, Cancel, walking away, leaving, quitting and a network drop |
+| Skills matter: working trains communication; communication level 2 pays the barista wage | Tested | Unit tests (grade rule, completion XP); integration tests (a shift adds communication XP; a level-2 character's shift pays €8 as "Wage: Barista") |
+| Limits: 4 shifts per game day, 06:00–23:00 opening hours, not while too tired; two can work at once; others see "working" | Tested | Unit tests; integration tests (fifth shift refused, closed café, too tired, two employees and a third refused while customers still buy, a second player sees `working` but never pay); the daily limit is enforced again in the database |
+| Employment and wage history survive reload, server restart and network drops | Persistence verified | Integration test across a server restart on one database; e2e reload; a network drop mid-shift pays nothing, keeps the job, and the next shift is paid; PostgreSQL 16 database tests |
+| The character panel shows job, grade, wage, next grade, shifts today and opening hours, with *Quit job*, on desktop and phone | Tested (phone = emulation) | e2e desktop panel and Pixel 7 emulation (section reachable, Quit job at least 44 × 44 px, panel under half the screen) |
+| Daily allowance €7.50; earned balances untouched | Tested | `ECONOMY_CONFIG.dailyAllowanceCents` = 750; the life integration tests check €100 + €7.50 on entering through the real server; migration 0005 changes no balance |
+| Migration 0005 up, down and up again; down refuses while jobs or wages exist | Tested on PGlite and PostgreSQL 16 | `server/test/workDatabase.test.ts` |
+
+Not yet **verified** by the product owner: the job on Windows and on a
+phone, and whether the wages, shift length, limits and halved allowance
+feel right (play-testing).
+
 ## Planned milestones (order approved; details proposed)
 
 **The order is approved (D-035); the details below are proposals.** Each
-milestone is reviewed with the product owner and refined before it starts;
-none has started. Data sketches: DATA_MODEL.md "Proposed"; system design:
+milestone is reviewed with the product owner and refined before it starts.
+M7 is built (criteria and evidence in "M7 first job: acceptance criteria"
+above); the others have not started. Data sketches: DATA_MODEL.md "Proposed"; system design:
 GAME_DESIGN.md "Life simulation: proposed next steps". Every milestone also
 keeps the standing criteria: server-authoritative changes, owner-scoped
 persistence verified on PGlite and PostgreSQL, desktop and phone layouts,
@@ -170,34 +192,8 @@ report.
 
 ### M7 — A first job (café shifts)
 
-Depends on: M5 ledger, skills and interaction hooks; the M6c café kiosk.
-Needs a migration (the ledger's `category` CHECK has no `wage`) and
-employment tables. Design: GAME_DESIGN.md "Work (M7)".
-
-1. The café counter offers *Ask about work* (hires at once) and, to
-   employees, *Work a shift* while the café is open, a staff spot behind the
-   counter is free and today's limit isn't reached; unavailable options are
-   not shown.
-2. A shift is a server-timed action at a standing spot, with progress and
-   Cancel like other actions; its effect on needs (energy, fun) is data in
-   `shared/src/life/config.ts`.
-3. A completed shift pays a wage through `applyMoneyChange` with one key per
-   shift: never paid twice, never from a client value, shown as "Wage" in
-   the ledger. A cancelled, interrupted or dropped shift pays nothing
-   (design default; the owner can switch to proportional pay).
-4. Skills matter: working trains communication, and communication level
-   changes pay or unlocks the next job grade.
-5. Limits: shifts per game day, not while too tired; two players can work at
-   once when there are two positions; others see the "working" activity.
-6. Employment and wage history survive reload, server restart and network
-   drops.
-7. The character panel shows the job, grade, shifts today, when the café
-   opens and recent wages, with *Quit job*, on desktop and phone.
-8. The daily allowance is €7.50 per game day (D-035); earned balances are
-   untouched.
-9. Tests: unit (pay, limits), integration (shift lifecycle, duplicate
-   requests, two players racing for a position), e2e (work a shift, see the
-   wage, reload).
+Built on 2026-10-26: see "M7 first job: acceptance criteria" above and
+GAME_DESIGN.md "Work (M7)".
 
 ### M7b — Day and night (approved, D-035)
 
@@ -315,11 +311,11 @@ before any test with people outside the project (D-035).
 
 | Milestone | Needs first |
 | --- | --- |
-| M7 job | M5 ledger and skills, M6c café (done); ledger migration |
+| M7 job | Done (2026-10-26) |
 | M7b day and night | M5 clock and M6c lighting (done) |
 | M8 university | M5 clock and skills (done); Q10 for an indoor lecture room |
 | M9 social | M3 greet, M4 profiles (done); the sign-in method (Q5) and the report process (Q13) |
-| M10 home | M7 income; the interiors comparison (Q10); area transfer in networking |
+| M10 home | M7 income (done); the interiors comparison (Q10); area transfer in networking |
 | M11 NPCs | M7 and M8 places |
 | M12 operations | Q5 and hosting decisions |
 
@@ -338,20 +334,20 @@ marked **waiting**.
 | Q5 | A real sign-in method and account deletion | Approved: decide before M9 and before any public test | Options presented before M9 |
 | Q6 | Authored character models (commission or license, or keep procedural; glTF or VRM) | **Waiting**: the owner likes the idea and wants a plainer explanation | Explained when M8 starts; procedural characters until then |
 | Q7 | A comfort need | Approved: add it in M10 with furniture of different comfort | M10 |
-| Q8 | The daily allowance once jobs exist | Approved: halve it (€15 → €7.50 per game day) in M7 | M7 |
+| Q8 | The daily allowance once jobs exist | Approved: halve it (€15 → €7.50 per game day) in M7 | Done in M7 |
 | Q9 | Rent that can't be paid (no debt, D-023) | Approved: a notice and a mood event, then a move to a cheaper room | M10 |
 | Q10 | How to build interiors (homes, lecture rooms) | Approved: a written comparison first | Before M10, or before M8 if lectures move indoors |
 | Q11 | Later districts: fictional or real streets | Approved: fictional composites until verified references exist | — |
 | Q12 | Day and night lighting | Approved: right after M7 | M7b |
 | Q13 | Who reviews player reports, and how long reports are kept | **Waiting**: to be explained more simply | Raised again before M9 |
 
-## Current state (handoff, 2026-10-20)
+## Current state (handoff, 2026-10-26)
 
 Read this first when starting a new session.
 
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
-M0–M6, M6b (title screen and creation flow) and M6c (the first district)
-implemented and covered by automated tests (see `docs/TESTING.md` for the
+M0–M6, M6b (title screen and creation flow), M6c (the first district) and
+M7 (a first job at the café) implemented and covered by automated tests (see `docs/TESTING.md` for the
 counts and latest results). An integration audit on 2026-10-20 checked every
 feature against the code, ran the whole player journey with two clients,
 and loaded a real M5-era database with today's server; its matrix
@@ -374,15 +370,19 @@ Padua-inspired university square (into the hall's porch, along the portico
 behind its columns, between market stalls, gardens and trees; buildings
 and trees that hide you fade); sit or sketch on five benches, study at two
 desks or at three café tables, buy an espresso/cornetto/panino at the café
-kiosk, wash up at the fountain, greet other players; watch needs, mood (with reasons),
-skills and money in the character panel; come back later, even after a
+kiosk, wash up at the fountain, greet other players; get a job at the café
+and work 90-second shifts behind the counter for a wage (€6, or €8 as a
+barista from communication level 2; 06:00–23:00 game time, 4 shifts a game
+day), and quit it; watch needs, mood (with reasons), skills, work and money
+in the character panel; come back later, even after a
 server restart, to the same character with the same look, needs, skills,
-money and purchase history.
+money, job and purchase and wage history.
 
 **Genuinely persistent:** account (guest), its characters (up to three),
 each character's profile, appearance config, traits, last position, needs,
-skills, mood events, wallet and every money transaction. **Temporary:**
-activity, seats, pending actions (including a meal in progress), cooldowns,
+skills, mood events, wallet, every money transaction, the job and every
+completed shift. **Temporary:** activity, seats, pending actions (including
+a meal or a shift in progress), cooldowns,
 online status; the guest identity itself lives only in one browser; looks
 saved in the creator and device settings live only in that browser. The world clock is derived from real time, not stored.
 
@@ -393,12 +393,12 @@ saved in the creator and device settings live only in that browser. The world cl
 | 1 | Look at the new district, the title screen, the creation flow and the characters on the Windows PC (`git pull`, `npm ci`, `npm run dev`) and a phone; say what to change in the art direction (world, menus, characters) and whether the frame rate feels smooth | Planned | Product owner |
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
 | 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–32) | Planned | Product owner |
-| 4 | Play-test the M5 balance (need rates, prices, allowance, study XP) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
+| 4 | Play-test the M5 and M7 balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
 | 5 | Remaining decisions in "Decisions for the product owner": Q4 (any time), Q6 (when M8 starts), Q13 (before M9) | Waiting | Product owner, with explanations from Claude |
 
-**Recommended next task:** build **M7, a first job** (design in
-GAME_DESIGN.md "Work (M7)", criteria above), which completes the earn →
-spend loop; in parallel the product owner looks at the district, the title
+**Recommended next task:** build **M7b, day and night** (approved, D-035;
+criteria in "Planned milestones"); M7 completed the earn → spend loop. In
+parallel the product owner looks at the district, the title
 screen, the creation flow and the characters on Windows and a phone (item 1;
 the world lab, `/world-lab.html`, shows every corner of the district).
 Follow-ups not covered by "Technical work that waits for a trigger":

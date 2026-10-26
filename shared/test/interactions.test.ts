@@ -73,7 +73,7 @@ describe("menu contents", () => {
   it("offers buying at a free café counter and washing at the fountain; busy when every spot is taken", () => {
     const cafe = findInteractable(world, "cafe-counter")!;
     const fountain = findInteractable(world, "fountain")!;
-    expect(objectActions(cafe, actor(), none)).toEqual(["buy"]);
+    expect(objectActions(cafe, actor(), none)).toEqual(["buy", "ask_work"]); // work options: work.test.ts
     expect(objectActions(fountain, actor(), none)).toEqual(["wash"]);
     expect(cafe.seats.every((spot) => spot.pose === "stand")).toBe(true);
     const full = new Map(cafe.seats.map((spot, i) => [spot.id, `p${i}`]));

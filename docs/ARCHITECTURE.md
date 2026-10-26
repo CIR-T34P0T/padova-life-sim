@@ -130,7 +130,10 @@ Click/tap-to-interact, inspired by life-sim games, with original UI.
 with a stable id equal to its obstacle id (`bench-1`, `desk-2`), a kind, a
 menu label, and `seats`. A seat has a stable id (`bench-1/seat-a`), the
 seated position and facing, and an `approach` point on walkable ground where
-the character stands before sitting and returns to when standing up.
+the character stands before sitting and returns to when standing up. A seat
+tagged `use: "staff"` (the two spots behind the café counter, M7) is used
+only for working a shift; every other action uses the untagged points
+(`seatsFor`).
 
 **Rules (`shared/src/interactions.ts`).** Pure functions:
 `objectActions` / `playerActions` decide menu contents;
@@ -181,13 +184,16 @@ decisions D-021 to D-026.
 per game hour by activity and traits, gains, offline catch-up), `mood.ts`
 (score from needs plus recent mood events, with reasons), `skills.ts` (XP
 curve, levels, trait and mood multipliers), `traits.ts` (validation),
-`economy.ts` (menu lookup, euro formatting, affordability) and `effects.ts`
+`economy.ts` (menu lookup, euro formatting, affordability), `effects.ts`
 (what each timed action or café item does, and how much of it applies after
-a fraction of its duration). All tuning is in `life/config.ts`.
+a fraction of its duration) and `work.ts` (M7: grade from skill levels,
+opening hours, shifts today, why a shift can't start). All tuning is in
+`life/config.ts`, including the job catalogue `JOBS`.
 
 **World clock (D-021).** One clock per server, derived from real time:
-`gameMinuteAt(Date.now(), timeScale)`, default 10 game minutes per real
-minute (`GAME_TIME_SCALE`). The room replicates `state.gameMinute`; clients
+`gameMinuteAt(Date.now(), timeScale, offset)`, default 10 game minutes per
+real minute (`GAME_TIME_SCALE`); `GAME_CLOCK_OFFSET_MINUTES` shifts it for
+development and tests (default 0). The room replicates `state.gameMinute`; clients
 never run their own clock, so frame rate cannot change game time.
 
 **Server (`server/src/life`).**
@@ -195,7 +201,7 @@ never run their own clock, so frame rate cannot change game time.
   profile SQL; money changes are row-locked, idempotent ledger transactions.
 - `LifeService.ts`: load (with the capped offline catch-up, D-022), save
   together with the position in one transaction, purchase/refund with
-  server-side prices, daily allowance.
+  server-side prices, daily allowance; hire, quit and pay a shift (M7).
 - `LifeSystem.ts`: in-memory life of every character in the room. Each tick
   (after movement, before interactions complete) it steps needs, adds fitness
   XP for distance actually walked, applies the running action's effect in
@@ -205,22 +211,42 @@ never run their own clock, so frame rate cannot change game time.
 
 **Interaction hooks.** `InteractionSystem` stays generic and calls an
 `InteractionHooks` object (implemented by `LifeSystem`): `checkStart` (e.g.
-too tired; can't afford), `effectFor`, `purchase` and `refund` (async, on
-arrival at the counter), `onCompleted` and `onGreeting`. A pending action has
-phases: `approach` (walking) → `paying` (café only: the purchase transaction
-runs; the player shows "ordering") → `active` (timed effect). If the action is
-cancelled or replaced while paying, the completed payment is refunded
+too tired; can't afford; the café is closed), `effectFor`, `purchase` and
+`refund` (async, on arrival at the counter), `onCompleted`, `onGreeting`,
+and for work (M7) `jobOf`, `hire`, `startShift` and `payShift`. A pending
+action has phases: `approach` (walking) → `paying` (waiting for the
+database: a purchase being charged, the player shows "ordering"; a hire
+being written) → `active` (timed effect); a finished shift goes back to
+`paying` while its wage is recorded and only then completes. If a purchase
+is cancelled or replaced while paying, the completed payment is refunded
 (D-025). Standing spots (café counter, fountain) reuse the seat mechanism
 with `pose: "stand"` (D-026).
 
+**Work (M7).** Rules and numbers: `GAME_DESIGN.md` "Work (M7)". *Ask about
+work* (`ask_work`) is untimed: on arrival at a customer spot the `hire` hook
+writes the job (`hireCharacter`) and the action completes once it is stored.
+*Work a shift* (`work`) walks to a free staff spot; on arrival `startShift`
+re-checks the limits with the shared rule (`shiftRefusal`) and fixes the
+shift's id, grade and wage in the pending action; the shift then runs as a
+timed effect like studying. When its time is up `payShift` records the shift
+and pays the wage in one transaction (`recordShift`, key `wage:<shift id>`);
+the action completes only if that succeeds, and the completion effect
+(communication XP, *Good day's work*) applies then. A shift that ends early
+is never recorded or paid. `quitJob` (a client message) cancels any shift
+first, then deletes the job. Job changes are applied in memory only after
+the database confirms, and a per-character busy flag stops two job changes
+or a shift start overlapping.
+
 **Client.** `ui/characterPanel.ts` shows the player's own needs, mood (with
-reasons), skills, money with recent transactions, and current action, from
+reasons), skills, work (job, grade, wage, shifts today, opening hours and
+*Quit job*; M7), money with recent transactions, and current action, from
 the server's `life` message only; nothing is calculated as truth on the
 client. Desktop: a 300 px column on the right; touch: a bottom sheet under
 half the screen in portrait, docked right in landscape. Opened by clicking
 yourself → "Character" or the top-right chip (`ui/hud.ts`: time, money,
 mood colour). Café options show prices and are greyed out when the player
-can't afford them; focus actions show "Too tired". The server re-checks
+can't afford them; focus actions show "Too tired"; *Work a shift* shows wage
+and length, or is greyed out with the reason it can't start (D-036). The server re-checks
 everything. Traits (up to two, optional) are picked on the name and
 personality step (`ui/screens/setupScreen.ts`; the M4–M6 `ui/profilePanel.ts`
 was replaced by the title screen flow in M6b).
@@ -258,8 +284,8 @@ are replicated, private or persistent is the table in `NETWORKING.md`
    title, eviction, room close, the 30 s autosave, after an action that gave
    skill XP). Seats, activity and the pending action are never saved.
 
-**Rule for new systems** (the convention this pattern sets; nothing new is
-built by it): a new valuable change (a wage, a grade, a relationship step, an
+**Rule for new systems** (the convention this pattern sets; M7's wages
+follow it): a new valuable change (a wage, a grade, a relationship step, an
 item) is an intent from the client, a pure rule in `shared/`, a server check
 over server state, and a write in a repository transaction scoped by the
 owning account, with an idempotency key when a repeat could pay or grant

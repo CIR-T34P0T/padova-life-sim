@@ -122,6 +122,10 @@ export class Game {
         this.characterPanel.close();
         this.profileHandlers.onLeaveToTitle();
       },
+      onQuitJob: () => {
+        this.quitRequested = true;
+        this.connection.quitJob();
+      },
     });
     hud.onMeChip(() => {
       this.interactions.clearSelection(); // never two sheets at once
@@ -272,7 +276,14 @@ export class Game {
     this.characterPanel.setIdentity(profile.displayName, profile.traits);
   }
 
+  /** Set when the player pressed "Quit job"; the server confirms by sending life data without a job. */
+  private quitRequested = false;
+
   private onLife(payload: LifePayload): void {
+    if (this.quitRequested && !payload.job) {
+      this.quitRequested = false;
+      if (this.life?.job) this.hud.toast("You quit your job at the café.", 4500);
+    }
     this.life = payload;
     this.hud.setLife(payload);
     this.characterPanel.update(payload);

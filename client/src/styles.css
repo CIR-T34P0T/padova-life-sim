@@ -791,6 +791,28 @@ body {
   opacity: 0.6;
 }
 
+p.cp-muted {
+  margin: 2px 0;
+}
+
+/* ── Work section (M7) ─────────────────────────────────────────────────── */
+.cp-job {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.cp-shifts {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cp-action.cp-quit {
+  flex: none;
+  padding: 0 16px;
+}
+
 /* ── Character panel actions (title screen milestone) ───────────────────── */
 .cp-footer {
   display: flex;

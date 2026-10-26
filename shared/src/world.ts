@@ -50,6 +50,11 @@ export interface Seat {
   approach: { x: number; z: number };
   /** "sit" (default) or "stand". */
   pose?: "sit" | "stand";
+  /**
+   * Who uses it: "staff" spots (behind the café counter) are only for working
+   * a shift and never for customers; untagged points are for everyone else.
+   */
+  use?: "staff";
 }
 
 /**
@@ -143,15 +148,20 @@ function seatsAlongEdge(obstacle: Obstacle, count: number, side: Side, facing: "
   return seats;
 }
 
-/** Standing spots along one long edge of an object, facing it. */
-function standingSpotsAlongEdge(obstacle: Obstacle, count: number, edge: "north" | "south", playerRadius = PLAYER_RADIUS): Seat[] {
+/**
+ * Standing spots along one long edge of an object, facing it. Ids are
+ * `<object>/<prefix>-a`, `-b`…; staff spots use the prefix "staff".
+ */
+function standingSpotsAlongEdge(obstacle: Obstacle, count: number, edge: "north" | "south", use?: "staff", playerRadius = PLAYER_RADIUS): Seat[] {
   const width = obstacle.maxX - obstacle.minX;
   const gap = playerRadius + 0.3;
   const z = edge === "south" ? obstacle.maxZ + gap : obstacle.minZ - gap;
   const rotation = edge === "south" ? Math.PI : 0;
+  const prefix = use ?? "spot";
   return Array.from({ length: count }, (_, i) => {
     const x = obstacle.minX + (width * (i + 0.5)) / count;
-    return { id: `${obstacle.id}/spot-${String.fromCharCode(97 + i)}`, x, z, rotation, approach: { x, z }, pose: "stand" as const };
+    const spot: Seat = { id: `${obstacle.id}/${prefix}-${String.fromCharCode(97 + i)}`, x, z, rotation, approach: { x, z }, pose: "stand" };
+    return use ? { ...spot, use } : spot;
   });
 }
 
@@ -355,7 +365,14 @@ export const PLAZA_LAYOUT: WorldLayout = {
     { id: "bench-5", kind: "bench", label: "Bench", seats: seatsAlongEdge(obstacle("bench-5"), 2, "east", "away") },
     { id: "desk-1", kind: "desk", label: "Study desk", seats: desk1Seats },
     { id: "desk-2", kind: "desk", label: "Study desk", seats: desk2Seats },
-    { id: "cafe-counter", kind: "cafe", label: "Café counter", seats: standingSpotsAlongEdge(obstacle("cafe-counter"), 2, "north") },
+    // Customers order on the north side; staff work behind the counter on the
+    // south side, under the canopy's barista end (M7).
+    {
+      id: "cafe-counter",
+      kind: "cafe",
+      label: "Café counter",
+      seats: [...standingSpotsAlongEdge(obstacle("cafe-counter"), 2, "north"), ...standingSpotsAlongEdge(obstacle("cafe-counter"), 2, "south", "staff")],
+    },
     // Café tables use the desk rules (sit, or study over a coffee).
     { id: "cafe-table-1", kind: "desk", label: "Café table", seats: table1Seats },
     { id: "cafe-table-2", kind: "desk", label: "Café table", seats: table2Seats },
