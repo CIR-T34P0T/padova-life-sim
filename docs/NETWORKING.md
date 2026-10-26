@@ -134,7 +134,9 @@ the same on every client when the covering comes off.
 The server derives the game minute from its real clock and the time scale
 (`GAME_TIME_SCALE`, default 10 game minutes per real minute) and replicates
 it as `state.gameMinute`, which changes once per game minute (every 6 s by
-default). Clients display it; they never advance time themselves.
+default). Clients display it; they never advance time themselves. The
+day/night light (M7b) is drawn from the same replicated minute, so it needs
+no messages of its own and every player sees the same time of day.
 
 `GAME_CLOCK_OFFSET_MINUTES` (whole game minutes, at most a week either way;
 default 0) shifts the whole clock, for development and tests: for example to

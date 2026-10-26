@@ -33,9 +33,41 @@ export class Sink {
   add(batch: string, owner: string | null, geometry: THREE.BufferGeometry | THREE.BufferGeometry[], material: MaterialKey = "toon"): void {
     for (const g of Array.isArray(geometry) ? geometry : [geometry]) {
       if (g.getAttribute("position").count === 0) continue;
-      this.pieces.push({ geometry: standardise(g), owner, batch, material });
+      const glow = g.getAttribute("glow");
+      const piece = standardise(g);
+      // Every piece carries a glow strength per vertex (M7b), so pieces merge into one mesh.
+      piece.setAttribute("glow", glow ?? new THREE.Float32BufferAttribute(new Float32Array(piece.getAttribute("position").count), 1));
+      this.pieces.push({ geometry: piece, owner, batch, material });
     }
   }
+}
+
+// ── Night glow (M7b, D-037) ──────────────────────────────────────────────────
+
+/**
+ * Marks a piece that shines at night (lit windows, lanterns, shop windows):
+ * `strength` 0 = never, 1 = full lamplight. By day it looks as before; the
+ * world material adds the glow as the light fades (render/nightShading.ts).
+ */
+export function glowing(geometry: THREE.BufferGeometry, strength: number): THREE.BufferGeometry {
+  const count = geometry.getAttribute("position").count;
+  geometry.setAttribute("glow", new THREE.Float32BufferAttribute(new Float32Array(count).fill(strength), 1));
+  return geometry;
+}
+
+/** Share of ordinary windows lit at night. */
+export const LIT_WINDOW_SHARE = 0.4;
+
+/**
+ * Whether the window at this point is lit at night: decided by its position
+ * alone, so it is the same window every night, on every client and at both
+ * detail levels.
+ */
+export function litAtNight(x: number, y: number, z: number, share = LIT_WINDOW_SHARE): boolean {
+  let h = Math.imul(Math.round(x * 10) | 0, 73856093) ^ Math.imul(Math.round(y * 10) | 0, 19349663) ^ Math.imul(Math.round(z * 10) | 0, 83492791);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296 < share;
 }
 
 export { paint, paintWith, rgb, type ColourInput };
@@ -229,11 +261,12 @@ export class QuadBatch {
   private readonly positions: number[] = [];
   private readonly normals: number[] = [];
   private readonly colours: number[] = [];
+  private readonly glows: number[] = [];
   private readonly a = new THREE.Vector3();
   private readonly b = new THREE.Vector3();
 
-  /** A quad with corners in counter-clockwise order as seen from its front. */
-  quad(p0: THREE.Vector3Like, p1: THREE.Vector3Like, p2: THREE.Vector3Like, p3: THREE.Vector3Like, colour: ColourInput): void {
+  /** A quad with corners in counter-clockwise order as seen from its front; `glow` as in `glowing`. */
+  quad(p0: THREE.Vector3Like, p1: THREE.Vector3Like, p2: THREE.Vector3Like, p3: THREE.Vector3Like, colour: ColourInput, glow = 0): void {
     const c = rgb(colour);
     this.a.set(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
     this.b.set(p3.x - p0.x, p3.y - p0.y, p3.z - p0.z);
@@ -242,6 +275,7 @@ export class QuadBatch {
       this.positions.push(p.x, p.y, p.z);
       this.normals.push(n.x, n.y, n.z);
       this.colours.push(c.r, c.g, c.b);
+      this.glows.push(glow);
     }
   }
 
@@ -251,14 +285,14 @@ export class QuadBatch {
   }
 
   /** A box in a façade frame's local (u, v, w) space; `back` false skips the face against the wall. */
-  frameBox(f: Frame, u0: number, u1: number, v0: number, v1: number, w0: number, w1: number, colour: ColourInput, back = false): void {
+  frameBox(f: Frame, u0: number, u1: number, v0: number, v1: number, w0: number, w1: number, colour: ColourInput, back = false, glow = 0): void {
     const P = (u: number, v: number, w: number) => f.point(u, v, w);
-    this.quad(P(u0, v0, w1), P(u1, v0, w1), P(u1, v1, w1), P(u0, v1, w1), colour); // front
-    this.quad(P(u0, v1, w1), P(u1, v1, w1), P(u1, v1, w0), P(u0, v1, w0), colour); // top
-    this.quad(P(u0, v0, w0), P(u1, v0, w0), P(u1, v0, w1), P(u0, v0, w1), colour); // bottom
-    this.quad(P(u0, v0, w1), P(u0, v1, w1), P(u0, v1, w0), P(u0, v0, w0), colour); // left
-    this.quad(P(u1, v0, w0), P(u1, v1, w0), P(u1, v1, w1), P(u1, v0, w1), colour); // right
-    if (back) this.quad(P(u1, v0, w0), P(u0, v0, w0), P(u0, v1, w0), P(u1, v1, w0), colour);
+    this.quad(P(u0, v0, w1), P(u1, v0, w1), P(u1, v1, w1), P(u0, v1, w1), colour, glow); // front
+    this.quad(P(u0, v1, w1), P(u1, v1, w1), P(u1, v1, w0), P(u0, v1, w0), colour, glow); // top
+    this.quad(P(u0, v0, w0), P(u1, v0, w0), P(u1, v0, w1), P(u0, v0, w1), colour, glow); // bottom
+    this.quad(P(u0, v0, w1), P(u0, v1, w1), P(u0, v1, w0), P(u0, v0, w0), colour, glow); // left
+    this.quad(P(u1, v0, w0), P(u1, v1, w0), P(u1, v1, w1), P(u1, v0, w1), colour, glow); // right
+    if (back) this.quad(P(u1, v0, w0), P(u0, v0, w0), P(u0, v1, w0), P(u1, v1, w0), colour, glow);
   }
 
   get empty(): boolean {
@@ -270,7 +304,10 @@ export class QuadBatch {
     g.setAttribute("position", new THREE.Float32BufferAttribute(this.positions, 3));
     g.setAttribute("normal", new THREE.Float32BufferAttribute(this.normals, 3));
     g.setAttribute("color", new THREE.Float32BufferAttribute(this.colours, 3));
-    return standardise(g);
+    const glow = new THREE.Float32BufferAttribute(this.glows, 1);
+    const out = standardise(g);
+    out.setAttribute("glow", glow);
+    return out;
   }
 }
 

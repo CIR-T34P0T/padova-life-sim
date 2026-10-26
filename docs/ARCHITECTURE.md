@@ -57,9 +57,25 @@ the client, `tsx` runs it on the server.
     tree canopies that hide your character fade to 16 % opacity, and so do
     buildings the camera is inside or within 3.5 m of (D-035), the sky dome follows the camera, and the hall's
     clock hands show the shared game time;
+  - **day and night (M7b, D-037):** when the replicated game minute changes,
+    `update` asks `render/world/daylight.ts` (a pure function of the minute)
+    for the light and applies it to the sun or moon light, the hemisphere
+    fill, the haze, the page background, the sky dome's colours, the cloud
+    tint, two night-only meshes (stars and moon; lamplight pools on the
+    ground) and the shared uniforms of `render/nightShading.ts`. Those
+    uniforms drive two small toon-shader additions: world materials add a
+    warm glow where the geometry's `glow` attribute marks lit windows and
+    lanterns, and character materials add a fraction of their own colour as
+    light at night. The light is applied in the same frame update that runs
+    before the first render after entering, so a player joining at night
+    never sees a frame of daylight; the clock comes only from the server
+    (D-021), so everyone sees the same time of day. The character preview
+    (creator, portraits) resets the character lift before it draws. No
+    shared rule or server module reads the light (guarded by
+    `server/test/boundaries.test.ts`);
   - the district is built just after the title screen appears
     (`{ defer: true }`); `ready` / `isReady()` let entering the world wait for it.
-- `client/world-lab.html` shows the district without a server (developer page).
+- `client/world-lab.html` shows the district without a server (developer page), at any time of day with `?time=HH:MM`.
 - `render/quality.ts` picks a profile: phones (coarse pointer) get pixel ratio
   ≤ 1.5, no shadows, no antialiasing. The Graphics setting (title screen →
   Settings) or `?quality=high|low` overrides it; read once at page load.
@@ -390,8 +406,8 @@ creator tells the player; other parts and other players are unaffected.
   Stage-1 characters — requirements in `ASSET_PIPELINE.md`.
 - Level of detail for characters (far characters still use full geometry)
   and spreading character builds over several frames when many players join at once.
-- Day/night lighting: the light is always afternoon; the clock and HUD follow
-  the game clock. Lamps don't light up at night yet.
+- Real light from lamps on walls and characters (night lamplight is painted
+  on the ground and in emissive glass; no point lights, to spare phones).
 - Per-object level of detail for the world (two detail levels by quality
   profile exist; distance LOD doesn't).
 - Camera collision: the camera can stray into buildings near the edges;

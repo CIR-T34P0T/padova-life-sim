@@ -15,6 +15,8 @@ import {
   blob,
   boxAt,
   cuboid,
+  glowing,
+  litAtNight,
   cylinder,
   gableRoof,
   hipRoof,
@@ -89,8 +91,10 @@ function windowAt(f: Frame, u: number, v0: number, s: WindowStyle, detail: Detai
   const depth = s.depth ?? 0.08;
   const glass = s.glass ?? P.glass;
   const spring = v0 + h - w / 2;
-  // Glass, set slightly into the frame.
-  out.push(f.panel(s.arched ? archShape(u, v0, w, spring) : rectShape(u - w / 2, u + w / 2, v0, v0 + h), 0.012, glass, 10));
+  // Glass, set slightly into the frame. Some windows are lit at night (the same ones every night).
+  const pane = f.panel(s.arched ? archShape(u, v0, w, spring) : rectShape(u - w / 2, u + w / 2, v0, v0 + h), 0.012, glass, 10);
+  const centre = f.point(u, v0 + h / 2, 0);
+  out.push(litAtNight(centre.x, centre.y, centre.z) ? glowing(pane, 0.85) : pane);
   if (detail === "high") {
     // Glazing bars.
     out.push(f.box(u - 0.025, u + 0.025, v0, s.arched ? spring : v0 + h, 0.012, 0.03, s.frame));
@@ -210,11 +214,11 @@ function shopfront(f: Frame, u0: number, u1: number, height: number, s: { frame:
   const glass = s.glass ?? P.glassWarm;
   const doorW = 1.1;
   const doorU = u1 - 0.35 - doorW / 2;
-  // Display window.
-  out.push(f.box(u0 + 0.3, doorU - doorW / 2 - 0.25, 0.55, height - 0.35, 0.01, 0.03, glass));
+  // Display window (lit in the evening, like the glass door).
+  out.push(glowing(f.box(u0 + 0.3, doorU - doorW / 2 - 0.25, 0.55, height - 0.35, 0.01, 0.03, glass), 0.45));
   out.push(f.box(u0 + 0.2, doorU - doorW / 2 - 0.15, 0, 0.55, 0, 0.1, s.frame));
   // Glass door.
-  out.push(f.box(doorU - doorW / 2, doorU + doorW / 2, 0, height - 0.35, 0.01, 0.03, glass));
+  out.push(glowing(f.box(doorU - doorW / 2, doorU + doorW / 2, 0, height - 0.35, 0.01, 0.03, glass), 0.45));
   out.push(f.box(doorU - 0.02, doorU + 0.02, 0, height - 0.35, 0.03, 0.05, s.frame));
   // Frame and fascia.
   for (const u of [u0 + 0.2, doorU - doorW / 2 - 0.15, doorU + doorW / 2 + 0.05]) out.push(f.box(u, u + 0.1, 0, height - 0.35, 0, 0.1, s.frame));
@@ -443,7 +447,7 @@ function hall({ sink, detail, layout }: Ctx): void {
 
 /** A lantern: on a wall bracket (`wall`) or hanging from a ceiling. */
 function lantern(at: THREE.Vector3, out: THREE.BufferGeometry[], detail: Detail, wall: boolean): void {
-  out.push(boxAt(at.x, at.y, at.z, 0.26, 0.36, 0.26, P.glassWarm));
+  out.push(glowing(boxAt(at.x, at.y, at.z, 0.26, 0.36, 0.26, P.glassWarm), 1.3));
   out.push(boxAt(at.x, at.y + 0.22, at.z, 0.34, 0.08, 0.34, P.iron));
   out.push(cylinder(at.x, at.y + 0.26, at.z, 0.2, 0.02, 0.18, P.iron, 4));
   out.push(boxAt(at.x, at.y - 0.21, at.z, 0.3, 0.06, 0.3, P.iron));

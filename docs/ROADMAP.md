@@ -16,8 +16,8 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M6b | Title screen and character creation flow | Tested (persistence verified on PGlite and PostgreSQL 16); real phone and Windows not yet | Title screen (New life, Continue, Manage characters, Settings, Credits); up to 3 lives per guest profile (D-031); new life in three steps (name and personality → live 3D look in six categories → review and confirm); entering transition; edit a look from the title screen or the world without touching life data; original menu identity (D-032) |
 | M6c | World art pass: the first district | Tested (see acceptance below); Stage-1 procedural art; not yet seen by the product owner, on Windows or on a phone | The greybox becomes a fictional Padua-inspired university square: six detailed buildings (hall with walk-in porch and clock tower, library, portico you can walk through), market, café with tables, gardens, trees, lamps, paving; streets and skyline beyond; collision-first art checked by a test; buildings and trees that hide you fade (D-033, D-034) |
 | M7 | A first job | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | Café kiosk job: ask about work, 90 s shifts on two staff spots behind the counter, a wage paid once per completed shift through the M5 ledger, barista grade at communication level 2, opening hours and a daily limit, quit; daily allowance halved (D-035, D-036) |
-| M7b | Day and night | Planned, next (approved, D-035) | Light, sky, lamps and windows follow the shared game clock; night stays readable; no gameplay effect |
-| M8 | University basics | Planned (order approved; details proposed) | One fictional course: enrolment, a timetable in game time, lectures, an exam with a server-computed grade |
+| M7b | Day and night | Tested (world lab, the game at night on desktop and phone emulation); Stage-1 art; not yet seen by the product owner, on Windows or on a phone | Sun and moon, sky, haze, stars, lit windows, lanterns and lamplight pools follow the shared game clock; night stays readable; 2 extra draw calls at night only; no gameplay effect (D-037) |
+| M8 | University basics | Planned, next (order approved; details proposed; waits on Q4 and the Q6 explanation) | One fictional course: enrolment, a timetable in game time, lectures, an exam with a server-computed grade |
 | M9 | Relationships, public profiles and safety | Planned (order approved; details proposed) | Public info panel for other players, relationships grown from shared actions, block and report, a private story log |
 | M10 | A place to live | Planned (order approved; details proposed) | A rented room, sleep, comfort, a small furniture catalogue with server-validated placement |
 | M11 | NPCs with routines | Planned (order approved; details proposed) | A few deterministic NPCs with game-time schedules using the same interaction points |
@@ -178,11 +178,28 @@ Not yet **verified** by the product owner: the job on Windows and on a
 phone, and whether the wages, shift length, limits and halved allowance
 feel right (play-testing).
 
+## M7b day and night: acceptance criteria
+
+Choices made while building it: D-037. Test counts and results: TESTING.md.
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| Sun direction and colour, sky, haze and ambient light follow the replicated game minute through dawn, day, dusk and night, as a pure, unit-tested function | Tested | `client/src/render/world/daylight.ts`; `client/test/daylight.test.ts` checks every minute of a day: same minute same light on any day, no jumps (midnight included), sun east → south → west and never below 14°, moonlight at night, 16:00 equal to the art pass's afternoon |
+| At night the street lamps, lanterns and some windows light up | Tested | About 40 % of windows (chosen by position), every lantern, shop windows and the pastry case glow; pools of lamplight under the lamps, the kiosk and the porch; stars and a moon. `client/test/world.test.ts` checks the glowing pieces at both detail levels; world lab screenshots at 19:40, 23:00 and 06:20 |
+| The square stays readable at night: characters, name tags, menus and tap targets as easy to see as by day | Tested | `e2e/daylight.spec.ts` measures two characters in the picture: at dusk and at night each keeps over 55 % of its midday brightness and over 80 % of its contrast with the ground around it (measured: relative contrast within about 12 % of midday's, one character slightly lower, the other slightly higher). Name tags, menus, rings and highlights are drawn without scene light; tap targets are invisible boxes, unchanged |
+| Every player sees the same time of day; joining at night shows night at once, with no flash of daylight | Tested | The light comes only from the replicated minute. `e2e/daylight.spec.ts`: the first frame after entering already used the server's minute, and two players see the same time of day (run by day: the suite's clock starts at 09:00). Joining a server set to 23:00 checked by a script on desktop and Pixel 7 emulation: the first frame was night |
+| Both detail levels keep their draw-call and triangle budgets; phones get no extra shadow work | Tested | By day unchanged (86 / 47 draw calls for the overview, 69 / 31 for the game camera, high / low); at night +2 draw calls and about 1 400 triangles at either level (checked in `e2e/daylight.spec.ts`); no new lights or shadow casters |
+| No gameplay rule reads the light | Tested | `server/test/boundaries.test.ts`: no file in `shared/src` or `server/src` imports or names the light |
+| Checked in the world lab at chosen times, in the game, and by the existing browser tests | Tested | World lab `?time=HH:MM`; the game at night (script above); full browser suite (TESTING.md) |
+
+Not yet **verified** by the product owner: how dawn, dusk and night look on
+Windows and on a phone, and whether night is dark enough (or too dark).
+
 ## Planned milestones (order approved; details proposed)
 
 **The order is approved (D-035); the details below are proposals.** Each
 milestone is reviewed with the product owner and refined before it starts.
-M7 is built (criteria and evidence in "M7 first job: acceptance criteria"
+M7 and M7b are built (criteria and evidence in their acceptance sections
 above); the others have not started. Data sketches: DATA_MODEL.md "Proposed"; system design:
 GAME_DESIGN.md "Life simulation: proposed next steps". Every milestone also
 keeps the standing criteria: server-authoritative changes, owner-scoped
@@ -197,22 +214,8 @@ GAME_DESIGN.md "Work (M7)".
 
 ### M7b — Day and night (approved, D-035)
 
-Depends on: the shared game clock (D-021) and the district's lighting and
-materials (D-033). No server or data change.
-
-1. The sun's direction and colour, the sky, the haze and the ambient light
-   follow the replicated game minute through dawn, day, dusk and night, as a
-   pure, unit-tested function of the game minute.
-2. At night the street lamps, lanterns and some windows light up, and the
-   square stays readable: characters, name tags, menus and tap targets are
-   as easy to see as by day.
-3. Every player sees the same time of day (it comes from the server clock);
-   joining at night shows night at once, with no flash of daylight.
-4. Both detail levels keep their current draw-call and triangle budgets
-   (ASSET_PIPELINE.md); phones get no extra shadow work.
-5. No gameplay rule reads the light (needs, money and actions are unchanged).
-6. Checked in the world lab at chosen times of day, in the game, and by the
-   existing browser tests.
+Built on 2026-10-26: see "M7b day and night: acceptance criteria" above and
+D-037.
 
 ### M8 — University basics (one fictional course)
 
@@ -312,7 +315,7 @@ before any test with people outside the project (D-035).
 | Milestone | Needs first |
 | --- | --- |
 | M7 job | Done (2026-10-26) |
-| M7b day and night | M5 clock and M6c lighting (done) |
+| M7b day and night | Done (2026-10-26) |
 | M8 university | M5 clock and skills (done); Q10 for an indoor lecture room |
 | M9 social | M3 greet, M4 profiles (done); the sign-in method (Q5) and the report process (Q13) |
 | M10 home | M7 income (done); the interiors comparison (Q10); area transfer in networking |
@@ -338,7 +341,7 @@ marked **waiting**.
 | Q9 | Rent that can't be paid (no debt, D-023) | Approved: a notice and a mood event, then a move to a cheaper room | M10 |
 | Q10 | How to build interiors (homes, lecture rooms) | Approved: a written comparison first | Before M10, or before M8 if lectures move indoors |
 | Q11 | Later districts: fictional or real streets | Approved: fictional composites until verified references exist | — |
-| Q12 | Day and night lighting | Approved: right after M7 | M7b |
+| Q12 | Day and night lighting | Approved: right after M7 | Done in M7b (D-037) |
 | Q13 | Who reviews player reports, and how long reports are kept | **Waiting**: to be explained more simply | Raised again before M9 |
 
 ## Current state (handoff, 2026-10-26)
@@ -346,8 +349,9 @@ marked **waiting**.
 Read this first when starting a new session.
 
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
-M0–M6, M6b (title screen and creation flow), M6c (the first district) and
-M7 (a first job at the café) implemented and covered by automated tests (see `docs/TESTING.md` for the
+M0–M6, M6b (title screen and creation flow), M6c (the first district), M7
+(a first job at the café) and M7b (day and night) implemented and covered by
+automated tests (see `docs/TESTING.md` for the
 counts and latest results). An integration audit on 2026-10-20 checked every
 feature against the code, ran the whole player journey with two clients,
 and loaded a real M5-era database with today's server; its matrix
@@ -373,8 +377,9 @@ desks or at three café tables, buy an espresso/cornetto/panino at the café
 kiosk, wash up at the fountain, greet other players; get a job at the café
 and work 90-second shifts behind the counter for a wage (€6, or €8 as a
 barista from communication level 2; 06:00–23:00 game time, 4 shifts a game
-day), and quit it; watch needs, mood (with reasons), skills, work and money
-in the character panel; come back later, even after a
+day), and quit it; see the square change from dawn to night with everyone
+else (lit windows, lamps, stars); watch needs, mood (with reasons), skills,
+work and money in the character panel; come back later, even after a
 server restart, to the same character with the same look, needs, skills,
 money, job and purchase and wage history.
 
@@ -390,17 +395,21 @@ saved in the creator and device settings live only in that browser. The world cl
 
 | # | Item | Status | Owner |
 | --- | --- | --- | --- |
-| 1 | Look at the new district, the title screen, the creation flow and the characters on the Windows PC (`git pull`, `npm ci`, `npm run dev`) and a phone; say what to change in the art direction (world, menus, characters) and whether the frame rate feels smooth | Planned | Product owner |
+| 1 | Look at the district (by day and at night), the title screen, the creation flow and the characters on the Windows PC (`git pull`, `npm ci`, `npm run dev`) and a phone; say what to change in the art direction (world, light, menus, characters) and whether the frame rate feels smooth | Planned | Product owner |
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
-| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–32) | Planned | Product owner |
+| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–39) | Planned | Product owner |
 | 4 | Play-test the M5 and M7 balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
 | 5 | Remaining decisions in "Decisions for the product owner": Q4 (any time), Q6 (when M8 starts), Q13 (before M9) | Waiting | Product owner, with explanations from Claude |
 
-**Recommended next task:** build **M7b, day and night** (approved, D-035;
-criteria in "Planned milestones"); M7 completed the earn → spend loop. In
-parallel the product owner looks at the district, the title
-screen, the creation flow and the characters on Windows and a phone (item 1;
-the world lab, `/world-lab.html`, shows every corner of the district).
+**Recommended next task:** **M8, university basics**, next in the approved
+order. Before building it: Claude gives the plainer explanation of authored
+character models promised for when M8 starts (Q6), the product owner answers
+Q4 (time scale and offline cap: lecture timetables are set in game time),
+and says whether lectures happen at the hall's entrance or need an interior
+(Q10: an interior needs the written comparison first). In parallel the
+product owner looks at the district by day and at night, the title screen,
+the creation flow and the characters on Windows and a phone (item 1; the
+world lab, `/world-lab.html?time=23:00`, shows every corner at any hour).
 Follow-ups not covered by "Technical work that waits for a trigger":
 precompile the world's shaders while the title screen is open (entering
 takes about 4 s with software rendering, 2.4 s of it the first world frame);

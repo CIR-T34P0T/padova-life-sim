@@ -236,6 +236,15 @@ Written before the clock was implemented; the code must follow it.
   applied gradually, so stopping halfway gives half the effect.
 - **Sleep** is not in M5 (no beds yet). Energy comes back by resting on a
   bench, from coffee, and while offline.
+- **Day and night are visible (M7b, D-037)** and purely visual. Dawn from
+  05:15, sunrise 06:15, full day 07:30–18:30, sunset 19:45, dusk until
+  21:30, then night with stars, a moon, lit windows and pools of lamplight.
+  Everyone in the world sees the same time of day, because the light is
+  drawn from the server's game minute. Nothing in the game depends on the
+  light: needs, money, actions and opening hours (the café's 06:00–23:00)
+  come from the clock itself, never from how bright it is. Night is a mood,
+  not a handicap: characters, name tags and menus stay as easy to see as by
+  day.
 
 ### While a player is offline
 

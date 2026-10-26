@@ -10,7 +10,7 @@ import type { WorldLayout } from "@padova/shared";
 import { seeded } from "../avatar/geometry.ts";
 import { WALL_INSET } from "./buildings.ts";
 import { P } from "./palette.ts";
-import { Frame, QuadBatch, archShape, blob, boxAt, cuboid, cylinder, gableRoof, hipRoof, rgb, shadeByHeight, type ColourInput, type Detail, type Sink } from "./kit.ts";
+import { Frame, QuadBatch, archShape, blob, boxAt, cuboid, cylinder, gableRoof, hipRoof, litAtNight, rgb, shadeByHeight, type ColourInput, type Detail, type Sink } from "./kit.ts";
 
 type Rect = readonly [x0: number, x1: number, z0: number, z1: number];
 
@@ -123,7 +123,8 @@ function cityBlock(block: Rect, height: number, colour: ColourInput, streets: re
     for (let floor = 0; floor < Math.floor((height - 4.2) / 3) + 1; floor++) {
       const v = 4.6 + floor * 3;
       for (const u of centres) {
-        q.frameBox(f, u - 0.45, u + 0.45, v, v + 1.6, 0, 0.02, P.glass);
+        const at = f.point(u, v + 0.8, 0);
+        q.frameBox(f, u - 0.45, u + 0.45, v, v + 1.6, 0, 0.02, P.glass, false, litAtNight(at.x, at.y, at.z, 0.35) ? 0.8 : 0);
         q.frameBox(f, u - 0.58, u + 0.58, v - 0.1, v, 0, 0.1, P.stone);
         if (detail === "high") {
           q.frameBox(f, u - 0.95, u - 0.5, v, v + 1.6, 0, 0.04, shutter);
@@ -135,7 +136,7 @@ function cityBlock(block: Rect, height: number, colour: ColourInput, streets: re
     for (const [k, u] of centres.entries()) {
       if ((k + seed) % 3 === 0) q.frameBox(f, u - 0.65, u + 0.65, 0, 2.5, 0, 0.03, P.woodDark);
       else {
-        q.frameBox(f, u - 0.8, u + 0.8, 0.5, 2.9, 0, 0.03, P.glassWarm);
+        q.frameBox(f, u - 0.8, u + 0.8, 0.5, 2.9, 0, 0.03, P.glassWarm, false, 0.45);
         q.frameBox(f, u - 0.95, u + 0.95, 2.9, 3.25, 0, 0.08, P.woodDark);
       }
     }
@@ -261,18 +262,86 @@ function domedChurch(out: THREE.BufferGeometry[], x: number, z: number, detail: 
 /** A sky dome (unit radius, scaled when drawn) shaded from warm horizon to blue. */
 export function skyGeometry(): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(1, 32, 16);
+  g.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(g.getAttribute("position").count * 3), 3));
+  paintSky(g, P.skyTop, P.skyMid, P.skyHorizon);
+  return g;
+}
+
+/** Recolours the sky dome: horizon below and up to the middle band, then towards the zenith (day and night, M7b). */
+export function paintSky(g: THREE.BufferGeometry, topColour: ColourInput, midColour: ColourInput, horizonColour: ColourInput): void {
   const position = g.getAttribute("position");
-  const colours = new Float32Array(position.count * 3);
-  const top = rgb(P.skyTop);
-  const mid = rgb(P.skyMid);
-  const horizon = rgb(P.skyHorizon);
+  const colours = g.getAttribute("color") as THREE.BufferAttribute;
+  const top = rgb(topColour);
+  const mid = rgb(midColour);
+  const horizon = rgb(horizonColour);
+  const c = new THREE.Color();
   for (let i = 0; i < position.count; i++) {
     const y = position.getY(i);
-    const c = y < 0 ? horizon.clone() : y < 0.28 ? horizon.clone().lerp(mid, y / 0.28) : mid.clone().lerp(top, Math.min(1, (y - 0.28) / 0.5));
-    colours.set([c.r, c.g, c.b], i * 3);
+    if (y < 0) c.copy(horizon);
+    else if (y < 0.28) c.copy(horizon).lerp(mid, y / 0.28);
+    else c.copy(mid).lerp(top, Math.min(1, (y - 0.28) / 0.5));
+    colours.setXYZ(i, c.r, c.g, c.b);
   }
-  g.setAttribute("color", new THREE.Float32BufferAttribute(colours, 3));
-  return g;
+  colours.needsUpdate = true;
+}
+
+/**
+ * The night sky (M7b): small stars scattered above the rooftops and a pale
+ * moon at `moon` (a unit direction). Unit-sky coordinates, scaled with the sky.
+ */
+export function nightSkyGeometry(moon: { x: number; y: number; z: number }): THREE.BufferGeometry {
+  const rng = seeded(311);
+  const q = new QuadBatch();
+  const centre = new THREE.Vector3();
+  const right = new THREE.Vector3();
+  const up = new THREE.Vector3();
+  const corner = (k: number, size: number) => centre.clone().addScaledVector(right, (k === 0 || k === 3 ? -1 : 1) * size).addScaledVector(up, (k < 2 ? -1 : 1) * size);
+  const square = (size: number, colour: ColourInput) => {
+    // Facing the middle of the sky, so it is seen from inside the dome.
+    right.crossVectors(centre, Math.abs(centre.y) > 0.95 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).normalize();
+    up.crossVectors(right, centre).normalize();
+    q.quad(corner(3, size), corner(2, size), corner(1, size), corner(0, size), colour);
+  };
+  for (let k = 0; k < 360; k++) {
+    // Evenly over the sky above the skyline (y > 0.1).
+    const y = 0.1 + rng() * 0.88;
+    const a = rng() * Math.PI * 2;
+    const r = Math.sqrt(1 - y * y);
+    centre.set(Math.cos(a) * r, y, Math.sin(a) * r).multiplyScalar(0.97);
+    square(0.0013 + rng() * 0.0019, rng() < 0.15 ? "#ffe8c4" : "#f2f4ff");
+  }
+  const g = q.geometry();
+  // The moon: a pale disc with a slightly brighter middle.
+  const moonDisc = new THREE.CircleGeometry(0.045, 20);
+  const direction = new THREE.Vector3(moon.x, moon.y, moon.z).normalize();
+  moonDisc.lookAt(direction.clone().negate());
+  moonDisc.translate(direction.x * 0.95, direction.y * 0.95, direction.z * 0.95);
+  const discColours = new Float32Array(moonDisc.getAttribute("position").count * 3);
+  for (let i = 0; i < discColours.length / 3; i++) discColours.set(i === 0 ? [1, 0.98, 0.9] : [0.86, 0.88, 0.95], i * 3);
+  moonDisc.setAttribute("color", new THREE.Float32BufferAttribute(discColours, 3));
+  moonDisc.deleteAttribute("uv");
+  const both = [g, moonDisc].map((piece) => {
+    const plain = piece.index ? piece.toNonIndexed() : piece;
+    for (const name of Object.keys(plain.attributes)) if (!["position", "normal", "color"].includes(name)) plain.deleteAttribute(name);
+    return plain;
+  });
+  return mergeQuads(both);
+}
+
+/** Joins non-indexed geometries that share position, normal and colour attributes. */
+function mergeQuads(pieces: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const out = new THREE.BufferGeometry();
+  for (const name of ["position", "normal", "color"]) {
+    const arrays = pieces.map((p) => p.getAttribute(name).array as Float32Array);
+    const joined = new Float32Array(arrays.reduce((n, a) => n + a.length, 0));
+    let offset = 0;
+    for (const a of arrays) {
+      joined.set(a, offset);
+      offset += a.length;
+    }
+    out.setAttribute(name, new THREE.Float32BufferAttribute(joined, 3));
+  }
+  return out;
 }
 
 /** Soft clouds on a ring around the sky (unit-sky coordinates, scaled with it). */

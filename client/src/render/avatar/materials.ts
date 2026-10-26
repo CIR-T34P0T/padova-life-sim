@@ -4,6 +4,7 @@
 // here is per character, so building many characters adds no materials.
 
 import * as THREE from "three";
+import { withCharacterLift } from "../nightShading.ts";
 import { patternTexture } from "./patterns.ts";
 
 let gradient: THREE.DataTexture | null = null;
@@ -32,13 +33,16 @@ export function gradientMap(): THREE.DataTexture {
   return gradient;
 }
 
+/** Characters keep a little self-light at night so they stay easy to see (M7b, render/nightShading.ts). */
 function toon(parameters: THREE.MeshToonMaterialParameters, away: boolean): THREE.MeshToonMaterial {
-  return new THREE.MeshToonMaterial({
-    gradientMap: gradientMap(),
-    side: THREE.DoubleSide,
-    ...parameters,
-    ...(away ? { transparent: true, opacity: 0.45 } : {}),
-  });
+  return withCharacterLift(
+    new THREE.MeshToonMaterial({
+      gradientMap: gradientMap(),
+      side: THREE.DoubleSide,
+      ...parameters,
+      ...(away ? { transparent: true, opacity: 0.45 } : {}),
+    }),
+  );
 }
 
 const cache = new Map<string, THREE.MeshToonMaterial>();

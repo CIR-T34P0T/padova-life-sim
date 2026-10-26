@@ -50,6 +50,9 @@ or auth model without the product owner's approval.
   their owner (`life` message), never into the shared Colyseus state.
 - **Game time comes from the server clock** (`shared/src/life/clock.ts`,
   replicated as `gameMinute`); clients never run their own game timers.
+  Day and night are drawn from it on the client
+  (`client/src/render/world/daylight.ts`, D-037) and are presentation only:
+  no gameplay rule reads the light.
 - **Schema changes are migrations** (`server/migrations/NNNN_name.sql` with up
   and down). Profile data shape changes bump `PROFILE_VERSION` with an upgrade step.
 - **Replicate only what others need to see.** Internal state (paths, rate

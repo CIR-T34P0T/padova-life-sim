@@ -5,7 +5,9 @@
 // - every collision box is visibly filled (no invisible walls);
 // - decoration below head height is flat, inside a box, or outside the square;
 // - every clickable object has its own highlightable mesh;
-// - the geometry stays within its triangle budget at both detail levels.
+// - the geometry stays within its triangle budget at both detail levels;
+// - every piece carries a night-glow strength, and lit windows, lanterns and
+//   shop windows glow (M7b).
 
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
@@ -13,7 +15,7 @@ import { PLAZA_LAYOUT, type Obstacle } from "@padova/shared";
 import { BUILDING_BATCH } from "../src/render/world/buildings.ts";
 import { buildDistrict, fadeVolumes } from "../src/render/world/district.ts";
 import { HEAD_HEIGHT } from "../src/render/world/props.ts";
-import type { Detail, Piece } from "../src/render/world/kit.ts";
+import { LIT_WINDOW_SHARE, litAtNight, type Detail, type Piece } from "../src/render/world/kit.ts";
 
 const world = PLAZA_LAYOUT;
 /** How far a solid detail may stand proud of its box (window sills, door frames). */
@@ -117,5 +119,49 @@ describe.each(["high", "low"] as const)("district art (%s detail)", (detail) => 
     const budget = detail === "high" ? 220_000 : 110_000;
     expect(triangles).toBeLessThan(budget);
     console.log(`[world] ${detail}: ${Math.round(triangles)} triangles in ${build(detail).length} pieces`);
+  });
+});
+
+describe("night glow (M7b, D-037)", () => {
+  /** Strongest glow of a piece (0 when it never glows). */
+  const glowOf = (piece: Piece) => {
+    const glow = piece.geometry.getAttribute("glow");
+    let max = 0;
+    for (let i = 0; i < glow.count; i++) max = Math.max(max, glow.getX(i));
+    return max;
+  };
+
+  it.each(["high", "low"] as const)("gives every piece a glow strength per vertex, so batches merge (%s detail)", (detail) => {
+    for (const piece of build(detail)) {
+      const glow = piece.geometry.getAttribute("glow");
+      expect(glow, piece.batch).toBeDefined();
+      expect(glow.count, piece.batch).toBe(piece.geometry.getAttribute("position").count);
+      expect(glowOf(piece)).toBeLessThanOrEqual(1.5);
+    }
+  });
+
+  it.each(["high", "low"] as const)("lights windows, lanterns and shop windows at night (%s detail)", (detail) => {
+    const pieces = build(detail);
+    const strengths = pieces.map(glowOf);
+    const lanterns = strengths.filter((g) => Math.abs(g - 1.3) < 1e-6).length;
+    const windows = strengths.filter((g) => Math.abs(g - 0.85) < 1e-6).length;
+    const shops = strengths.filter((g) => Math.abs(g - 0.45) < 1e-6).length;
+    // Every street lamp has a lantern head, plus the hall's porch and the portico.
+    expect(lanterns).toBeGreaterThanOrEqual(world.obstacles.filter((o) => o.kind === "lamp").length);
+    expect(windows).toBeGreaterThan(40);
+    expect(shops).toBeGreaterThan(4);
+    // The far streets' windows glow too (they are batched into the backdrop).
+    expect(pieces.some((p) => p.batch === "backdrop" && glowOf(p) > 0)).toBe(true);
+    // Nothing on the ground or in a tree glows.
+    for (const piece of pieces) if (piece.batch === "ground" || piece.batch.startsWith("canopy:")) expect(glowOf(piece), piece.batch).toBe(0);
+  });
+
+  it("chooses lit windows by position alone: the same windows every night, about the planned share", () => {
+    expect(litAtNight(3.2, 7.1, -20.15)).toBe(litAtNight(3.2, 7.1, -20.15));
+    let lit = 0;
+    const samples = 4000;
+    for (let k = 0; k < samples; k++) if (litAtNight((k % 50) * 1.3 - 30, 4 + (k % 7) * 3, Math.floor(k / 50) * 0.9 - 30)) lit++;
+    expect(lit / samples).toBeGreaterThan(LIT_WINDOW_SHARE - 0.06);
+    expect(lit / samples).toBeLessThan(LIT_WINDOW_SHARE + 0.06);
   });
 });

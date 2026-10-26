@@ -23,7 +23,7 @@ import { SnapshotBuffer } from "./net/interpolation.ts";
 import { createAvatar, type AvatarView } from "./render/avatar/index.ts";
 import { CameraRig } from "./render/cameraRig.ts";
 import { detectQuality } from "./render/quality.ts";
-import { buildWorldScene } from "./render/worldScene.ts";
+import { buildWorldScene, type WorldScene } from "./render/worldScene.ts";
 import { cameraSpeedFactor } from "./ui/settings.ts";
 import { createActionMenu } from "./ui/actionMenu.ts";
 import { ActionProgress } from "./ui/actionProgress.ts";
@@ -76,6 +76,8 @@ export class Game {
   /** Every connection status in order (debug hook only). */
   private readonly statusLog: ConnectionStatus[] = [];
   private worldVisibleWaiters: (() => void)[] = [];
+  /** The light of the frame that first showed our character after entering, and the clock then (M7b checks). */
+  private entryLight: { daylight: ReturnType<WorldScene["stats"]>["daylight"]; gameMinute: number | null } | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -340,7 +342,10 @@ export class Game {
     this.perf.parts.worldMs += (t2 - t1 - this.perf.parts.worldMs) * 0.05;
     this.perf.parts.renderMs += (t3 - t2 - this.perf.parts.renderMs) * 0.05;
     this.perf.parts.labelsMs += (t4 - t3 - this.perf.parts.labelsMs) * 0.05;
-    if (selfShown && this.world.isReady() && this.worldVisibleWaiters.length > 0) for (const resolve of this.worldVisibleWaiters.splice(0)) resolve();
+    if (selfShown && this.world.isReady() && this.worldVisibleWaiters.length > 0) {
+      this.entryLight = { daylight: this.world.stats().daylight, gameMinute: this.lastGameMinute };
+      for (const resolve of this.worldVisibleWaiters.splice(0)) resolve();
+    }
     // Rolling averages for the performance readout (debug hook only).
     const cpu = performance.now() - now;
     this.perf.frameCpuMs += (cpu - this.perf.frameCpuMs) * 0.05;
@@ -497,9 +502,13 @@ export class Game {
       avatarStats(id: string) {
         return game.entities.get(id)?.view?.stats() ?? null;
       },
-      /** World art: build time, meshes, triangles, and what is faded because it hides your character. */
+      /** World art: build time, meshes, triangles, what is faded because it hides your character, and the light shown. */
       worldStats() {
         return game.world.stats();
+      },
+      /** The light of the first frame that showed our character after entering, with the game minute then (M7b). */
+      entryLight() {
+        return game.entryLight;
       },
       /** Renderer and frame-time numbers (rolling averages; software rendering is not representative). */
       renderStats() {

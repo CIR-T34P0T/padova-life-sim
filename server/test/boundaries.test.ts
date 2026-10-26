@@ -34,3 +34,23 @@ describe("appearance boundaries (D-029)", () => {
     expect(spec).not.toMatch(/ethnic|race|heritage|nationality/i);
   });
 });
+
+describe("day and night is presentation only (M7b, D-037)", () => {
+  /** Every TypeScript file under a folder. */
+  const sources = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory() ? sources(join(dir, entry.name)) : entry.name.endsWith(".ts") ? [join(dir, entry.name)] : [],
+    );
+
+  it("no shared rule or server module reads the light: needs, money and actions don't depend on it", () => {
+    const serverSrc = join(import.meta.dirname, "../src");
+    const files = [...sources(sharedSrc), ...sources(serverSrc)];
+    expect(files.length).toBeGreaterThan(20);
+    for (const file of files) {
+      // The light lives in client/src/render (daylight.ts, nightShading.ts); gameplay code never imports client code.
+      const text = readFileSync(file, "utf8");
+      expect(text, file).not.toMatch(/from\s+["'][^"']*(client\/|daylight|nightShading)/);
+      expect(text, file).not.toMatch(/daylightAt|sunIsUp|characterLift|uNightGlow|NIGHT_UNIFORMS/);
+    }
+  });
+});

@@ -203,13 +203,25 @@ sign is original and generated at runtime. It is **Stage-1 procedural art**
   ironwork, glass, foliage and flowers, plus the interface accents (lapis,
   gold, Spritz orange) used sparingly for signs, banners and awnings so the
   world and the menus belong together (D-032).
-- **Lighting:** a fixed sunny afternoon: one warm directional sun (shadows
-  from a 2048 px shadow map with Three.js's default filtering on the high
-  profile, none on phones) and
-  a warm sky / earth hemisphere fill; a gradient sky dome with clouds; warm
-  distance haze from 55 m to 150 m that hides the outer ring. Day/night
-  lighting is approved as M7b (D-035) and not built yet: the clock already
-  shows night while the light stays afternoon.
+- **Lighting (day and night, M7b, D-037):** one directional light (the sun
+  by day, a cool moonlight by night; shadows from a 2048 px shadow map with
+  Three.js's default filtering on the high profile, none on phones), a sky /
+  earth hemisphere fill, a gradient sky dome with clouds, and distance haze
+  that hides the outer ring. All of them follow the server's game minute
+  through dawn (05:15–07:30), day, dusk (18:30–21:30) and night, from a
+  table of key moments in `render/world/daylight.ts` (16:00 is the world art
+  pass's original afternoon). The sun rises in the east at 06:15, crosses
+  the south and sets in the west at 19:45, never lighting from lower than
+  14°.
+- **Night:** the street lamps' and porch lanterns' glass, about 40 % of the
+  windows (the same ones every night, chosen by position), the shop windows
+  and the café's pastry case glow warm; pools of lamplight lie under the
+  lamps, the kiosk and the hall's porch; stars and a moon come out. The
+  square stays readable: the ambient light keeps at least 55 % of midday's,
+  and characters add a little of their own colour as light (up to 20 %), so
+  they keep their contrast with the ground (measured in
+  `e2e/daylight.spec.ts`). Name tags, menus, rings and highlights are not
+  lit by the scene and look the same at any hour.
 - **Readability rules for new work:** what can be used looks usable (seats,
   counters and desks at real heights, a clear front side); what blocks
   movement is visibly solid and fills its collision box; the edge of the
@@ -226,7 +238,9 @@ sign is original and generated at runtime. It is **Stage-1 procedural art**
 | `render/world/buildings.ts` | The six buildings: windows (frames, sills, shutters, pediments, balconies, flower boxes), doors, shopfronts, awnings, rustication, cornices, roofs, chimneys, the hall's porch and clock tower, the library's pediment and dome, the portico's columns and arches |
 | `render/world/props.ts` | One builder per obstacle kind: benches, chairs, study desks, café tables with parasols, the café kiosk, market stalls (fruit and vegetables, flowers, books), the fountain, lemon-tree planters, street planters, plane trees, gardens, lamps, the bike rack, the notice board |
 | `render/world/ground.ts` | Canvas paving texture, sidewalks, cobbled streets, fountain rings, the café terrace |
-| `render/world/backdrop.ts` | City blocks around the square, the streets beyond the openings (each ending at a building), landmarks, sky dome and clouds |
+| `render/world/backdrop.ts` | City blocks around the square, the streets beyond the openings (each ending at a building), landmarks, sky dome (repainted with the time of day) and clouds, the night sky (stars and moon) |
+| `render/world/daylight.ts` | The light at any game minute: sun or moon direction, colours and strengths, sky, haze, cloud tint, lamp level, stars, the characters' night lift (pure, unit-tested) |
+| `render/nightShading.ts` | The two shader additions and their shared uniforms: glow for world materials, lift for character materials |
 | `render/world/signs.ts` | The sign atlas (one canvas, fictional names only) |
 | `render/world/district.ts` | Assembles everything as owned pieces; fade volumes |
 
@@ -242,7 +256,10 @@ sign is original and generated at runtime. It is **Stage-1 procedural art**
   0.9–1.5 m wide; doors 1.1–2.1 m; benches and chairs have their seat at
   0.45 m (the characters' sitting pose sits at 0.5 m, D-030).
 - Every piece has an owner (an obstacle id) or is decoration (owner null),
-  and a draw batch. A Node test (`client/test/world.test.ts`) checks owned
+  a draw batch, and a glow strength per vertex (`glow` attribute: 0 for
+  almost everything; `glowing(piece, strength)` in `kit.ts` marks lit
+  windows 0.85, lanterns 1.3, shop windows 0.45). New lit things are marked
+  the same way; windows lit at night are chosen with `litAtNight`. A Node test (`client/test/world.test.ts`) checks owned
   pieces against their boxes, decoration against all boxes, and that every
   box is visibly filled.
 - One material: the characters' soft toon ramp (D-030) with vertex colours,
@@ -256,16 +273,17 @@ sign is original and generated at runtime. It is **Stage-1 procedural art**
 
 | Measure | High (desktop) | Low (phones) |
 | --- | --- | --- |
-| District triangles (all pieces) | about 107 000–110 000 | about 63 000 |
+| District triangles (all pieces, including the night sky and lamplight pools) | about 110 800 | about 63 800 |
 | Meshes (draw batches) | 47 (buildings 6 + signs, props 4, clickable objects 12, canopies 9, ground, backdrop, sky, clock hands, water) | 47 |
 | Draw calls, overview of the whole square | 86 (including the shadow pass) | 47 (no shadows) |
 | Draw calls, game camera at the arrival area with one character | 69–88 | 31 |
+| Added at night (stars and moon, lamplight pools; nothing added by day) | 2 draw calls, about 1 400 triangles | 2 draw calls, about 1 400 triangles |
 | Build time, measured in the browser on the cloud test machine | 0.4–0.7 s | about 0.3 s |
 | Build time in Node, warm (geometry only) | about 0.25 s | about 0.17 s |
 | Main-thread time per frame for the world's own work (fading, sky, clock) | 0.02–0.12 ms | 0.02 ms |
 
 - **Merging:** pieces are merged by draw batch, so 8 000+ small pieces
-  become 47 meshes. Repeated small things (cobbles, terrace tiles, distant
+  become 47 meshes (plus two night-only meshes). Repeated small things (cobbles, terrace tiles, distant
   windows) are written straight into one geometry by the quad batch.
 - **Culling:** every mesh has a bounding sphere, so off-screen buildings,
   prop quarters, canopies and clickable objects are skipped by three.js.
@@ -277,6 +295,10 @@ sign is original and generated at runtime. It is **Stage-1 procedural art**
 - **Loading:** the district is built just after the title screen appears
   (`buildWorldScene(..., { defer: true })`), so the title is not delayed;
   entering the world waits until it is ready. Nothing is downloaded.
+- **Night costs no extra lights:** lit windows and lanterns glow through a
+  shader uniform on the existing materials, and the pools are additive
+  discs, not light sources, so phones do no extra lighting or shadow work.
+  The light is recomputed once per game minute (every 6 real seconds).
 - **Not measured yet:** frame rate on a real graphics card or phone. On the
   cloud machine (graphics emulated in software) a full-window frame takes
   hundreds of milliseconds and the time shows up inside `renderer.render`,
@@ -286,13 +308,16 @@ sign is original and generated at runtime. It is **Stage-1 procedural art**
 without a server, from preset viewpoints (`?view=overview|game|hall|porch|
 library|portico|cafe|market|fountain|street|south|skyline`), with
 `?collision` (every collision box as a wireframe, orange for clickable
-objects), `?quality=low` (phone detail) and `?people` (a few characters for
-scale). It shows build time, triangles and draw calls on screen.
+objects), `?quality=low` (phone detail), `?people` (a few characters for
+scale) and `?time=HH:MM` (the light at that time of day, default 10:10;
+e.g. `06:30`, `19:40`, `23:00`). It shows the time, build time, triangles and
+draw calls on screen.
 
 **Known visual limitations:** flat-shaded, faceted tree canopies; no
-interiors behind windows and doors; no day/night lighting yet (the light is
-always afternoon, while the tower clock follows the game clock); water is
-still (no animation); faded buildings show their nearest surface at 16 %
+interiors behind windows and doors; lit windows are a flat warm colour
+(nothing drawn behind them); lamplight pools are painted on the ground, so
+lamps don't light walls or characters from the side; stars are small
+squares; water is still (no animation); faded buildings show their nearest surface at 16 %
 opacity, which looks busy when the camera is inside a building; roof tiles
 are colour stripes, not modelled tiles; signs use system serif and sans
 fonts drawn on a canvas (the bundled interface font when it has loaded).

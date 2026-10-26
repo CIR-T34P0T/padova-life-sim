@@ -515,3 +515,32 @@ made while building it. Each is a default the product owner can change.
   tried at any real time. The browser tests start at 09:00 game time with
   it. It is not a per-player clock: everyone in a server shares one clock
   (D-021).
+
+## D-037 — Day and night: how it is drawn (2026-10-26)
+
+M7b, approved in D-035 (Q12). Choices made while building it; each is a
+default the product owner can change.
+
+- **The light is a client-side, pure function of the server's game minute**
+  (`client/src/render/world/daylight.ts`), not a shared rule: it is
+  presentation only and no gameplay code may read it (a source test guards
+  this). Everyone sees the same time of day because the minute comes from
+  the server (D-021); no new messages or data.
+- **Times (no seasons):** dawn 05:15, sunrise 06:15, full day 07:30–18:30,
+  sunset 19:45, dusk until 21:30, night until dawn. The sun crosses from east
+  through south to west and never lights from lower than 14°; at night one
+  cool moonlight comes from the south-east. 16:00 keeps the world art pass's
+  original afternoon exactly.
+- **Night stays readable on purpose (a stylised night, not a dark one):** the
+  ambient light keeps at least 55 % of midday's, and characters add a little
+  of their own colour as light (up to 20 %) so they keep their contrast with
+  the ground. Name tags, menus and highlights are not affected by light.
+- **Night glow without lights:** windows, lanterns and shop windows glow
+  through a shader uniform on the existing materials (a per-vertex glow
+  strength), about 40 % of windows, chosen by position so they are the same
+  every night; pools of lamplight are additive discs on the ground. No point
+  lights, so phones do no extra lighting or shadow work. Cost at night: 2
+  draw calls and about 1 400 triangles at either detail level; by day
+  nothing changes.
+- **Joining at night shows night at once:** the light is applied in the frame
+  update before the first render after entering.

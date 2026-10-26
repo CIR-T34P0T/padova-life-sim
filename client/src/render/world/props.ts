@@ -10,7 +10,7 @@ import type { Obstacle, Side, WorldLayout } from "@padova/shared";
 import { seeded, waves } from "../avatar/geometry.ts";
 import { faceFrame, lantern, sinkSign } from "./buildings.ts";
 import { P } from "./palette.ts";
-import { Frame, blob, boxAt, cuboid, cylinder, flatRect, paint, paintWith, rgb, ring, rod, stripedQuad, twoSided, type ColourInput, type Detail, type Sink } from "./kit.ts";
+import { Frame, blob, boxAt, cuboid, cylinder, flatRect, glowing, paint, paintWith, rgb, ring, rod, stripedQuad, twoSided, type ColourInput, type Detail, type Sink } from "./kit.ts";
 
 interface PropCtx {
   sink: Sink;
@@ -164,7 +164,7 @@ function counter(o: Obstacle, ctx: PropCtx): void {
   // Espresso machine, cups and a pastry case.
   g.push(f.box(0.45, 1.15, 1.07, 1.5, -depth + 0.2, -depth + 0.55, P.chrome));
   g.push(f.box(0.5, 1.1, 1.38, 1.46, -depth + 0.55, -depth + 0.58, P.terracotta));
-  g.push(f.box(1.55, 2.55, 1.07, 1.4, -0.45, -0.08, P.glassLight));
+  g.push(glowing(f.box(1.55, 2.55, 1.07, 1.4, -0.45, -0.08, P.glassLight), 0.5)); // pastry case, lit at night
   if (ctx.detail === "high") {
     for (let k = 0; k < 6; k++) {
       const p = f.point(1.7 + k * 0.15, 1.13, -0.27 + (k % 2) * 0.1);

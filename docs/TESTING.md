@@ -101,7 +101,23 @@ map to valid configs in the old skin-tone order.
 no gameplay effect); neither do the server's life system
 (`server/src/life/`), the interaction system or the shared interaction
 rules; and the appearance schema has no ethnicity, race, heritage or
-nationality field.
+nationality field. Since M7b: no file in `shared/src` or `server/src`
+imports the client or names the day/night light, so no gameplay rule can
+depend on it.
+
+**Day and night rules (12 tests, `client/test/daylight.test.ts`, M7b):**
+checked at every minute of a game day: the light depends only on the minute
+of the day (the same on any day, for negative and fractional minutes); the
+phases (night, dawn, day, dusk); **no jumps from one game minute to the
+next**, midnight included (colours, strengths, haze range, and the light
+direction turning less than 4° per game minute); the key table is sorted;
+the sun rises in the east, crosses the south at its highest at midday and
+sets in the west; the light always comes from at least 14° above the
+horizon and is a unit vector; moonlight from the moon's direction at night;
+16:00 equals the world art pass's afternoon; lamps on whenever the sun is
+down and off in full daylight; stars only at night; the ambient light never
+below 55 % of midday's and characters lifted in the dark; the sky darker at
+night.
 
 **Client ↔ server state contract (`client/test/contract.test.ts`, audit
 2026-10-20):** the client's `ReplicatedPlayer` interface has exactly the
@@ -256,7 +272,11 @@ inside some box, or outside the square; **every collision box is visibly
 filled** (85 % of its width and depth, 60 % for round lamps and tables), so
 there are no invisible walls; every clickable object and chair has its own
 highlightable mesh and every building has fade volumes; triangle budgets
-(220 000 high, 110 000 low).
+(220 000 high, 110 000 low). Since M7b (5 more tests): every piece carries a
+glow strength per vertex at both detail levels (so batches still merge);
+lanterns (at least one per street lamp), more than 40 lit windows, shop
+windows and the far streets' windows glow, the ground and trees never do;
+lit windows are chosen by position alone, about 40 % of them.
 
 **Title screen and several lives through the real room (12 tests,
 `server/test/lobby.test.ts`):** create lives from the title screen up to
@@ -378,6 +398,19 @@ screen height, hides the joystick, scrolls to the money section; closing
 restores the joystick; the chip toggles the panel. Since M7 the café menu
 also lists *Ask about work*.
 
+**End to end, day and night (`e2e/daylight.spec.ts`, M7b)** — the world lab
+(no server) at 12:00, 19:40 and 23:00: the phase, lamps and stars follow the
+time; night costs at most 2 draw calls and under 2 000 triangles more than
+midday; two characters measured in the picture (one in dark clothes in the
+open, one at the lit café counter) keep over 55 % of their midday brightness
+and over 80 % of their contrast with the ground around them at dusk and at
+night; no page errors. The real game with two players: the first frame that
+showed each character after entering already used the server's game minute
+(no default light), with the phase and lamps the rule gives for that
+minute, and both players see the same time of day. The suite's clock starts
+at 09:00 game time, so this part runs by day; joining at night was checked
+by a script against a server set to 23:00 (results log).
+
 **End to end, first job (`e2e/work.spec.ts`, M7)** — desktop, with the
 game's real 90-second shift and the test server's clock at 09:00 game time:
 the counter lists the menu and *Ask about work* (€6.00 a shift); choosing it
@@ -481,7 +514,7 @@ say so.
 | M6c | Layout: no cut-off pockets, porch and portico reachable, streets closed | Verified | `shared/src/world.ts` | `shared/test/world.test.ts` |
 | M6c | Fading (hiding you, or right beside the camera), taps through faded buildings | Verified | `worldScene.ts` | `world.spec.ts` |
 | M6c | Frame rate on a real graphics card or phone; the owner's look at the art | Blocked (needs the owner's devices) | — | ROADMAP open items 1 and 3 |
-| M6c | Day and night; per-object level of detail; camera collision | Missing | — | Day and night approved as M7b |
+| M6c | Day and night; per-object level of detail; camera collision | Missing at the audit; day and night built in M7b (ROADMAP "M7b day and night: acceptance criteria"); level of detail and camera collision still missing | `client/src/render/world/daylight.ts` | `client/test/daylight.test.ts`, `e2e/daylight.spec.ts` (added with M7b, 2026-10-26) |
 | All | Mouse and keyboard; touch (tap, joystick, pinch) | Verified (Chromium; phones in emulation) | `client/src/input/` | `walking-skeleton.spec.ts`, `interactions.spec.ts`, `title-flow.spec.ts` |
 | All | Client and server types agree | Verified | shared TypeScript types; client mirror of the player state | `npm run typecheck` (all three packages); `client/test/contract.test.ts` (new) |
 | All | Every message validated on the server | Verified | parsers in `shared/src/protocol.ts` used by every `onMessage` handler; unknown types ignored | `plaza.test.ts`, `interactions.test.ts`, `lobby.test.ts`, `profiles.test.ts` |
@@ -522,6 +555,11 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-26 (M7b) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server); no linter is configured |
+| 2026-10-26 (M7b) | unit + integration | 276/276 pass | In-memory PGlite: 18 new tests (12 day/night rules, 5 night glow in the district test, 1 boundary). No database or server code changed in this milestone, so the PostgreSQL runs were not repeated |
+| 2026-10-26 (M7b) | e2e | 23/24 in one full run, then the failing test passed 3/3 alone | Includes the two new day/night tests. The failure was the district test aiming at a café table while the camera still glided (the tap point hit the ground). It passed twice alone unchanged; it now waits until the table's screen position is steady, and passed again |
+| 2026-10-26 (M7b) | world lab measurements | Recorded | Without characters, by day exactly the earlier budgets (overview 86 / 47 draw calls, game camera 69 / 31, high / low); at night +2 draw calls and +1 388 triangles at both levels. Two characters measured in the picture (low detail): relative contrast with the ground at night 0.70 and 0.46 against 0.74 and 0.41 at midday; brightness 63 % and 71 % of midday at night, 60 % and 68 % at dusk |
+| 2026-10-26 (M7b) | the game at night (script) | Pass | A game server with its clock at 23:00 (`GAME_CLOCK_OFFSET_MINUTES`): a new player on desktop (high detail) and on Pixel 7 emulation entered with the first frame already at night (`entryLight` phase night, minute equal to the server's); no page errors; screenshots checked by eye |
 | 2026-10-26 (M7) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server); no linter is configured |
 | 2026-10-26 (M7) | unit + integration | 292/292 pass | With `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: 258 tests, 34 database tests repeated on PostgreSQL (including the 9 new work-database tests). Without PostgreSQL, `npm run check` 257/257 before the barista integration test was added; `server/test/work.test.ts` 13/13 after |
 | 2026-10-26 (M7) | e2e | 22/22 pass (one full run) | Includes the two new work tests with the real 90-second shift. `work.spec.ts` also passed alone on the in-memory database and on PostgreSQL (next row). Its first run, on 2026-10-20, failed one step: the panel redrew while the test scrolled to the Work section (a test timing problem; the scroll now retries) |
@@ -681,9 +719,11 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   - The district is Stage-1 procedural art (D-033): no interiors behind
     doors and windows, faceted tree canopies, still water, colour-striped
     roof tiles. Not yet seen by the product owner.
-  - No day/night lighting: the light is always afternoon while the hall's
-    clock and the HUD follow the game clock (often night). Lamps don't
-    light up.
+  - Day and night (M7b) are Stage-1 too: lit windows are flat warm colour
+    with nothing behind them, lamplight is painted on the ground (lamps
+    don't light walls or characters from the side), stars are small
+    squares. Night is deliberately bright enough to play (D-037). Not yet
+    seen by the product owner.
   - A faded building shows its nearest surface at 16 % opacity; when the
     camera is inside a building (near the edges, or under the portico) the
     view looks busy. No camera collision yet.
@@ -836,3 +876,16 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 36. Reload (and, once, restart the server): the job, today's shifts and the
     wage are still there. **Quit job**: "You quit your job at the café", and
     the counter offers Ask about work again.
+37. **Day and night (M7b):** open `http://localhost:5173/world-lab.html?time=23:00`
+    and then `?time=06:30` and `?time=19:40` (add `&view=game&people` for
+    the arrival view with characters): night with lamplight pools, lit
+    windows and stars; a warm dawn and dusk. Say whether night is dark
+    enough or too dark.
+38. To play at night, stop the server and start it with the clock moved, e.g.
+    `$env:GAME_CLOCK_OFFSET_MINUTES=720; npm run dev` (12 game hours on;
+    afterwards `Remove-Item Env:GAME_CLOCK_OFFSET_MINUTES`). Continue: the
+    very first view is already the right time of day (no flash of
+    daylight at night), and a second window or the phone shows the same.
+39. At night, check your character, other players, name tags and menus are
+    as easy to see as by day, on the computer and on the phone, and that the
+    frame rate feels the same as by day.

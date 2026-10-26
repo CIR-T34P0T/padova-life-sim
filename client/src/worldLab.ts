@@ -7,6 +7,7 @@
 //   ?collision      show every collision box as a wireframe (orange = clickable)
 //   ?quality=low    phone detail level
 //   ?people         a few characters for scale (on a bench, at a café table, walking)
+//   ?time=HH:MM     time of day for the light (default 10:10); e.g. 06:30, 19:40, 23:00 (M7b)
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -15,6 +16,9 @@ import { CharacterModel } from "./render/avatar/index.ts";
 import { buildWorldScene } from "./render/worldScene.ts";
 
 const params = new URLSearchParams(location.search);
+/** Game minute of the day shown (the game takes it from the server clock). */
+const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(params.get("time") ?? "");
+const gameMinute = timeMatch ? (Number(timeMatch[1]) % 24) * 60 + Math.min(59, Number(timeMatch[2])) : 10 * 60 + 10;
 const low = params.get("quality") === "low";
 const quality = low
   ? { name: "low" as const, maxPixelRatio: 1.5, shadows: false, antialias: false }
@@ -105,7 +109,7 @@ renderer.setAnimationLoop(() => {
   last = now;
   controls.update();
   const t0 = performance.now();
-  world.update(camera, null, dt, 10 * 60 + 10);
+  world.update(camera, null, dt, gameMinute);
   const t1 = performance.now();
   renderer.render(world.scene, camera);
   const t2 = performance.now();
@@ -116,6 +120,20 @@ renderer.setAnimationLoop(() => {
     intervalMs += (dt * 1000 - intervalMs) * 0.1;
   }
   const s = world.stats();
-  stats.textContent = `${viewName} · ${s.detail} detail · built in ${s.buildMs.toFixed(0)} ms · ${s.meshes} meshes · ${s.triangles.toLocaleString()} triangles in the district · ${renderer.info.render.calls} draw calls · ${renderer.info.render.triangles.toLocaleString()} triangles drawn`;
-  (window as unknown as { __worldLab: unknown }).__worldLab = { ...s, drawCalls: renderer.info.render.calls, trianglesDrawn: renderer.info.render.triangles, updateMs, renderMs, intervalMs, frames };
+  const clock = `${String(Math.floor(gameMinute / 60)).padStart(2, "0")}:${String(gameMinute % 60).padStart(2, "0")} ${s.daylight.phase}`;
+  stats.textContent = `${viewName} · ${clock} · ${s.detail} detail · built in ${s.buildMs.toFixed(0)} ms · ${s.meshes} meshes · ${s.triangles.toLocaleString()} triangles in the district · ${renderer.info.render.calls} draw calls · ${renderer.info.render.triangles.toLocaleString()} triangles drawn`;
+  (window as unknown as { __worldLab: unknown }).__worldLab = {
+    ...s,
+    drawCalls: renderer.info.render.calls,
+    trianglesDrawn: renderer.info.render.triangles,
+    updateMs,
+    renderMs,
+    intervalMs,
+    frames,
+    /** Canvas pixel (CSS px) of a world point, for checks that read the picture. */
+    screenPoint(x: number, y: number, z: number) {
+      const p = new THREE.Vector3(x, y, z).project(camera);
+      return { x: ((p.x + 1) / 2) * canvas.clientWidth, y: ((1 - p.y) / 2) * canvas.clientHeight };
+    },
+  };
 });

@@ -121,7 +121,15 @@ test("the district is built, solid props refuse taps by name, café tables work 
 
   await test.step("a café table offers Study and Sit; sitting is seen by the other player", async () => {
     // Still beside the kiosk: the table is in view, and the character walks to it.
-    const table = await alice.evaluate(() => (window as any).__padova.targetScreenPoint("object", "cafe-table-1"));
+    // Aim once the camera has stopped gliding (a full run once caught it mid-glide, 2026-10-26).
+    const read = () => alice.evaluate(() => (window as any).__padova.targetScreenPoint("object", "cafe-table-1"));
+    let table = await read();
+    await expect.poll(async () => {
+      const next = await read();
+      const still = Math.hypot(next.x - table.x, next.y - table.y) < 1;
+      table = next;
+      return still;
+    }, { timeout: 10_000, intervals: [250] }).toBe(true);
     expect(table.visible).toBe(true);
     const aim = { x: table.x, y: table.y + 4 };
     expect(await alice.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [aim.x, aim.y] as const)).toMatchObject({ kind: "object", id: "cafe-table-1" });

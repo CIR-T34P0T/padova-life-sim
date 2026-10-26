@@ -5,6 +5,7 @@
 
 import * as THREE from "three";
 import type { CharacterModel } from "./avatar/index.ts";
+import { NIGHT_UNIFORMS } from "./nightShading.ts";
 
 export type PreviewView = "body" | "face" | "upper";
 
@@ -81,6 +82,8 @@ export class PreviewStage {
   }
 
   render(): void {
+    // Studio light: never the world's night self-light on characters (M7b).
+    NIGHT_UNIFORMS.uCharacterLift.value = 0;
     this.renderer.render(this.scene, this.camera);
   }
 

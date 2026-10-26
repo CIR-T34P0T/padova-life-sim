@@ -5,7 +5,7 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job (M0–M7)
+## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night (M0–M7b)
 
 What exists today is an early, end-to-end slice: one district, one room,
 the first life-simulation loop, character creation and a first job. It proves the
@@ -37,6 +37,7 @@ in `docs/ROADMAP.md`.
 | Money: balance, server-validated purchases, allowances and wages, transaction history, no debt | Multiplayer functional, persistence verified |
 | First job at the café kiosk: ask about work, 90-second shifts behind the counter (two staff spots), wage paid once per completed shift, two grades by communication level, opening hours 06:00–23:00 game time, 4 shifts per game day, quit from the character panel | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16; desktop and phone emulation); numbers not yet play-tested |
 | Shared world clock (10 game minutes per real minute) and capped offline progression | Multiplayer functional, tested |
+| Day and night: sun and moon, sky, haze, stars, lit windows, lanterns and pools of lamplight follow the shared game clock; every player sees the same time of day; characters stay easy to see at night | Multiplayer functional, tested (world lab at chosen times, the game at night on desktop and phone emulation); **Stage-1 procedural art** (D-037) |
 | Character panel (your needs, mood, skills, work, money, current action) and top-right time/money chip | Locally functional, tested (desktop and phone emulation) |
 | Sleep/beds, cooking, inventory, more jobs, university courses | Not started (see docs/ROADMAP.md) |
 
@@ -128,6 +129,10 @@ The client runs on port 5173 and the game server on port 2567.
 - **Stand up:** click/tap yourself while seated, or just walk away.
 - **Cancel:** the Cancel button on the action bar, or Escape.
 - **Camera:** drag to turn; mouse wheel or pinch to zoom.
+- **Time of day:** the clock chip shows game time (a game day lasts 2 h 24 min
+  of real time). Dawn, day, dusk and night follow it for everyone: at night
+  the lamps and many windows light up. It's only the look: nothing in the
+  game depends on how dark it is.
 - **Change your look:** click/tap yourself (while standing) → **Edit look**,
   or **Edit look** in the character panel. Drag or swipe the preview to turn
   it, scroll or pinch to zoom; *Hold for saved look* compares. **Review**
@@ -214,7 +219,7 @@ First-time Playwright setup: `npx playwright install chromium`.
 | `DB_MIGRATE_ON_START` | server | `true` | Set `false` to apply migrations only with `npm run db:migrate` |
 | `GUEST_CREATIONS_PER_IP_PER_HOUR` | server | `10` | New guest characters allowed per IP address per hour (abuse limit) |
 | `GAME_TIME_SCALE` | server | `10` | Game minutes per real minute (1–1440). Changing it moves the world clock; for development and testing (D-021) |
-| `GAME_CLOCK_OFFSET_MINUTES` | server | `0` | Shifts the world clock by whole game minutes (up to a week either way), e.g. to try the café's opening hours at any real time; for development and testing (D-036) |
+| `GAME_CLOCK_OFFSET_MINUTES` | server | `0` | Shifts the world clock by whole game minutes (up to a week either way), e.g. to try the café's opening hours or the night at any real time; for development and testing (D-036) |
 | `CHROMIUM_PATH` | e2e | Playwright's browser | Use an existing Chromium for tests |
 | `TEST_DATABASE_URL` | tests | unset | Also run database tests on a real PostgreSQL (creates and drops throwaway databases) |
 | `E2E_DATABASE_URL` | e2e | unset | Run the browser tests' server on a real PostgreSQL instead of in-memory |
