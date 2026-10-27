@@ -1,4 +1,5 @@
-// Modal dialogs for confirmations (discard changes, delete a character).
+// Modal dialogs for confirmations (discard changes, delete a character,
+// block a player) and short forms (report a player: a reason and a note).
 // Keyboard: focus moves into the dialog and stays there, Escape cancels.
 
 import { button, el } from "./dom.ts";
@@ -10,11 +11,14 @@ export interface DialogOptions {
   cancelLabel?: string;
   /** Red confirm button for destructive actions. */
   danger?: boolean;
-  /** A text field that must be filled in before confirming (e.g. the character's name). */
-  input?: { label: string; placeholder?: string };
+  /** A text field (e.g. the character's name, or an optional note). */
+  input?: { label: string; placeholder?: string; maxLength?: number };
+  /** One choice from a list (radio buttons), e.g. a report's reason. Confirm waits for a choice. */
+  choices?: { label: string; options: readonly { id: string; label: string }[] };
   /** Confirm stays disabled until this returns true for the field's value. */
   canConfirm?: (value: string) => boolean;
-  onConfirm(value: string, dialog: Dialog): void;
+  /** `choice` is the chosen option's id when the dialog has choices. */
+  onConfirm(value: string, dialog: Dialog, choice?: string): void;
   onCancel?(): void;
 }
 
@@ -23,6 +27,7 @@ export class Dialog {
   private readonly error: HTMLElement;
   private readonly confirm: HTMLButtonElement;
   private readonly field: HTMLInputElement | null = null;
+  private choice: string | undefined;
   private readonly previousFocus: Element | null;
   private closed = false;
 
@@ -38,6 +43,27 @@ export class Dialog {
     title.id = titleId;
     box.append(title, ...options.body.map((text) => el("p", "ui-dialog-text", text)));
 
+    if (options.choices) {
+      const group = el("fieldset", "ui-dialog-choices");
+      group.append(el("legend", "field-label", options.choices.label));
+      const name = `${titleId}-choice`;
+      for (const option of options.choices.options) {
+        const row = el("label", "ui-dialog-choice");
+        const radio = el("input");
+        radio.type = "radio";
+        radio.name = name;
+        radio.value = option.id;
+        radio.dataset.choice = option.id;
+        radio.addEventListener("change", () => {
+          this.choice = option.id;
+          this.refresh();
+        });
+        row.append(radio, el("span", "", option.label));
+        group.append(row);
+      }
+      box.append(group);
+    }
+
     if (options.input) {
       const label = el("label", "field-label", options.input.label);
       const field = el("input", "text-field");
@@ -45,6 +71,7 @@ export class Dialog {
       field.autocomplete = "off";
       field.spellcheck = false;
       field.placeholder = options.input.placeholder ?? "";
+      if (options.input.maxLength) field.maxLength = options.input.maxLength;
       const id = `${titleId}-field`;
       field.id = id;
       label.htmlFor = id;
@@ -64,7 +91,7 @@ export class Dialog {
       action: "dialog-confirm",
       onClick: () => {
         this.error.textContent = "";
-        options.onConfirm(this.field?.value ?? "", this);
+        options.onConfirm(this.field?.value ?? "", this, this.choice);
       },
     });
     actions.append(cancel, this.confirm);
@@ -76,7 +103,7 @@ export class Dialog {
     });
     document.body.append(this.element);
     this.refresh();
-    (this.field ?? this.confirm).focus();
+    (box.querySelector<HTMLInputElement>("input[type=radio]") ?? this.field ?? this.confirm).focus();
   }
 
   setError(text: string): void {
@@ -101,6 +128,7 @@ export class Dialog {
   }
 
   private allowed(): boolean {
+    if (this.options.choices && !this.choice) return false;
     return this.options.canConfirm ? this.options.canConfirm(this.field?.value ?? "") : true;
   }
 

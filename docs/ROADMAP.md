@@ -19,7 +19,7 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M7b | Day and night | Tested (world lab, the game at night on desktop and phone emulation); Stage-1 art; not yet seen by the product owner, on Windows or on a phone | Sun and moon, sky, haze, stars, lit windows, lanterns and lamplight pools follow the shared game clock; night stays readable; 2 extra draw calls at night only; no gameplay effect (D-037) |
 | M7c | Indoor rooms: the foundation | Tested (persistence verified on PGlite; desktop and phone emulation); Stage-1 art; not yet seen by the product owner | Areas inside the one server room, doors, only your area's players sent to you, the area saved; the hall's lecture room and the library's reading room (D-039) |
 | M8 | University basics | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | One fictional course: enrol at the notice board beside the hall, lectures on the hour on weekdays in the lecture room, two exam sittings a week, a grade computed on the server from attendance, study and academic level; fail and retake; all private and saved (D-040) |
-| M9 | Relationships, public profiles and safety | Planned (order approved; details proposed) | Public info panel for other players, relationships grown from shared actions, block and report, a private story log |
+| M9 | Relationships, public profiles and safety | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | Player cards, *Chat*, friendships grown from greetings, chats, studying and lectures together; blocks and reports between accounts (reports deleted after 90 days, `npm run reports`); a private story log (D-042, D-043) |
 | M10 | A place to live | Planned (order approved; details proposed) | A rented room, sleep, comfort, a small furniture catalogue with server-validated placement |
 | M11 | NPCs with routines | Planned (order approved; details proposed) | A few deterministic NPCs with game-time schedules using the same interaction points |
 | M12 | Sign-in, deployment and operations | Planned; before people outside the project play (D-035) | Real sign-in, account deletion, hosting with backups, HTTPS/WSS, monitoring, a load test |
@@ -231,12 +231,29 @@ Planned below ("M8 — University basics"); design in GAME_DESIGN.md
 Not yet **verified** by the product owner: the balance (timetable, grade
 targets), the notice board and panel wording, on Windows and on a phone.
 
+## M9 relationships and safety: acceptance criteria
+
+Planned below ("M9 — Relationships, public profiles and safety"); design in
+GAME_DESIGN.md "Relationships (M9)", "Safety (M9)" and "Story log (M9)";
+choices in D-042 and D-043. Test counts and results: TESTING.md.
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| 1. Tapping another player opens a public panel: name, look, activity and your relationship; never their needs, money or skills | Tested | `client/src/ui/playerCard.ts` (portrait, activity, relationship only); `profileView` answered only to the asker, for players in the same area (`server/test/social.test.ts`); `e2e/social.spec.ts` on desktop and Pixel 7 emulation |
+| 2. Relationships grow from shared actions (greetings, chatting, studying together) with a short history; private to the two players | Tested | Rules and caps in `shared/test/relationships.test.ts`; greeting, chat, studying at the same table and attending the same lecture in `server/test/social.test.ts`; daily caps, the 20-moment history and the pair order in `server/test/socialDatabase.test.ts` (PGlite and PostgreSQL 16); a third player receives nothing |
+| 3. Block (enforced by the server, both ways) and report (minimal context, deleted after 90 days, also blocks) from the panel and the menu; the owner lists reports with a server command | Tested | Server tests: a block refuses greetings and chats both ways with a neutral reason, ends a chat in progress, survives the blocker's return, can be lifted only by the blocker; a report is stored with its fields, blocks, counts once a day and five an hour; 90-day deletion; `npm run reports` tried on an empty and a migrated database; e2e blocks from the card, unblocks from the panel, reports with a reason and a note |
+| 4. A private story log records meaningful events written by the server (first shift, exam result, new friend) | Persistence verified (PGlite and PostgreSQL 16) | Hired, first shift (once), enrolled and new friend in `server/test/social.test.ts`, the exam result in `server/test/university.test.ts`; kept after a reload; written once per key (`socialDatabase.test.ts`) |
+| 5. Tests: other players never receive relationship data; blocks enforced on the server; reports stored and owner-scoped | Tested | As above; every repository call checks each owner's (character, account) pair (a mismatched pair is refused even when the other is valid) |
+
+Not yet **verified** by the product owner: the balance (gains, caps,
+levels), the card and dialog wording, on Windows and on a phone.
+
 ## Planned milestones (order approved; details proposed)
 
 **The order is approved (D-035); the details below are proposals.** Each
 milestone is reviewed with the product owner and refined before it starts.
-M7, M7b, M7c and M8 are built (criteria and evidence in their acceptance
-sections above); the others have not started. Data sketches: DATA_MODEL.md "Proposed"; system design:
+M7, M7b, M7c, M8 and M9 are built (criteria and evidence in their
+acceptance sections above); the others have not started. Data sketches: DATA_MODEL.md "Proposed"; system design:
 GAME_DESIGN.md "Life simulation: proposed next steps". Every milestone also
 keeps the standing criteria: server-authoritative changes, owner-scoped
 persistence verified on PGlite and PostgreSQL, desktop and phone layouts,
@@ -276,6 +293,9 @@ when M8 starts.
    the slot.
 
 ### M9 — Relationships, public profiles and safety
+
+Built on 2026-10-27: see "M9 relationships and safety: acceptance
+criteria" above, D-042 and D-043. The plan as it was approved:
 
 Depends on: the greet interaction (M3) and profiles (M4); the sign-in
 method (Q5, answered: Google and email with password, built in M12, D-042),
@@ -366,7 +386,7 @@ budget decisions. Comes before any test with people outside the project
 | M7b day and night | Done (2026-10-26) |
 | M7c indoor rooms | Done (2026-10-26) |
 | M8 university | Done (2026-10-27) |
-| M9 social | M3 greet, M4 profiles (done); Q5 and Q13 answered (D-042) |
+| M9 social | Done (2026-10-27) |
 | M10 home | M7 income (done); areas and doors (M7c) |
 | M11 NPCs | M7 and M8 places |
 | M12 operations | Q5 answered (D-042); a Google OAuth client, an email-sending service, hosting decisions |
@@ -400,8 +420,9 @@ Read this first when starting a new session.
 
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
 M0–M6, M6b (title screen and creation flow), M6c (the first district), M7
-(a first job at the café), M7b (day and night), M7c (indoor rooms) and M8
-(university basics) implemented and covered by
+(a first job at the café), M7b (day and night), M7c (indoor rooms), M8
+(university basics) and M9 (relationships and safety) implemented and
+covered by
 automated tests (see `docs/TESTING.md` for the
 counts and latest results). An integration audit on 2026-10-20 checked every
 feature against the code, ran the whole player journey with two clients,
@@ -433,7 +454,10 @@ library's reading room to study, meeting only the people in the same room;
 enrol in a fictional course at the notice board beside the hall, attend
 lectures in the lecture room (on the hour on weekdays) and sit the exam
 (Wednesdays and Saturdays) for a grade on the 18–30 scale, retaking it after
-a fail; see the square change from dawn to night with everyone
+a fail; chat with other players, open their card and see your friendship
+grow from greetings, chats, studying at the same table and lectures
+together; block or report someone (reports are kept 90 days); read your own
+story (job, first shift, enrolment, exams, new friends); see the square change from dawn to night with everyone
 else (lit windows, lamps, stars); watch needs, mood (with reasons), skills,
 work, university and money in the character panel; come back later, even
 after a server restart, to the same character with the same look, needs,
@@ -443,7 +467,9 @@ skills, money, job, course and results, and purchase and wage history.
 each character's profile, appearance config, traits, last position, needs,
 skills, mood events, wallet, every money transaction, the job, every
 completed shift, the area (room) the character is in, the enrolment and
-study count, every completed lecture and every exam result. **Temporary:**
+study count, every completed lecture and every exam result, relationships
+and their recent moments, blocks, reports (deleted after 90 days) and the
+story log. **Temporary:**
 activity, seats, pending actions (including a meal, a shift, a lecture or an
 exam in progress), cooldowns,
 online status; the guest identity itself lives only in one browser; looks
@@ -455,14 +481,13 @@ saved in the creator and device settings live only in that browser. The world cl
 | --- | --- | --- | --- |
 | 1 | Look at the district (by day and at night), the title screen, the creation flow and the characters on the Windows PC (`git pull`, `npm ci`, `npm run dev`) and a phone; say what to change in the art direction (world, light, menus, characters) and whether the frame rate feels smooth | Planned | Product owner |
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
-| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–43) | Planned | Product owner |
-| 4 | Play-test the M5, M7 and M8 balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit, the lecture timetable and exam sittings, the grade targets) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
+| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–44) | Planned | Product owner |
+| 4 | Play-test the M5, M7 and M8 balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit, the lecture timetable and exam sittings, the grade targets, relationship gains and daily caps) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
 | 5 | Decisions for the product owner | None waiting (Q5, Q6 and Q13 answered on 2026-10-27); new questions come with their milestones | — |
 
-**Recommended next task:** **M9, relationships, public profiles and
-safety**, now unblocked (Q5 and Q13 answered on 2026-10-27, D-042; Q6 on the
-same day, D-041), when the product owner says go; meanwhile the owner tries
-M8. In parallel the product owner looks at the district by day and at night, the title screen,
+**Recommended next task:** **M10, a place to live** (a rented room, sleep,
+comfort, a small furniture catalogue; Q7 and Q9 already answered), when the
+product owner says go; meanwhile the owner tries M8 and M9. In parallel the product owner looks at the district by day and at night, the title screen,
 the creation flow and the characters on Windows and a phone (item 1; the
 world lab, `/world-lab.html?time=23:00`, shows every corner at any hour).
 Follow-ups not covered by "Technical work that waits for a trigger":

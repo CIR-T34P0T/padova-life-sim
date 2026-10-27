@@ -16,6 +16,12 @@ import {
   type JoinOptionsWithIdentity,
   type LifePayload,
   type MoveDirectionPayload,
+  type ProfileViewPayload,
+  type RelationshipPayload,
+  type ReportReason,
+  type SafetyPayload,
+  type SocialResultPayload,
+  type StoryPayload,
   type MoveToPayload,
   type NewCharacterInput,
   type ProfileErrorPayload,
@@ -59,6 +65,12 @@ export interface ConnectionEvents {
   onLife(payload: LifePayload): void;
   /** The replicated world clock changed (game minute). */
   onClock(gameMinute: number): void;
+  /** Relationships, blocks, reports and the story log (M9); all private to this player. */
+  onProfileView(payload: ProfileViewPayload): void;
+  onSafety(payload: SafetyPayload): void;
+  onStory(payload: StoryPayload): void;
+  onRelationship(payload: RelationshipPayload): void;
+  onSocialResult(payload: SocialResultPayload): void;
 }
 
 /** The appearance of a replicated player. Never throws: unreadable looks become the default look. */
@@ -113,6 +125,11 @@ export class GameConnection {
     room.onMessage(ServerMessage.Identity, (payload: IdentityPayload) => this.events.onIdentity(payload));
     room.onMessage(ServerMessage.ProfileError, (payload: ProfileErrorPayload) => this.events.onProfileError(payload));
     room.onMessage(ServerMessage.Life, (payload: LifePayload) => this.events.onLife(payload));
+    room.onMessage(ServerMessage.ProfileView, (payload: ProfileViewPayload) => this.events.onProfileView(payload));
+    room.onMessage(ServerMessage.Safety, (payload: SafetyPayload) => this.events.onSafety(payload));
+    room.onMessage(ServerMessage.Story, (payload: StoryPayload) => this.events.onStory(payload));
+    room.onMessage(ServerMessage.Relationship, (payload: RelationshipPayload) => this.events.onRelationship(payload));
+    room.onMessage(ServerMessage.SocialResult, (payload: SocialResultPayload) => this.events.onSocialResult(payload));
 
     // The SDK's callback proxy is loosely typed for schema() classes.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -174,6 +191,23 @@ export class GameConnection {
   /** Asks the server to end this character's job (M7). */
   quitJob(): void {
     this.room?.send(ClientMessage.QuitJob);
+  }
+
+  /** Asks for another player's card: your relationship with them (M9). */
+  viewProfile(targetId: string): void {
+    this.room?.send(ClientMessage.ViewProfile, { targetId });
+  }
+
+  block(targetId: string): void {
+    this.room?.send(ClientMessage.Block, { targetId });
+  }
+
+  unblock(blockId: string): void {
+    this.room?.send(ClientMessage.Unblock, { blockId });
+  }
+
+  report(targetId: string, reason: ReportReason, note: string): void {
+    this.room?.send(ClientMessage.Report, note.trim() ? { targetId, reason, note } : { targetId, reason });
   }
 
   get joined(): boolean {

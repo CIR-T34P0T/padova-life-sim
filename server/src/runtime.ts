@@ -67,5 +67,6 @@ export interface PlayerRuntime {
   intentsInWindow: number;
   pending: PendingAction | null;
   /** Last greeting time per target session id (cooldown). */
-  lastGreetAt: Map<string, number>;
+  /** When this player last greeted or chatted with another: key "<action>:<target session id>". */
+  lastSocialAt: Map<string, number>;
 }

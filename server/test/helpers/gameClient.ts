@@ -63,6 +63,10 @@ export interface ProfileClient {
   /** The owner's own life data (M5), newest last. */
   lives: LifePayload[];
   actions: ActionUpdatePayload[];
+  /** Greetings, player cards, blocks, story and relationship messages (M9), in order. */
+  social: { type: string; payload: any }[];
+  /** The payloads of one social message type, oldest first. */
+  received(type: string): any[];
   lastProfile(): ProfilePayload | undefined;
   lastLife(): LifePayload | undefined;
 }
@@ -76,6 +80,8 @@ export async function connect(url: string, options: { guestToken?: string } = {}
     identities: [],
     lives: [],
     actions: [],
+    social: [],
+    received: (type) => client.social.filter((m) => m.type === type).map((m) => m.payload),
     lastProfile: () => client.profiles.at(-1),
     lastLife: () => client.lives.at(-1),
   };
@@ -84,6 +90,9 @@ export async function connect(url: string, options: { guestToken?: string } = {}
   room.onMessage(ServerMessage.Profile, (payload: ProfilePayload) => client.profiles.push(payload));
   room.onMessage(ServerMessage.ProfileError, (payload: ProfileErrorPayload) => client.errors.push(payload));
   room.onMessage(ServerMessage.Identity, (payload: IdentityPayload) => client.identities.push(payload));
+  for (const type of [ServerMessage.Greeted, ServerMessage.ProfileView, ServerMessage.Safety, ServerMessage.Story, ServerMessage.Relationship, ServerMessage.SocialResult]) {
+    room.onMessage(type, (payload: unknown) => client.social.push({ type, payload }));
+  }
   await waitFor(() => client.profiles.length > 0, 6000, "first profile message");
   return client;
 }

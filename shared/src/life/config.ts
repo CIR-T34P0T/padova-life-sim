@@ -85,6 +85,10 @@ export const MOOD_EVENTS = {
   interesting_lecture: { label: "Interesting lecture", value: 6, durationGameMinutes: 120 },
   passed_exam: { label: "Passed an exam", value: 15, durationGameMinutes: 360 },
   failed_exam: { label: "Failed an exam", value: -8, durationGameMinutes: 240 },
+  // Relationships (M9)
+  nice_chat: { label: "Nice chat", value: 8, durationGameMinutes: 120 },
+  someone_chatted: { label: "Someone chatted with you", value: 6, durationGameMinutes: 90 },
+  new_friend: { label: "New friend", value: 12, durationGameMinutes: 360 },
 } as const;
 export type MoodEventId = keyof typeof MOOD_EVENTS;
 
@@ -141,6 +145,15 @@ export const ACTION_EFFECTS = {
     moodEvent: "interesting_lecture",
     focus: true,
   },
+  /** Chatting with another player (M9): 10 real seconds, standing near them. The other player's share is CHAT_EFFECTS. */
+  chat: {
+    durationMs: 10_000,
+    activity: "chatting",
+    needs: { social: 18, fun: 6 },
+    skills: { communication: 6 },
+    moodEvent: "nice_chat",
+    focus: false,
+  },
   /** Sitting the exam (M8): 3 real minutes = 30 game minutes. Graded only when completed; the mood event depends on the result. */
   exam: {
     durationMs: 180_000,
@@ -171,6 +184,52 @@ export const GREETING_EFFECTS = {
   durationMs: 2_000,
   greeter: { needs: { social: 15, fun: 4 }, skills: { communication: 5 }, moodEvent: "friendly_hello" },
   greeted: { needs: { social: 10 }, moodEvent: "someone_said_hello" },
+} as const;
+
+/** What the other player gets when a chat with them completes (M9). */
+export const CHAT_EFFECTS = {
+  partner: { needs: { social: 12 }, moodEvent: "someone_chatted" },
+} as const;
+
+/** Shared moments that grow a relationship (M9). */
+export const SHARED_MOMENT_KINDS = ["greet", "chat", "study_together", "lecture_together"] as const;
+export type SharedMomentKind = (typeof SHARED_MOMENT_KINDS)[number];
+
+/**
+ * Relationships (M9): one friendship score per pair of characters, 0–100,
+ * grown by shared moments; each kind counts at most a few times per pair per
+ * game day, so it can't be farmed. Nothing lowers it yet (no rivalry or
+ * decay in M9). Design: docs/GAME_DESIGN.md "Relationships (M9)".
+ */
+export const RELATIONSHIP_CONFIG = {
+  maxScore: 100,
+  gains: { greet: 2, chat: 5, study_together: 4, lecture_together: 4 } satisfies Record<SharedMomentKind, number>,
+  dailyCaps: { greet: 2, chat: 4, study_together: 3, lecture_together: 3 } satisfies Record<SharedMomentKind, number>,
+  /** Lowest score first. */
+  levels: [
+    { id: "acquaintance", label: "Acquaintance", from: 0 },
+    { id: "friendly", label: "Friendly", from: 15 },
+    { id: "friend", label: "Friend", from: 40 },
+    { id: "good_friend", label: "Good friend", from: 70 },
+    { id: "close_friend", label: "Close friend", from: 90 },
+  ],
+  /** Reaching this level writes "became friends" in both characters' stories. */
+  friendLevel: "friend",
+  /** Moments kept per pair (the short shared history). */
+  historyLength: 20,
+  /** Moments shown in the player card. */
+  recentShown: 5,
+} as const;
+
+export type RelationshipLevelId = (typeof RELATIONSHIP_CONFIG.levels)[number]["id"];
+
+/** Meaningful events in a character's private story log (M9), written by the server. */
+export const STORY_KINDS = ["hired", "first_shift", "enrolled", "exam_passed", "exam_failed", "new_friend"] as const;
+export type StoryKind = (typeof STORY_KINDS)[number];
+
+export const STORY_CONFIG = {
+  /** Most recent events sent to the owner and shown in the panel. */
+  recentShown: 10,
 } as const;
 
 /** Money (D-023). All amounts in euro cents. */

@@ -41,6 +41,7 @@ import type { ActionMenu, MenuChoice, MenuOption, MenuSpec } from "../ui/actionM
 import type { ActionProgress } from "../ui/actionProgress.ts";
 import type { Hud } from "../ui/hud.ts";
 import { reasonText } from "../ui/reasons.ts";
+import { ACTIVITY_SUBTITLE } from "../ui/activity.ts";
 import { examLine, lectureLine, lectureTimetable, whenLabel } from "../ui/university.ts";
 
 export interface EntityAccess {
@@ -72,19 +73,6 @@ function sameMenu(a: MenuSpec | null, b: MenuSpec): boolean {
   );
 }
 
-const ACTIVITY_SUBTITLE: Record<string, string> = {
-  sitting: "Sitting",
-  studying: "Studying",
-  sketching: "Sketching",
-  greeting: "Greeting someone",
-  ordering: "Ordering",
-  eating: "Eating",
-  drinking: "Having a coffee",
-  washing: "Washing up",
-  working: "Working at the café",
-  attending: "In a lecture",
-  exam: "Sitting an exam",
-};
 
 /** Idempotency id for purchases. Uses getRandomValues, which works on plain-http LAN pages too. */
 function newRequestId(): string {
@@ -123,6 +111,14 @@ export class InteractionController {
       onMenuOpen: () => void;
       /** The player's latest life data (needs, money), for menu details. */
       life: () => LifePayload | null;
+      /** Player cards, blocks and reports (M9). */
+      social: {
+        isBlocked(playerId: string): boolean;
+        openCard(playerId: string): void;
+        confirmBlock(playerId: string): void;
+        unblockPlayer(playerId: string): void;
+        openReport(playerId: string): void;
+      };
     },
   ) {}
 
@@ -227,7 +223,7 @@ export class InteractionController {
   }
 
   onGreeted(payload: GreetedPayload): void {
-    this.deps.hud.toast(`${payload.fromName} says "Ciao!"`);
+    this.deps.hud.toast(payload.action === "chat" ? `${payload.fromName} is chatting with you.` : `${payload.fromName} says "Ciao!"`);
   }
 
   /** Replicated state changed (players or seats): keep an open menu truthful. */
@@ -287,6 +283,13 @@ export class InteractionController {
     if (choice === "edit-appearance") return this.deps.onEditAppearance();
     if (choice === "character") return this.deps.onOpenCharacter();
     if (selection.kind === "self") return;
+    if (selection.kind === "player") {
+      // Card, block and report are requests of their own, not timed actions (M9).
+      if (choice === "profile") return this.deps.social.openCard(selection.id);
+      if (choice === "block") return this.deps.social.confirmBlock(selection.id);
+      if (choice === "unblock") return this.deps.social.unblockPlayer(selection.id);
+      if (choice === "report") return this.deps.social.openReport(selection.id);
+    }
     if (choice.startsWith("buy:")) {
       const itemId = choice.slice(4);
       this.deps.connection.interact({ targetKind: selection.kind, targetId: selection.id, action: "buy", itemId, requestId: newRequestId() });
@@ -331,11 +334,19 @@ export class InteractionController {
     }
     const target = this.deps.entities.get(selection.id)?.latest;
     if (!target) return null;
-    const options = playerActions(actor, { id: selection.id, connected: target.connected }).map((id) => ({
-      id,
-      label: ACTION_LABELS[id],
-    }));
-    const subtitle = !target.connected ? "Away" : ACTIVITY_SUBTITLE[target.activity];
+    // Someone you blocked offers only their card and Unblock; others greet, chat, card, block, report (M9).
+    const options: MenuOption[] = this.deps.social.isBlocked(selection.id)
+      ? [
+          { id: "profile", label: "Profile" },
+          { id: "unblock", label: "Unblock" },
+        ]
+      : [
+          ...playerActions(actor, { id: selection.id, connected: target.connected }).map((id) => ({ id, label: ACTION_LABELS[id] })),
+          { id: "profile", label: "Profile" },
+          { id: "block", label: "Block…" },
+          { id: "report", label: "Report…" },
+        ];
+    const subtitle = this.deps.social.isBlocked(selection.id) ? "Blocked" : !target.connected ? "Away" : ACTIVITY_SUBTITLE[target.activity];
     return { title: target.name, subtitle, options };
   }
 
@@ -605,6 +616,8 @@ function queuedText(update: ActionUpdatePayload, targetName: string): string {
       return "Going to ask about work…";
     case "work":
       return "Going to start a shift…";
+    case "chat":
+      return `Going to chat with ${targetName}…`;
     case "enrol":
       return "Going to the notice board…";
     case "attend":
@@ -621,6 +634,8 @@ function activeText(update: ActionUpdatePayload, targetName: string): string {
   switch (update.action) {
     case "greet":
       return `Greeting ${targetName}`;
+    case "chat":
+      return `Chatting with ${targetName}`;
     case "study":
       return "Studying";
     case "sketch":

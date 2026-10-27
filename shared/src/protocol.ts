@@ -2,12 +2,14 @@
 // every incoming message. Clients send INTENTS ("walk to here", "walk this
 // way"), never positions. The server decides where everyone is.
 
-import { GAME_CONFIG } from "./config.ts";
+import { GAME_CONFIG, SAFETY_CONFIG, type ReportReason } from "./config.ts";
 import { ACTION_IDS, type ActionId, type CancelReason, type InteractionFailure, type TargetKind } from "./interactions.ts";
 import type { JobId, MoodEventId, MoodLevel, NeedId, SkillId, TraitId } from "./life/config.ts";
 import { isValidRequestId, type TransactionView } from "./life/economy.ts";
 import type { MoodReason } from "./life/mood.ts";
 import type { CourseState } from "./life/university.ts";
+import type { RelationshipView, StoryEntry } from "./life/relationships.ts";
+import type { RelationshipLevelId, SharedMomentKind } from "./life/config.ts";
 import type { CharacterProfile, ProfileFailure } from "./profile.ts";
 
 export const ClientMessage = {
@@ -37,6 +39,14 @@ export const ClientMessage = {
   DeleteCharacter: "deleteCharacter",
   /** Quit the character's job (in the world only; a shift in progress ends unpaid). No payload. */
   QuitJob: "quitJob",
+  /** Ask for another player's card (M9): your relationship with them. Payload: TargetPayload. */
+  ViewProfile: "viewProfile",
+  /** Block another player's account (M9). Payload: TargetPayload. */
+  Block: "block",
+  /** Lift one of your blocks (M9). Payload: UnblockPayload. */
+  Unblock: "unblock",
+  /** Report another player (M9); also blocks them. Payload: ReportPayload. */
+  Report: "report",
 } as const;
 
 export const ServerMessage = {
@@ -54,6 +64,16 @@ export const ServerMessage = {
   ProfileError: "profileError",
   /** The receiving player's own needs, mood, skills and money (D-024). Payload: LifePayload. */
   Life: "life",
+  /** Another player's card for the receiving player (M9). Payload: ProfileViewPayload. */
+  ProfileView: "profileView",
+  /** The receiving player's blocks (M9). Payload: SafetyPayload. */
+  Safety: "safety",
+  /** The receiving character's story log (M9). Payload: StoryPayload. */
+  Story: "story",
+  /** A relationship of the receiving character changed (M9). Payload: RelationshipPayload. */
+  Relationship: "relationship",
+  /** The answer to a block, unblock or report (M9). Payload: SocialResultPayload. */
+  SocialResult: "socialResult",
 } as const;
 
 /** Close code used when the same account joins from another window or device. */
@@ -203,6 +223,71 @@ export interface LifePayload {
 export interface GreetedPayload {
   fromId: string;
   fromName: string;
+  /** "greet" (a wave) or "chat" (a chat began, M9). Absent means "greet". */
+  action?: "greet" | "chat";
+}
+
+/** A request about another player in the same area, by their session id. */
+export interface TargetPayload {
+  targetId: string;
+}
+
+export interface UnblockPayload {
+  /** Id of one of your own blocks (from SafetyPayload); ownership is checked by account. */
+  blockId: string;
+}
+
+export interface ReportPayload {
+  targetId: string;
+  reason: ReportReason;
+  /** Optional, at most SAFETY_CONFIG.noteMaxLength characters. */
+  note?: string;
+}
+
+export interface ProfileViewPayload {
+  targetId: string;
+  /** Your relationship with them, or null before any shared moment. */
+  relationship: RelationshipView | null;
+  /** True when you have blocked their account. */
+  blockedByYou: boolean;
+}
+
+export interface BlockedView {
+  blockId: string;
+  /** The character's name when blocked; the block covers their whole account. */
+  name: string;
+  blockedAt: string;
+}
+
+export interface SafetyPayload {
+  blocked: BlockedView[];
+  /** Players in the world whose account you blocked, with the block's id (for menus and Unblock). */
+  blockedPlayers: { playerId: string; blockId: string }[];
+}
+
+export interface StoryPayload {
+  /** Newest first. */
+  events: StoryEntry[];
+}
+
+export interface RelationshipPayload {
+  /** The other player's session id, and their name. */
+  otherId: string;
+  otherName: string;
+  score: number;
+  level: RelationshipLevelId;
+  label: string;
+  /** The moment that changed it. */
+  kind: SharedMomentKind;
+  /** True when this moment raised the level. */
+  levelUp: boolean;
+}
+
+export interface SocialResultPayload {
+  action: "block" | "unblock" | "report";
+  status: "ok" | "already_reported" | "rate_limited" | "not_found" | "failed";
+  /** The other player's name, when known. */
+  name?: string;
 }
 
 export interface MoveToPayload {
@@ -267,6 +352,37 @@ export function parseInteract(payload: unknown): Parsed<InteractPayload> {
   if (itemId !== undefined) value.itemId = itemId;
   if (requestId !== undefined) value.requestId = requestId;
   return { ok: true, value };
+}
+
+/** A request about another player: a session id like the ones in the replicated state. */
+export function parseTarget(payload: unknown): TargetPayload | null {
+  if (!isRecord(payload)) return null;
+  const { targetId } = payload;
+  if (typeof targetId !== "string" || targetId.length === 0 || targetId.length > MAX_TARGET_ID_LENGTH) return null;
+  return { targetId };
+}
+
+export function parseUnblock(payload: unknown): UnblockPayload | null {
+  if (!isRecord(payload)) return null;
+  const blockId = parseCharacterId(payload.blockId);
+  return blockId ? { blockId } : null;
+}
+
+const REPORT_REASONS: readonly string[] = SAFETY_CONFIG.reportReasons.map((r) => r.id);
+
+/** A report: a known reason and an optional short note (control characters removed, trimmed). */
+export function parseReport(payload: unknown): ReportPayload | null {
+  const target = parseTarget(payload);
+  if (!target || !isRecord(payload)) return null;
+  const { reason, note } = payload;
+  if (typeof reason !== "string" || !REPORT_REASONS.includes(reason)) return null;
+  if (note !== undefined && typeof note !== "string") return null;
+  // eslint-disable-next-line no-control-regex
+  const cleaned = (note ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  if (cleaned.length > SAFETY_CONFIG.noteMaxLength) return null;
+  const value: ReportPayload = { targetId: target.targetId, reason: reason as ReportReason };
+  if (cleaned) value.note = cleaned;
+  return value;
 }
 
 /**

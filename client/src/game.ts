@@ -31,6 +31,7 @@ import { cameraSpeedFactor } from "./ui/settings.ts";
 import { createActionMenu } from "./ui/actionMenu.ts";
 import { ActionProgress } from "./ui/actionProgress.ts";
 import { CharacterPanel } from "./ui/characterPanel.ts";
+import { SocialController } from "./ui/socialController.ts";
 import { Hud } from "./ui/hud.ts";
 import { reasonText } from "./ui/reasons.ts";
 
@@ -74,6 +75,7 @@ export class Game {
   private readonly input: InputController;
   private readonly interactions: InteractionController;
   private readonly characterPanel: CharacterPanel;
+  private readonly social: SocialController;
   private life: LifePayload | null = null;
   private status: ConnectionStatus = "connecting";
   private moveInput = { forward: 0, right: 0 };
@@ -122,6 +124,11 @@ export class Game {
         this.lastGameMinute = minute;
         this.hud.setClock(minute);
       },
+      onProfileView: (payload) => this.social.onProfileView(payload),
+      onSafety: (payload) => this.social.onSafety(payload),
+      onStory: (payload) => this.social.onStory(payload),
+      onRelationship: (payload) => this.social.onRelationship(payload),
+      onSocialResult: (payload) => this.social.onSocialResult(payload),
     });
 
     const overlay = document.body;
@@ -138,9 +145,25 @@ export class Game {
         this.quitRequested = true;
         this.connection.quitJob();
       },
+      onUnblock: (blockId) => this.social.unblockById(blockId),
+    });
+    this.social = new SocialController(overlay, {
+      connection: this.connection,
+      hud,
+      characterPanel: this.characterPanel,
+      player: (id) => {
+        const latest = this.entities.get(id)?.latest;
+        return latest ? { name: latest.name, look: appearanceOf(latest), activity: latest.activity, connected: latest.connected } : undefined;
+      },
+      closeOthers: () => {
+        this.characterPanel.close();
+        this.interactions.clearSelection();
+      },
+      onBlocksChanged: () => this.interactions.onWorldChanged(),
     });
     hud.onMeChip(() => {
       this.interactions.clearSelection(); // never two sheets at once
+      this.social.card.close();
       this.characterPanel.toggle();
     });
     const menu = createActionMenu(overlay, () => this.interactions.clearSelection());
@@ -167,12 +190,17 @@ export class Game {
       progress,
       onGroundTap: (point) => this.walkTo(point),
       onEditAppearance: () => this.profileHandlers.onEditAppearance(),
-      onOpenCharacter: () => this.characterPanel.open(),
+      onOpenCharacter: () => {
+        this.social.card.close();
+        this.characterPanel.open();
+      },
       onMenuOpen: () => {
-        // On touch both are bottom sheets: the menu takes over.
+        // On touch these are all bottom sheets: the menu takes over.
         if (this.characterPanel.mode === "sheet") this.characterPanel.close();
+        if (this.social.card.mode === "sheet") this.social.card.close();
       },
       life: () => this.life,
+      social: this.social,
     });
 
     this.input = new InputController(container, joystick, {
@@ -184,7 +212,8 @@ export class Game {
       },
       onCancel: () => {
         if (!this.playing) return;
-        if (this.characterPanel.isOpen) this.characterPanel.close();
+        if (this.social.card.isOpen) this.social.card.close();
+        else if (this.characterPanel.isOpen) this.characterPanel.close();
         else this.interactions.handleCancel();
       },
       onRotate: (dx, dy) => {
@@ -331,6 +360,7 @@ export class Game {
     this.inWorld = false;
     this.renderer.setAnimationLoop(null);
     this.characterPanel.close();
+    this.social.card.close();
     this.interactions.clearSelection();
     this.world.targetMarker.visible = false;
     for (const entity of this.entities.values()) {
@@ -516,12 +546,14 @@ export class Game {
     entity.latest = { ...player };
     this.pushSnapshot(entity, player);
     this.interactions.onWorldChanged();
+    this.social.onPlayerChanged(id);
   }
 
   private removeEntity(id: string): void {
     const entity = this.entities.get(id);
     if (!entity) return;
     this.interactions.onPlayerRemoved(id);
+    this.social.onPlayerRemoved(id);
     entity.view?.dispose();
     this.entities.delete(id);
     this.hud.setPlayerCount(this.entities.size);
@@ -615,6 +647,10 @@ export class Game {
       /** Character panel: open, layout mode and visible text. */
       characterPanel() {
         return game.characterPanel.debugState();
+      },
+      /** Player card, blocks and story (M9). */
+      social() {
+        return game.social.debugState();
       },
       /** Replicated seat occupancy as [seatId, playerId] pairs. */
       seats() {

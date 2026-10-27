@@ -1,5 +1,6 @@
 // Character panel (M5): the player's own needs, mood (with reasons), skills,
-// work (M7), university (M8), money and current action. Opened by clicking/tapping your own character
+// work (M7), university (M8), money, current action, and (M9) the story log
+// and the players they blocked. Opened by clicking/tapping your own character
 // (→ "Character") or the HUD chip. Desktop: a narrow panel on the right.
 // Touch: a bottom sheet capped below half the screen height. Everything shown
 // comes from the server's `life` message; nothing here is calculated as truth.
@@ -27,7 +28,10 @@ import {
   type NeedId,
   type SkillId,
   type TraitId,
+  type BlockedView,
+  type StoryEntry,
 } from "@padova/shared";
+import { dayLabel, storyText } from "./story.ts";
 import { examLine, examTimetable, expectedGrade, lectureLine, lectureTimetable } from "./university.ts";
 
 const NEED_LABELS: Record<NeedId, string> = {
@@ -58,6 +62,8 @@ export interface CharacterPanelActions {
   onEditAppearance(): void;
   onLeaveToTitle(): void;
   onQuitJob(): void;
+  /** Lift one of your blocks (M9). */
+  onUnblock(blockId: string): void;
 }
 
 export class CharacterPanel {
@@ -69,10 +75,17 @@ export class CharacterPanel {
   /** Kept across re-renders (the body is rebuilt on every update) so a tap on it is never lost. */
   private readonly quitButton: HTMLButtonElement;
   private life: LifePayload | null = null;
+  private story: StoryEntry[] = [];
+  private blocked: BlockedView[] = [];
+  /** One Unblock button per block, kept across redraws so a tap on it is never lost. */
+  private readonly unblockButtons = new Map<string, HTMLButtonElement>();
   private currentAction: string | null = null;
   private openState = false;
 
-  constructor(root: HTMLElement, actions: CharacterPanelActions) {
+  constructor(
+    root: HTMLElement,
+    private readonly actions: CharacterPanelActions,
+  ) {
     const params = new URLSearchParams(location.search);
     const forced = params.get("menu");
     const coarse = window.matchMedia("(pointer: coarse)").matches;
@@ -171,6 +184,19 @@ export class CharacterPanel {
     if (this.openState) this.render();
   }
 
+  /** The character's story log, newest first (M9). */
+  setStory(events: StoryEntry[]): void {
+    this.story = events;
+    if (this.openState) this.render();
+  }
+
+  /** The players this account blocked (M9). */
+  setBlocked(blocked: BlockedView[]): void {
+    this.blocked = blocked;
+    for (const id of [...this.unblockButtons.keys()]) if (!blocked.some((b) => b.blockId === id)) this.unblockButtons.delete(id);
+    if (this.openState) this.render();
+  }
+
   setCurrentAction(text: string | null): void {
     if (text === this.currentAction) return;
     this.currentAction = text;
@@ -200,6 +226,8 @@ export class CharacterPanel {
       this.workSection(life),
       this.universitySection(life),
       this.moneySection(life),
+      this.storySection(),
+      this.blockedSection(),
     );
   }
 
@@ -303,6 +331,53 @@ export class CharacterPanel {
     if (course.lastResult && !course.lastResult.passed) {
       section.append(text("p", "cp-muted", `Last exam: ${formatGrade(course.lastResult.grade)}, not passed. You can retake it at the next sitting.`));
     }
+    return section;
+  }
+
+  private storySection(): HTMLElement {
+    const section = sectionWithTitle("Your story");
+    section.dataset.testid = "story";
+    if (this.story.length === 0) {
+      section.append(text("p", "cp-muted", "Nothing yet. Getting a job, enrolling, exams and new friends are written here."));
+      return section;
+    }
+    const list = document.createElement("ul");
+    list.className = "cp-story";
+    for (const entry of this.story) {
+      const item = document.createElement("li");
+      item.append(text("span", "cp-story-text", storyText(entry)), text("span", "cp-muted", dayLabel(entry.gameMinute)));
+      list.append(item);
+    }
+    section.append(list);
+    return section;
+  }
+
+  private blockedSection(): HTMLElement {
+    const section = sectionWithTitle("Blocked players");
+    section.dataset.testid = "blocked";
+    if (this.blocked.length === 0) {
+      section.append(text("p", "cp-muted", "Nobody. Block or report someone from their card (tap them, then Profile)."));
+      return section;
+    }
+    const list = document.createElement("ul");
+    list.className = "cp-blocked";
+    for (const block of this.blocked) {
+      const item = document.createElement("li");
+      let unblock = this.unblockButtons.get(block.blockId);
+      if (!unblock) {
+        unblock = document.createElement("button");
+        unblock.type = "button";
+        unblock.className = "cp-action cp-unblock";
+        unblock.dataset.action = "unblock";
+        unblock.textContent = "Unblock";
+        unblock.setAttribute("aria-label", `Unblock ${block.name}`);
+        unblock.addEventListener("click", () => this.actions.onUnblock(block.blockId));
+        this.unblockButtons.set(block.blockId, unblock);
+      }
+      item.append(text("span", "cp-blocked-name", block.name), unblock);
+      list.append(item);
+    }
+    section.append(list);
     return section;
   }
 

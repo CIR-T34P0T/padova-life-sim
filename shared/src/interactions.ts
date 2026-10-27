@@ -10,7 +10,7 @@ import type { CourseStatus } from "./life/university.ts";
 import { findMenuItem } from "./life/economy.ts";
 import type { Interactable, Seat, WorldLayout } from "./world.ts";
 
-export const ACTION_IDS = ["sit", "stand", "study", "greet", "sketch", "buy", "wash", "ask_work", "work", "enter", "enrol", "attend", "exam"] as const;
+export const ACTION_IDS = ["sit", "stand", "study", "greet", "sketch", "buy", "wash", "ask_work", "work", "enter", "enrol", "attend", "exam", "chat"] as const;
 export type ActionId = (typeof ACTION_IDS)[number];
 
 export type TargetKind = "object" | "player";
@@ -28,7 +28,8 @@ export type Activity =
   | "washing"
   | "working"
   | "attending"
-  | "exam";
+  | "exam"
+  | "chatting";
 
 export const ACTION_LABELS: Record<ActionId, string> = {
   sit: "Sit",
@@ -46,6 +47,8 @@ export const ACTION_LABELS: Record<ActionId, string> = {
   enrol: "Enrol",
   attend: "Attend the lecture",
   exam: "Sit the exam",
+  // Relationships (M9)
+  chat: "Chat",
 };
 
 /** Reasons an interaction can be refused or fail. Shown to players as friendly text. */
@@ -85,7 +88,9 @@ export type InteractionFailure =
   | "no_exam_now"
   | "already_sat"
   | "enrol_failed"
-  | "record_failed";
+  | "record_failed"
+  // Relationships and safety (M9): one of the two players blocked the other (said neutrally)
+  | "not_reachable";
 
 /** Why an action ended before completing. */
 export type CancelReason = "cancelled" | "interrupted" | "replaced" | "disconnected";
@@ -184,11 +189,17 @@ export function objectActions(interactable: Interactable, actor: ActorView, occu
 /** Activities during which a desk offers only "Stand up". */
 const BUSY_AT_DESK: readonly string[] = ["studying", "attending", "exam"];
 
-/** Actions another player offers. A player never offers actions to themselves. */
+/** Actions another player offers. A player never offers actions to themselves. Blocks are the server's call. */
 export function playerActions(actor: ActorView, target: { id: string; connected: boolean }): ActionId[] {
   if (target.id === actor.id || !target.connected) return [];
-  return ["greet"];
+  return ["greet", "chat"];
 }
+
+/** Minimum time between the same player action towards the same player. */
+const PLAYER_ACTION_COOLDOWN_MS: Partial<Record<ActionId, number>> = {
+  greet: INTERACTION_CONFIG.greetCooldownMs,
+  chat: INTERACTION_CONFIG.chatCooldownMs,
+};
 
 const SEAT_ACTIONS: readonly ActionId[] = ["sit", "study", "sketch", "attend", "exam"];
 const STANDING_SPOT_ACTIONS: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter", "enrol"];
@@ -230,21 +241,25 @@ export function validateObjectAction(
   return fail("action_not_available");
 }
 
-/** Server-side validation of a player interaction request. */
+/**
+ * Server-side validation of a player interaction request. `lastAt` is when
+ * this actor last did the same action towards the same player.
+ */
 export function validatePlayerAction(
   actor: ActorView,
   target: { id: string; x: number; z: number; connected: boolean } | null,
   action: ActionId,
-  lastGreetAt: number | undefined,
+  lastAt: number | undefined,
   now: number,
   maxDistance: number = INTERACTION_CONFIG.maxDistance,
 ): Check {
   if (!target) return fail("unknown_target");
   if (target.id === actor.id) return fail("target_is_self");
   if (!target.connected) return fail("target_offline");
-  if (action !== "greet") return fail("action_not_available");
+  const cooldown = PLAYER_ACTION_COOLDOWN_MS[action];
+  if (cooldown === undefined) return fail("action_not_available");
   if (Math.hypot(target.x - actor.x, target.z - actor.z) > maxDistance) return fail("too_far");
-  if (lastGreetAt !== undefined && now - lastGreetAt < INTERACTION_CONFIG.greetCooldownMs) return fail("too_soon");
+  if (lastAt !== undefined && now - lastAt < cooldown) return fail("too_soon");
   return ok;
 }
 

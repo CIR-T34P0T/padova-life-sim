@@ -373,7 +373,7 @@ injures a character, there is no game over, absence never creates a crisis
 | System | Today (implemented) | Proposed next | Milestone (proposed) |
 | --- | --- | --- | --- |
 | Needs | Hunger, energy, hygiene, social, fun | **Comfort**, which the owner's brief lists (*approved*: added in M10 with furniture of different comfort, not now while every seat is a bench or chair); **sleep** in a bed as the main energy source; showers at home for hygiene (the fountain stays a quick wash) | M10 |
-| Mood | Score from needs plus recent events, with reasons; *Good day's work* after a shift (M7); *Interesting lecture*, *Passed an exam*, *Failed an exam* (M8) | New events from new systems (new friend, rent paid); mood visible on the character (poses first; faces need expressions the procedural model lacks) | M9–M10 |
+| Mood | Score from needs plus recent events, with reasons; *Good day's work* after a shift (M7); *Interesting lecture*, *Passed an exam*, *Failed an exam* (M8); *Nice chat*, *Someone chatted with you*, *New friend* (M9) | New events from new systems (rent paid); mood visible on the character (poses first; faces need expressions the procedural model lacks) | M10 |
 | Skills | Five skills, levels 0–10; communication level 2 unlocks the barista wage (M7); academic level counts in the exam grade (M8) | Cooking unlocks home recipes (M10); fitness unlocks running (needs a movement design: speed, energy cost, server limits) | M10 |
 | Personality | Four traits, chosen at creation, fixed | Keep four until a new trait has a distinct, testable effect; traits stay fixed after creation | — |
 | Money in | €100 start, €7.50 per game day played, wages per completed café shift (M7) | More jobs or grades as new places open (e.g. the university in M8) | Later |
@@ -550,6 +550,82 @@ sittings a week) is built for the real-time clock and can be changed in
 data; the grade formula and its targets are tuning values; a failed exam has
 no cost beyond the mood event and waiting for the next sitting (no fees, no
 limit on retakes). Recorded in D-040.
+
+## Relationships (M9)
+
+**Implemented in M9** (multiplayer functional and persistence verified in
+automated tests; see TESTING.md for results). Numbers are tuning values in
+`shared/src/life/config.ts` (`RELATIONSHIP_CONFIG`, `ACTION_EFFECTS.chat`,
+`CHAT_EFFECTS`, `MOOD_EVENTS`); rules in `shared/src/life/relationships.ts`.
+
+**Tapping another player** opens their menu: *Greet*, *Chat*, *Profile*,
+*Block…* and *Report…*. *Profile* opens their **card**: name, a portrait of
+their look, what they're doing ("Studying", "Chatting", "Hanging out"), and
+**you and them**: the relationship's level, a friendship bar ("12 of 100"),
+"Known since Wed · Day 262" and your last five shared moments. Never their
+needs, money, skills or traits. Desktop: the right-hand column like the
+character panel; touch: a bottom sheet.
+
+**Chat** (new): your character walks up to the other player and chats for
+**10 real seconds** (activity `chatting`, a talking pose, "· chatting" on the
+name tag). The other player is told ("Ada is chatting with you.") and isn't
+interrupted. When it finishes: you get social +18, fun +6, communication +6
+XP and *Nice chat* (+8 for 2 game hours); they get social +12 and *Someone
+chatted with you* (+6). It stops if they walk more than 4 m away. The same
+player can be chatted with again after 30 real seconds (greetings: 5 s).
+
+**Relationships** are between characters: one friendship score per pair,
+0–100, the same for both. Shared moments raise it:
+
+| Moment | Gain | Counts per pair per game day |
+| --- | --- | --- |
+| A greeting | +2 | 2 |
+| A completed chat | +5 | 4 |
+| Studying at the same table at the same time (counted when the first of the two finishes) | +4 | 3 |
+| Attending the same lecture | +4 | 3 |
+
+Levels: Acquaintance (from the first moment), Friendly (15), **Friend
+(40)**, Good friend (70), Close friend (90). A full game day of every kind
+with one person (2.4 real hours together) gives 48: Friend, not more. A
+level-up tells both players ("You and Ben are now friends."); reaching
+Friend also writes "Became friends with …" in both stories and gives both
+*New friend* (+12 for 6 game hours). Nothing lowers a relationship in M9:
+no rivalry, arguments or decay yet. Relationships are private to the two
+players and saved; the last 20 moments per pair are kept.
+
+## Safety (M9)
+
+Decided by the product owner on 2026-10-27 (D-042); choices in D-043.
+
+**Blocking** someone (from the menu or their card; a dialog confirms) covers
+their **whole account**, all its characters. Neither of you can greet or
+chat with the other, either way; their greetings don't reach you; shared
+moments between you don't count. A greeting or chat in progress between you
+stops. They aren't told: anything they try says "They can't be reached
+right now." For you, their menu offers only *Profile* and *Unblock* and says
+"Blocked". Your blocks are listed in your character panel (**Blocked
+players**), each with *Unblock*. Blocks are saved and belong to accounts, so
+they carry over when guests sign in (M12).
+
+**Reporting** someone (from the menu or their card) asks for a reason
+(harassment or bullying; hateful or discriminatory behaviour; offensive name
+or look; cheating or exploiting the game; something else) and an optional
+note of up to 300 characters. Only the reason, the note, both names, the
+area and the game time are kept. Reporting also blocks them for you. Limits:
+one report per reported account per real day ("You already reported Ben
+today"), five reports per hour. The product owner reads reports with `npm
+run reports` until the admin page comes with sign-in (M12); **every report
+is deleted 90 days after it is made**, checked when the server starts and
+every hour. Warnings, mutes and bans come with the admin page (M12).
+
+## Story log (M9)
+
+Each character keeps a private **story**: meaningful events written by the
+server, newest first, in the character panel (**Your story**): getting a
+job, a first shift, enrolling, passing or failing an exam (with the grade),
+becoming friends with someone (their name as it was then). Each event is
+written once. The panel shows the last ten; all are saved. The story is a
+foundation: later milestones add moving house, new jobs and more.
 
 ## Indoor rooms (M7c)
 

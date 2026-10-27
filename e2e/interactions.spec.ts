@@ -114,7 +114,7 @@ test("desktop: select a bench, sit, stand up from yourself, greet another player
     expect((await playerSeenBy(bruno.page, alice.id))?.seatId).toBe("");
   });
 
-  await test.step("clicking another player offers Greet; they are notified and see the gesture", async () => {
+  await test.step("clicking another player offers Greet (with Chat, Profile, Block and Report since M9); they are notified and see the gesture", async () => {
     // Alice now faces north from the bench; Bruno walks into her view first.
     const spot = await bruno.page.evaluate(() => (window as any).__padova.worldToScreen(-3, -10));
     await bruno.page.mouse.click(spot.x, spot.y);
@@ -127,7 +127,7 @@ test("desktop: select a bench, sit, stand up from yourself, greet another player
     await alice.page.mouse.click(brunoOnAlice.x, brunoOnAlice.y);
     expect(await interaction(alice.page)).toMatchObject({
       selection: { kind: "player", id: bruno.id },
-      menu: { title: "Bruno", options: ["Greet"] },
+      menu: { title: "Bruno", options: ["Greet", "Chat", "Profile", "Block…", "Report…"] },
     });
     await alice.page.click('#action-menu [data-action="greet"]');
     await expect(bruno.page.locator("#toast")).toContainText('Alice says "Ciao!"', { timeout: 20_000 });
@@ -211,7 +211,7 @@ test("mobile: tap targets open a touch-friendly action sheet", async ({ browser 
     await phone.page.waitForTimeout(300);
     const dario = await targetPoint(phone.page, "player", desktop.id);
     await phone.page.touchscreen.tap(dario.x, dario.y);
-    expect(await interaction(phone.page)).toMatchObject({ menu: { kind: "sheet", title: "Dario", options: ["Greet"] } });
+    expect(await interaction(phone.page)).toMatchObject({ menu: { kind: "sheet", title: "Dario", options: ["Greet", "Chat", "Profile", "Block…", "Report…"] } });
     await phone.page.locator('#action-sheet [data-action="greet"]').tap();
     await expect(desktop.page.locator("#toast")).toContainText('Chiara says "Ciao!"', { timeout: 20_000 });
   });

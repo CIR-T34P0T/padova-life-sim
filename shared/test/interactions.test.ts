@@ -106,7 +106,7 @@ describe("menu contents", () => {
   it("never offers actions on yourself or on a disconnected player", () => {
     expect(playerActions(actor(), { id: "me", connected: true })).toEqual([]);
     expect(playerActions(actor(), { id: "other", connected: false })).toEqual([]);
-    expect(playerActions(actor(), { id: "other", connected: true })).toEqual(["greet"]);
+    expect(playerActions(actor(), { id: "other", connected: true })).toEqual(["greet", "chat"]);
   });
 });
 

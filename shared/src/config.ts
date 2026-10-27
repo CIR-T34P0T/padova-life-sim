@@ -47,8 +47,38 @@ export const INTERACTION_CONFIG = {
   maxGreetReplans: 3,
   /** Minimum time (ms) between greetings from the same player to the same player. */
   greetCooldownMs: 5000,
+  /** Minimum time (ms) between chats started by the same player with the same player (M9). */
+  chatCooldownMs: 30_000,
+  /** A chat stops when the two players are further apart than this (m) (M9). */
+  chatRange: 4,
   // Action durations and effects moved to shared/src/life/config.ts in M5.
 } as const;
+
+/**
+ * Player safety (M9, D-042). Reports are read by the product owner; their
+ * details are deleted after `reportRetentionDays` real days.
+ */
+export const SAFETY_CONFIG = {
+  reportReasons: [
+    { id: "harassment", label: "Harassment or bullying" },
+    { id: "hate", label: "Hateful or discriminatory behaviour" },
+    { id: "offensive_name", label: "Offensive name or look" },
+    { id: "cheating", label: "Cheating or exploiting the game" },
+    { id: "other", label: "Something else" },
+  ],
+  /** Longest optional note with a report (characters). */
+  noteMaxLength: 300,
+  /** Real days a report's details are kept. */
+  reportRetentionDays: 90,
+  /** Reports one account may send per real hour. */
+  reportsPerHour: 5,
+  /** One report per reporter and reported account within this many real hours. */
+  reportRepeatHours: 24,
+  /** Blocked accounts shown and kept per account. */
+  maxBlocks: 200,
+} as const;
+
+export type ReportReason = (typeof SAFETY_CONFIG.reportReasons)[number]["id"];
 
 /** Tuning for identity and persistence (M4). */
 export const PROFILE_CONFIG = {

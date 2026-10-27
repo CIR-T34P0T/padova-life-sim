@@ -187,7 +187,12 @@ export async function walkTo(page: Page, x: number, z: number, touch = false): P
  * camera can still be settling after a walk or a door).
  */
 export async function objectPoint(page: Page, id: string): Promise<{ x: number; y: number }> {
-  const read = () => page.evaluate((target) => (window as any).__padova.targetScreenPoint("object", target), id);
+  return targetPoint(page, "object", id);
+}
+
+/** Like objectPoint, for an object or another player (M9: players are tapped for their menu). */
+export async function targetPoint(page: Page, kind: "object" | "player", id: string): Promise<{ x: number; y: number }> {
+  const read = () => page.evaluate(([k, target]) => (window as any).__padova.targetScreenPoint(k, target), [kind, id] as const);
   let aim = { x: 0, y: 0 };
   await expect(async () => {
     const first = await read();
@@ -196,7 +201,7 @@ export async function objectPoint(page: Page, id: string): Promise<{ x: number; 
     expect(Math.hypot(point.x - first.x, point.y - first.y), `${id} still moving on screen`).toBeLessThan(1);
     expect(point.visible, `${id} should be on screen`).toBe(true);
     aim = { x: point.x, y: point.y + 4 };
-    expect(await page.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [aim.x, aim.y] as const)).toMatchObject({ kind: "object", id });
+    expect(await page.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [aim.x, aim.y] as const)).toMatchObject({ kind, id });
     expect(await reachesGameView(page, aim.x, aim.y)).toBe(true);
   }).toPass({ timeout: 15_000 });
   return aim;
@@ -207,6 +212,18 @@ export async function openObjectMenu(page: Page, id: string, touch = false): Pro
   const menu = touch ? page.locator("#action-sheet") : page.locator("#action-menu");
   await expect(async () => {
     const aim = await objectPoint(page, id);
+    if (touch) await page.touchscreen.tap(aim.x, aim.y);
+    else await page.mouse.click(aim.x, aim.y);
+    await expect(menu).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  return menu;
+}
+
+/** Clicks (or taps) another player until their menu (desktop) or sheet (touch) opens; returns it. */
+export async function openPlayerMenu(page: Page, id: string, touch = false): Promise<Locator> {
+  const menu = touch ? page.locator("#action-sheet") : page.locator("#action-menu");
+  await expect(async () => {
+    const aim = await targetPoint(page, "player", id);
     if (touch) await page.touchscreen.tap(aim.x, aim.y);
     else await page.mouse.click(aim.x, aim.y);
     await expect(menu).toBeVisible({ timeout: 2_000 });

@@ -43,14 +43,23 @@ or auth model without the product owner's approval.
 - **Ownership comes from the session.** Profile reads/writes are scoped by the
   account id resolved in `onAuth`; never accept an account or character id from
   a client as proof of ownership. All SQL lives in repository modules:
-  `server/src/profiles/profileRepository.ts` and `server/src/life/lifeRepository.ts`.
+  `server/src/profiles/profileRepository.ts`, `server/src/life/lifeRepository.ts`
+  and `server/src/social/socialRepository.ts`.
 - **Money is a ledger.** Every change goes through `applyMoneyChange`
   (row-locked, idempotent by request key, never below zero). Prices come from
   the server's catalogue, never from a client. No debt unless a design
   decision adds it.
 - **Life data is private.** Needs, mood, skills, traits, money, the job and
   the course with its grades go only to their owner (`life` message), never
-  into the shared Colyseus state.
+  into the shared Colyseus state. A relationship goes only to its two
+  players; blocks and the story log only to their owner; reports never to
+  players (M9).
+- **Safety (M9, D-042, D-043).** Blocks and reports belong to accounts (the
+  server resolves them from sessions); a block stops every player action
+  both ways with the same neutral reason, checked first. Reports keep
+  minimal context and are deleted after 90 days (`SAFETY_CONFIG`). Social
+  rules live in `shared/src/life/relationships.ts`; shared moments come only
+  from actions the server saw.
 - **Game time comes from the server clock** (`shared/src/life/clock.ts`,
   replicated as `gameMinute`); clients never run their own game timers.
   Day and night are drawn from it on the client

@@ -8,3 +8,4 @@ export * from "./economy.ts";
 export * from "./effects.ts";
 export * from "./work.ts";
 export * from "./university.ts";
+export * from "./relationships.ts";

@@ -24,6 +24,8 @@ export interface ActionDurations {
   /** Attending one lecture, and sitting the exam (M8). */
   attend: number;
   exam: number;
+  /** A chat with another player (M9). */
+  chat: number;
 }
 
 export interface RoomTuning {
@@ -58,6 +60,7 @@ export const DEFAULT_TUNING: RoomTuning = {
     work: ACTION_EFFECTS.work.durationMs,
     attend: ACTION_EFFECTS.attend.durationMs,
     exam: ACTION_EFFECTS.exam.durationMs,
+    chat: ACTION_EFFECTS.chat.durationMs,
   },
   consumeDurationFactor: 1,
   guestCreationsPerIpPerHour: PROFILE_CONFIG.guestCreationsPerIpPerHour,

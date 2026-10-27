@@ -344,6 +344,12 @@ export class CharacterModel {
         case "greeting":
           armRZ = -(2.55 + Math.sin(t * 9) * 0.22);
           break;
+        case "chatting":
+          // Talking with the hands (M9): one forearm raised, moving gently.
+          armRX = -0.9 + Math.sin(t * 3.1) * 0.25;
+          armRZ = -0.15;
+          armLX = -0.25 + Math.sin(t * 2.3 + 1) * 0.08;
+          break;
         case "ordering":
           armRX = -0.55;
           break;

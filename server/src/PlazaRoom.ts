@@ -38,6 +38,7 @@ import type { SessionRegistry } from "./profiles/sessionRegistry.ts";
 import type { PlayerRuntime } from "./runtime.ts";
 import { PlayerState, PlazaState } from "./schema.ts";
 import { getServices } from "./services.ts";
+import { SocialSystem } from "./social/SocialSystem.ts";
 import { DEFAULT_TUNING, resolveTuning, type PlazaRoomOptions, type RoomTuning } from "./tuning.ts";
 
 /** What the server knows about one connection's identity. Never sent to clients. */
@@ -85,6 +86,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   private areas!: AreaWorlds;
   private interactions!: InteractionSystem;
   private life!: LifeSystem;
+  private social!: SocialSystem;
   private lifeService!: LifeService;
   private gameClock!: GameClock;
   private profiles!: ProfileService;
@@ -112,6 +114,17 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       send,
       requestSave: (sessionId) => void this.saveCharacter(sessionId),
       now: () => Date.now(),
+      story: (sessionId, event) => this.social.addStory(sessionId, event),
+    });
+    this.social = new SocialSystem({
+      db: this.lifeService.db,
+      state: this.state,
+      runtimes: this.runtimes,
+      ownerOf: (sessionId) => this.sessions.get(sessionId)?.owner ?? null,
+      clock: this.gameClock,
+      send,
+      cancelBetween: (a, b) => this.interactions.cancelBetween(a, b),
+      moodEvent: (sessionId, id) => this.life.addMood(sessionId, id),
     });
     this.interactions = new InteractionSystem({
       state: this.state,
@@ -122,9 +135,13 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       send,
       now: () => Date.now(),
       hooks: this.life,
+      social: this.social,
     });
     this.setSimulationInterval((deltaMs) => this.tick(deltaMs), GAME_CONFIG.tickMs);
     this.clock.setInterval(() => void this.autosave(), this.tuning.autosaveIntervalMs);
+    // Report details are deleted after 90 days (D-042): checked now and every hour.
+    void this.social.purgeOldReports();
+    this.clock.setInterval(() => void this.social.purgeOldReports(), 60 * 60 * 1000);
 
     this.onMessage(ClientMessage.MoveTo, (client, payload) => this.handleMoveTo(client, payload));
     this.onMessage(ClientMessage.MoveDirection, (client, payload) => this.handleMoveDirection(client, payload));
@@ -139,6 +156,19 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     this.onMessage(ClientMessage.LeaveWorld, (client) => void this.handleLeaveWorld(client));
     this.onMessage(ClientMessage.DeleteCharacter, (client, payload) => void this.handleDeleteCharacter(client, payload));
     this.onMessage(ClientMessage.QuitJob, (client) => this.handleQuitJob(client));
+    // Player cards, blocks and reports (M9): in the world only, under the same rate limit.
+    this.onMessage(ClientMessage.ViewProfile, (client, payload) => {
+      if (this.acceptIntent(client, ClientMessage.ViewProfile)) void this.social.viewProfile(client.sessionId, payload);
+    });
+    this.onMessage(ClientMessage.Block, (client, payload) => {
+      if (this.acceptIntent(client, ClientMessage.Block)) void this.social.block(client.sessionId, payload);
+    });
+    this.onMessage(ClientMessage.Unblock, (client, payload) => {
+      if (this.acceptIntent(client, ClientMessage.Unblock)) void this.social.unblock(client.sessionId, payload);
+    });
+    this.onMessage(ClientMessage.Report, (client, payload) => {
+      if (this.acceptIntent(client, ClientMessage.Report)) void this.social.report(client.sessionId, payload);
+    });
     this.onMessage("*", (client, type) => {
       // Unknown message types (including any attempt to send a position) are ignored.
       log.warn("plaza", `ignored unknown message "${String(type)}" from ${client.sessionId}`);
@@ -208,6 +238,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     if (player) player.connected = true;
     if (!client.view) client.view = new StateView();
     this.refreshViews();
+    void this.social.resync(client.sessionId);
     log.info("plaza", `${client.sessionId} reconnected`);
   }
 
@@ -475,7 +506,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       intentWindowStart: 0,
       intentsInWindow: 0,
       pending: null,
-      lastGreetAt: new Map(),
+      lastSocialAt: new Map(),
     });
     session.owner = loaded.owner;
     session.readOnly = loaded.readOnly;
@@ -483,6 +514,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     if (life) this.life.attach(client.sessionId, loaded.owner, life);
     else log.error("plaza", `no life data for ${client.sessionId}; needs, skills and money are unavailable`);
     this.refreshViews();
+    void this.social.attach(client.sessionId);
     log.info("plaza", `${loaded.profile.displayName} (${client.sessionId}) entered (${area}); ${this.state.players.size} in the world`);
   }
 
@@ -543,6 +575,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     const save = this.saveCharacter(sessionId); // takes its snapshot synchronously
     if (session) session.removal = save;
     this.interactions.onLeave(sessionId);
+    this.social.detach(sessionId);
     this.life.detach(sessionId);
     this.state.players.delete(sessionId);
     this.runtimes.delete(sessionId);

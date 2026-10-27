@@ -5,11 +5,11 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms, university basics (M0–M8)
+## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms, university basics, relationships and safety (M0–M9)
 
 What exists today is an early, end-to-end slice: one district with two
 indoor rooms, the first life-simulation loop, character creation, a first
-job and one university course. It proves the
+job, one university course, and friendships with blocking and reporting. It proves the
 architecture; it is **not** the full game yet. Planned work and its order are
 in `docs/ROADMAP.md`.
 
@@ -24,7 +24,7 @@ in `docs/ROADMAP.md`.
 | Server-authoritative movement and validation | Multiplayer functional, tested |
 | Join / leave / brief-disconnect reconnection | Multiplayer functional, tested |
 | Click/tap objects and players for contextual actions (desktop radial menu, mobile bottom sheet) | Multiplayer functional, tested |
-| Bench: sit / sketch / stand · Study desk and café table: sit / study · Café counter: buy food, ask about work, work a shift · Fountain: wash up · University notice board: enrol · Lecture desk: attend the lecture, sit the exam · Other player: greet | Multiplayer functional, tested |
+| Bench: sit / sketch / stand · Study desk and café table: sit / study · Café counter: buy food, ask about work, work a shift · Fountain: wash up · University notice board: enrol · Lecture desk: attend the lecture, sit the exam · Other player: greet, chat, profile, block, report | Multiplayer functional, tested |
 | Action progress, cancel, and explanations when refused | Multiplayer functional, tested |
 | Saved character profile (name, adult age category, appearance, position) in PostgreSQL | Persistence verified (tested on embedded PGlite and PostgreSQL 16) |
 | Temporary guest identity (one browser = one guest profile with up to 3 characters; no sign-in) | Multiplayer functional, tested; temporary by design (D-017, D-031) |
@@ -40,8 +40,10 @@ in `docs/ROADMAP.md`.
 | Shared world clock (10 game minutes per real minute) and capped offline progression | Multiplayer functional, tested |
 | Indoor rooms: the university hall's lecture room and the library's reading room, through their doors; you see only the players in the same room; you come back inside after a reload | Multiplayer functional, persistence verified on PGlite (tested on desktop and phone emulation); **Stage-1 procedural art** (D-039) |
 | University basics: one fictional course (enrol at the notice board beside the hall), lectures on the hour on weekdays in the lecture room (2 real minutes each, counted once), exam sittings on Wednesdays and Saturdays with a grade computed on the server from attendance, study and Academic level (18–30, 30 cum laude), fail and retake; the weekday in the clock chip; the University section of the character panel | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16; desktop and phone emulation); numbers not yet play-tested (D-040) |
+| Relationships: a 10-second *Chat* action; friendships (Acquaintance to Close friend) grown from greetings, chats, studying at the same table and attending the same lecture, with daily caps; another player's card (portrait, activity, your relationship and recent moments; never their needs, money or skills); a private story log (job, first shift, enrolment, exams, new friends) | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16; desktop and phone emulation); numbers not yet play-tested (D-043) |
+| Safety: block a player's account (both ways, they aren't told; unblock in the character panel); report with a reason and a note (also blocks; one a day per player, five an hour); reports deleted after 90 days and read by the owner with `npm run reports` | Multiplayer functional, persistence verified; warnings, mutes, bans and an admin page come with sign-in (M12, D-042) |
 | Day and night: sun and moon, sky, haze, stars, lit windows, lanterns and pools of lamplight follow the shared game clock; every player sees the same time of day; characters stay easy to see at night | Multiplayer functional, tested (world lab at chosen times, the game at night on desktop and phone emulation); **Stage-1 procedural art** (D-037) |
-| Character panel (your needs, mood, skills, work, university, money, current action) and top-right weekday/time/money chip | Locally functional, tested (desktop and phone emulation) |
+| Character panel (your needs, mood, skills, work, university, money, story, blocked players, current action) and top-right weekday/time/money chip | Locally functional, tested (desktop and phone emulation) |
 | Sleep/beds, cooking, inventory, more jobs, more courses and graduation | Not started (see docs/ROADMAP.md) |
 
 "Tested" means covered by the automated tests in `docs/TESTING.md`. Mobile is
@@ -211,6 +213,7 @@ Landscape gives the best view; portrait works.
 | `npm run db:migrate` | Applies pending database migrations |
 | `npm run db:status` | Lists applied and pending migrations |
 | `npm run db:rollback` | Reverts the latest migration (`-- 2` for two). **Deletes the data in the tables it drops** |
+| `npm run reports` | Lists recent player reports (newest first) and deletes those older than 90 days. With the embedded development database, stop the game first |
 | `npm run clock -- wed 10:00` | Prints the `GAME_CLOCK_OFFSET_MINUTES` value (and the PowerShell line) that starts the game clock at that weekday and time, to try lectures or exams at any real time |
 
 First-time Playwright setup: `npx playwright install chromium`.

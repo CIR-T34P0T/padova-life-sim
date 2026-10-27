@@ -176,6 +176,51 @@ assessments             completed exams only (M8), one per sitting; never update
   lectures_attended, study_sessions, academic_level   the inputs the grade was computed from
   game_day, sat_game_minute
   created_at
+
+relationships           one row per pair of characters (M9), the two ids in a fixed order
+  character_low, character_high   uuid → characters (cascade delete), PK, low < high
+  score                 integer 0–100, the same for both
+  first_game_minute, last_game_minute
+  created_at, updated_at
+
+relationship_events     shared moments that counted (M9); only the newest 20 per pair are kept
+  id                    uuid PK
+  character_low, character_high   → relationships (cascade delete)
+  kind                  'greet' | 'chat' | 'study_together' | 'lecture_together'
+  game_day              integer ≥ 1 (the daily caps count by game day)
+  game_minute
+  created_at
+
+blocks                  an account blocking another (M9)
+  id                    uuid PK (the client's Unblock sends it; the server checks the blocker)
+  blocker_account, blocked_account   uuid → accounts (cascade delete), UNIQUE pair, never equal
+  blocked_character_id  uuid → characters, set null on delete (for the list only)
+  blocked_name          the character's name when blocked (1–40 characters)
+  created_at
+
+reports                 player reports for the product owner (M9); rows older than 90 days are deleted
+  id                    uuid PK
+  reporter_account      → accounts, set null on delete
+  reporter_character_id → characters, set null on delete
+  reporter_name, reported_name   names at the time (1–40 characters)
+  reported_account      → accounts (cascade delete)
+  reported_character_id → characters, set null on delete
+  reason                'harassment' | 'hate' | 'offensive_name' | 'cheating' | 'other'
+  note                  optional, at most 300 characters
+  area, game_minute     where and when (game time)
+  created_at
+  indexes (reporter_account, created_at DESC) for the limits; (created_at) for deletion
+
+story_events            a character's private story log (M9); never updated
+  id                    uuid PK
+  character_id          uuid → characters (cascade delete)
+  event_key             UNIQUE per character: makes each write idempotent
+                        ('hired:cafe:<minute>', 'first_shift', 'enrolled:<course>',
+                        'exam:<course>:<sitting>', 'friend:<other character id>')
+  kind                  'hired' | 'first_shift' | 'enrolled' | 'exam_passed' | 'exam_failed' | 'new_friend'
+  game_minute
+  details               small JSON object (≤ 512 bytes): job, course, grade, the other's name
+  created_at
 ```
 
 **Money changes** (`applyMoneyChange`): one database transaction that locks
@@ -213,6 +258,20 @@ refuses unless enrolled, counts the stored lectures, computes the grade with
 writes the assessment and, with a passing grade, marks the course passed —
 all or nothing. A lecture or exam that ends early is never written. Grades
 are never sent by a client.
+
+**Relationships, blocks, reports and the story** (M9, SQL in
+`server/src/social/socialRepository.ts`): every call takes owners the
+server resolved from sessions, and checks each (character, account) pair
+before writing. A shared moment (`recordMoment`) locks the pair's row,
+counts today's moments of that kind against the daily cap, writes the
+moment, updates the score (at most 100) and drops all but the newest 20
+moments — in one transaction. Blocking (`blockAccount`) and reporting
+(`insertReport`) lock the acting account's row so their limits can't be
+raced; reporting refuses a second report of the same account within 24
+real hours and a sixth within an hour. `purgeReports` deletes reports older
+than 90 days (the server runs it on start and hourly; `npm run reports` runs
+it before listing). Story events (`addStoryEvent`) are written once per
+event key.
 
 **Migration 0002 for existing characters:** M4-era characters get starting
 needs (80/80/80/70/70), a €100 wallet with a "Starting allowance" ledger row,
@@ -413,6 +472,12 @@ money changes or refusals. Other players see only the public activity
   university rules (the timetable in absolute game minutes, why a lecture
   or the exam can't start, the exam grade); `life/clock.ts` gives each game
   day a weekday (Day 1 is a Monday).
+- M9: `life/config.ts` holds the relationship tuning (`RELATIONSHIP_CONFIG`:
+  gains, daily caps, levels, history length), the chat's effects
+  (`ACTION_EFFECTS.chat`, `CHAT_EFFECTS`) and the story kinds;
+  `life/relationships.ts` the rules (level of a score, a moment's effect
+  under the cap, the pair order); `config.ts` the safety settings
+  (`SAFETY_CONFIG`: report reasons, note length, 90-day retention, limits).
 
 ## Rules to keep
 
@@ -425,8 +490,9 @@ money changes or refusals. Other players see only the public activity
   key, never as a client-set balance. The balance never goes below zero.
 - Store the minimum personal data. Guest accounts hold no personal data beyond
   a chosen display name. A player can delete a character with all its data;
-  deleting a whole account and moderation workflows are still to be built
-  (M12, D-042; see TESTING.md known gaps).
+  deleting a whole account and moderation decisions (warnings, mutes, bans)
+  are still to be built (M12, D-042; see TESTING.md known gaps). Report
+  details are deleted after 90 days (M9).
 - Migrations are numbered, run in a transaction each, and have a `down`
   section. Back up before destructive migrations.
 
@@ -435,15 +501,14 @@ money changes or refusals. Other players see only the public activity
 **Proposed, not implemented.** Sketches that show how the next systems
 would fit the rules above, so their milestones can be estimated; each is
 designed properly, and may change, when its milestone is planned (ROADMAP.md
-"Planned milestones"). None of these tables exists. (M7's job tables and
-M8's university tables were built as described above; M7c needed none:
-`character_state.area` stores the room.)
+"Planned milestones"). None of these tables exists. (M7's job tables, M8's
+university tables and M9's relationship, safety and story tables were built
+as described above; M7c needed none: `character_state.area` stores the
+room.)
 
 | Milestone (proposed) | Data | Notes |
 | --- | --- | --- |
-| M9 relationships and safety | `relationships` (an ordered pair of characters, score, kind, last interaction); `blocks` (blocking account → blocked account); `reports` (reporter, reported character, reason, short context, status) | Relationship data is private to the two players unless they choose to show it. Reports keep only what moderation needs; report details deleted 90 days after the report, the decision kept while the reported account exists (D-042) |
 | M12 sign-in | `account_identities` (account, provider `google` or `password`, the provider's user id or the email address, verified or not); `password_credentials` (account, `scrypt` hash with its salt and parameters); guests keep their token until they upgrade | Owner-scoped like everything else; email addresses are personal data and are deleted with the account (D-042) |
-| M9 story log | `story_events` (character, kind, game minute, small validated details, visibility) | Written by the server when a meaningful event happens (first shift, exam result, new friend); never edited by clients |
 | M10 home, sleep and comfort | `residences` (character, home); `inventory_items` (character, item, quantity); `placed_objects` (home, object, position, rotation) | Purchases of furniture and groceries use the ledger; placement validated against the home's layout like the square's collision boxes |
 
 Every row above would follow "Rules to keep": a server-side owner, a

@@ -46,6 +46,8 @@ const REASON_TEXT: Record<string, string> = {
   already_sat: "You've already sat the exam at this sitting. Try again at the next one.",
   enrol_failed: "Couldn't enrol you just now. Nothing changed; try again in a moment.",
   record_failed: "That couldn't be recorded because of a server problem, so it didn't count.",
+  // Relationships and safety (M9): said the same way whoever blocked whom
+  not_reachable: "They can't be reached right now.",
 };
 
 export function reasonText(reason: string | undefined): string {

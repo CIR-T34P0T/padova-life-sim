@@ -6,6 +6,7 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  CHAT_EFFECTS,
   COURSES,
   COURSE_IDS,
   ECONOMY_CONFIG,
@@ -57,6 +58,7 @@ import { log } from "../log.ts";
 import type { Owner } from "../profiles/profileRepository.ts";
 import type { PendingAction, PlayerRuntime } from "../runtime.ts";
 import type { PlazaState } from "../schema.ts";
+import type { StoryInput } from "../social/socialRepository.ts";
 import type { LifeSnapshot, MoneyChangeResult } from "./lifeRepository.ts";
 import type { LifeService, LoadedLife } from "./LifeService.ts";
 
@@ -102,6 +104,8 @@ export interface LifeDeps {
   /** Asks the room to save this character soon (e.g. after a skill gain). */
   requestSave: (sessionId: string) => void;
   now: () => number;
+  /** Writes a meaningful event in the character's story log (M9). */
+  story?: (sessionId: string, event: StoryInput) => void;
 }
 
 /** Owner updates are sent at most this often, unless something important happened. */
@@ -316,6 +320,8 @@ export class LifeSystem {
       if (result === "hired") {
         life.work = { ...life.work, jobId };
         log.info("life", `${sessionId} was hired (${jobId})`);
+        const minute = this.deps.clock.minute();
+        this.deps.story?.(sessionId, { key: `hired:${jobId}:${Math.floor(minute)}`, kind: "hired", gameMinute: minute, details: { jobId } });
         this.sendUpdate(sessionId, true);
         return "ok";
       }
@@ -376,6 +382,8 @@ export class LifeSystem {
           life.work = { ...life.work, shiftsDay: shift.gameDay, shiftsToday: result.shiftsToday };
           this.recordMoney(sessionId, result.balanceCents, result.transaction);
           log.info("life", `${sessionId} was paid ${result.transaction.amountCents} cents for shift ${shift.id}`);
+          // Written once: the key is the same for every shift.
+          this.deps.story?.(sessionId, { key: "first_shift", kind: "first_shift", gameMinute: this.deps.clock.minute(), details: { jobId: shift.jobId } });
           return "ok";
         case "shift_limit":
           life.work = { ...life.work, shiftsDay: shift.gameDay, shiftsToday: result.shiftsToday };
@@ -444,6 +452,7 @@ export class LifeSystem {
           finalGrade: null,
         };
         log.info("life", `${sessionId} enrolled (${courseId})`);
+        this.deps.story?.(sessionId, { key: `enrolled:${courseId}`, kind: "enrolled", gameMinute: this.deps.clock.minute(), details: { courseId } });
         return "ok";
       }
       return result === "already_enrolled" ? "already_enrolled" : "enrol_failed";
@@ -511,6 +520,12 @@ export class LifeSystem {
           };
         }
         if (result.status === "graded") this.addMoodEvent(life, result.passed ? "passed_exam" : "failed_exam");
+        this.deps.story?.(sessionId, {
+          key: `exam:${slot.courseId}:${slot.key}`,
+          kind: result.passed ? "exam_passed" : "exam_failed",
+          gameMinute: endedGameMinute,
+          details: { courseId: slot.courseId, grade: result.grade },
+        });
         log.info("life", `${sessionId} sat the exam (${slot.key}): ${result.grade}, ${result.passed ? "passed" : "not passed"}`);
         this.sendUpdate(sessionId, true);
         return "ok";
@@ -533,6 +548,23 @@ export class LifeSystem {
         }
       })
       .catch((error) => log.error("life", `study session not counted for ${sessionId}: ${(error as Error).message}`));
+  }
+
+  /** A chat finished: the other player gets social and a mood event (the starter's share is the timed effect). */
+  onChatted(initiatorId: string, targetId: string): void {
+    const target = this.lives.get(targetId);
+    if (!target || initiatorId === targetId) return;
+    target.needs = applyNeedChanges(target.needs, CHAT_EFFECTS.partner.needs, target.traits);
+    this.addMoodEvent(target, CHAT_EFFECTS.partner.moodEvent);
+    this.sendUpdate(targetId, true);
+  }
+
+  /** Gives a character a mood event from another system (e.g. a new friend, M9). */
+  addMood(sessionId: string, id: MoodEventId): void {
+    const life = this.lives.get(sessionId);
+    if (!life) return;
+    this.addMoodEvent(life, id);
+    this.sendUpdate(sessionId, true);
   }
 
   /** A greeting started: both players feel it. */

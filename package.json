@@ -23,7 +23,8 @@
     "db:migrate": "npm run db:migrate -w server",
     "db:rollback": "npm run db:rollback -w server",
     "db:status": "npm run db:status -w server",
-    "clock": "npm run clock -w server --silent --"
+    "clock": "npm run clock -w server --silent --",
+    "reports": "npm run reports -w server --silent --"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

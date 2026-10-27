@@ -676,3 +676,45 @@ default the product owner can change.
 - **Order:** M9 collects reports and enforces blocks; the admin page needs a
   real account to protect it, so it comes with sign-in in M12. Until then
   the owner can list reports with a server command (designed with M9).
+
+## D-043 — Relationships, safety and the story log: implementation choices (2026-10-27)
+
+M9 was built as planned in ROADMAP.md "M9 — Relationships, public profiles
+and safety", on the owner's answers in D-042. Choices made while building
+it; each is a default the product owner can change.
+
+- **Relationships are between characters, blocks and reports between
+  accounts.** A life sim's friendships belong to the character you play;
+  safety has to cover all of someone's characters and carry over when
+  guests sign in (D-042).
+- **One mutual friendship score per pair (0–100)**, levels from
+  Acquaintance to Close friend, grown only by shared moments the server saw:
+  a greeting, a completed chat, studying at the same table at the same
+  time, attending the same lecture. Each kind counts a few times per pair
+  per game day, so friendship can't be farmed; a full game day of
+  everything reaches Friend. **Nothing lowers it yet**: rivalry, arguments,
+  romance and decay need their own design (romance only between consenting
+  adults, as the brief says).
+- **Chat is an action, not text.** A 10-second shared action with effects
+  for both players, interrupted if they part. Typed chat would need
+  moderation tools first; it isn't planned in M9.
+- **Blocking stops every interaction both ways and says so neutrally.** The
+  blocked player is never told, and gets the same "They can't be reached
+  right now" whoever blocked whom; the block check comes before cooldowns
+  so the answer never changes. Both players still see each other in the
+  world (hiding them is a possible later step).
+- **Reporting also blocks** (D-042), keeps only the reason, an optional
+  note of 300 characters, both names, the area and the game time, and is
+  limited to one per reported account per day and five per hour. **Reports
+  are deleted after 90 days** (D-042), on server start and every hour; the
+  owner reads them with `npm run reports` (with the embedded development
+  database, the game must be stopped first). Decisions (warnings, mutes,
+  bans) and the admin page come with sign-in in M12.
+- **The player card shows only public facts** (name, look, activity) plus
+  the relationship between the two of you; never needs, money, skills or
+  traits.
+- **The story log is written by the server only**, once per event key,
+  after the event itself is stored (a failed story write is logged, not
+  retried): job, first shift, enrolment, exam results, new friends.
+- **Not built in M9:** text chat, groups, reputation, romance, rivalry,
+  hiding blocked players, moderation decisions.

@@ -264,6 +264,46 @@ real waits; what a lecture desk says in each state (on now with late entry,
 next lecture, attended, too tired; expected grade, next sitting, today's
 result, passed); the expected grade.
 
+**Relationships and safety rules (14 tests, `shared/test/relationships.test.ts`,
+M9):** levels from Acquaintance to Close friend in rising order; reaching
+Friend detected once; every moment's gain up to its daily cap, never above
+100; a full game day of everything reaches Friend, not Good friend; the pair
+order; moment and story kinds; *Chat* offered with *Greet*, with its own
+longer cooldown; the chat's effects and mood events for both players; the
+profile, block, unblock and report parsers (session ids, UUIDs, known
+reasons, notes cleaned and limited); 90-day retention and the limits set.
+
+**Relationships and safety through the real room (10 tests, `server/test/social.test.ts`,
+M9)** — real servers, databases and WebSocket clients: a chat lifts both
+players (needs and mood events), tells the other, and starts a relationship
+both see on their cards (a greeting adds to it), while a third player
+receives nothing and has none; the chat's 30 s cooldown; a chat broken off
+when the other walks away; studying at the same table counted once for the
+pair; attending the same lecture counted; reaching Friend tells both with a
+level-up, writes both stories and gives both *New friend*; **a block refuses
+greetings and chats both ways with `not_reachable`, ends a chat in
+progress**, shows only in the blocker's list (the blocked player's stays
+empty), can be lifted only by the blocker, covers the account and is back
+when the blocker returns; **a report is stored with minimal context**, also
+blocks, counts once a day, ignores bad reasons, and the reported player
+learns nothing; players in another room can't be viewed, blocked or
+reported; the story log records the job, the first shift (once) and
+enrolling, only for the owner, and keeps them after a reload. The exam
+result's story event is checked in `server/test/university.test.ts`.
+
+**Relationships and safety database (10 tests per backend, `server/test/socialDatabase.test.ts`,
+M9)** — migration 0007 down and up when empty, **rollback refused, changing
+nothing, once there is social data**; one relationship per pair whoever
+starts; daily caps per kind with a new day starting again; only the newest
+20 moments kept and the score capped at 100; moments refused for mismatched
+owners or oneself; blocks (once, listed with the name, lifted only by the
+blocker; a mismatched owner pair refused even when the other pair is
+valid); reports (once a day per reported account, five an hour, the
+database refusing unknown reasons and long notes); **reports older than 90
+days deleted, younger ones kept**; story events once per key, newest first,
+owner only, deleted with the character; relationships deleted with a
+character while the other side's account block stays.
+
 **Work database (9 tests, `server/test/workDatabase.test.ts`, M7)** —
 migration 0005 down and up again with no job data, the ledger accepting
 `wage` only while it is applied; **rollback refused, changing nothing,
@@ -510,6 +550,18 @@ emulation): the clock chip shows the weekday; the notice board's sheet has
 *Enrol* at least 48 px tall; enrolling by touch; the panel sheet's
 University section shows attendance, the next lecture and the sittings.
 
+**End to end, relationships and safety (`e2e/social.spec.ts`, M9)** —
+desktop with two players: the player menu offers *Greet*, *Chat*, *Profile*,
+*Block…*, *Report…*; a real 10-second chat shows "Chatting with Ben" and
+tells Ben; both cards then show "Acquaintance", "5 of 100" and "Chatted";
+blocking from the card asks first, then the card says Unblock and Ben's
+chat attempt says "They can't be reached right now", and Ada's menu on Ben
+offers only *Profile* and *Unblock* ("Blocked"); the character panel lists
+Ben under Blocked players and *Unblock* lifts it; reporting needs a reason,
+takes a note, and blocks. Phone (Pixel 7 emulation): the player sheet's
+options at least 48 px tall, the card as a bottom sheet with Block and
+Report at least 44 px, the report dialog's choices at least 44 px.
+
 **End to end, day and night (`e2e/daylight.spec.ts`, M7b)** — the world lab
 (no server) at 12:00, 19:40 and 23:00: the phase, lamps and stars follow the
 time; night costs at most 2 draw calls and under 2 000 triangles more than
@@ -667,6 +719,13 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-27 (M9) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server); no linter is configured |
+| 2026-10-27 (M9) | unit + integration | 393/393 pass | In-memory PGlite: 34 new tests (14 relationship and safety rules, 10 through the real room, 10 database); the exam's story event checked in the M8 test; existing tests updated for migration 0007, the greeting message's new `action` field and Chat in the player actions. While writing them: one test mistake (a blocker given the other account's id hit "same account" first), and it showed a real flaw, now fixed: the owner check counted matching characters, so two owners naming one character could pass; each (character, account) pair is now checked on its own. A block was checked after the chat cooldown, so a blocked player could get "too soon" instead of the neutral answer; the block now comes first |
+| 2026-10-27 (M9) | unit + integration on PostgreSQL 16.15 | 446/446 pass | `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: the 53 database tests repeated on PostgreSQL, including the 10 social ones. The run now takes about 10 minutes on this machine (578 s); a first attempt under a 590-second limit was cut off and was run again without it |
+| 2026-10-27 (M9) | e2e on PostgreSQL 16.15 + upgrade | 6/6 pass | `E2E_DATABASE_URL` on `padova_e2e` at migration 6 with 22 characters: the server applied 0007 on start; afterwards the 22 characters' balances, the 45 earlier ledger rows, the enrolments, the shift, the lecture and the exam row were unchanged (compared by fingerprint); new rows as expected (one relationship at 5 with a chat moment, one block, one report). `npm run reports` listed the report from that database. Social and persistence specs |
+| 2026-10-27 (M9) | e2e | 28/30 in the full run (45.8 min), then the 2 failures passed 2/2 | Includes the two new social tests (2.3 and 1.6 min). The two failures were the M3 interactions spec expecting a player menu of only *Greet*; it now expects *Greet*, *Chat*, *Profile*, *Block…*, *Report…* and passed (desktop and phone). The new social spec passed on its first run, alone, again in the full run and on PostgreSQL |
+| 2026-10-27 (M9) | `npm run reports` | Pass | On an unmigrated embedded database (says the game must update it first), on a migrated empty one ("No reports.") and on PostgreSQL with one report (its reason, both names, area, game time and note) |
+| 2026-10-27 (M9) | visual check (Claude, screenshots) | Pass with known limitations | From the e2e runs: the player card on desktop (portrait, "Acquaintance", "5 of 100", "Chatted", Block and Report), the report dialog with its five reasons and note, the card as a phone bottom sheet. The idle activity read "Here" and now reads "Hanging out". Not yet seen by the product owner |
 | 2026-10-27 (M8) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server); no linter is configured |
 | 2026-10-27 (M8) | unit + integration | 359/359 pass | In-memory PGlite: 42 new tests (19 university rules including the clock offset, 8 through the real room including 2 on a fast clock, 9 university database, 6 wording). Existing tests updated: the rollback tests for migration 0006, two life tests for the new `course` and `timeScale` fields. While writing them: the integration tests timed out when run from `server/` (the 30 s limit lives in the root Vitest config; run from the root) and two checks read the seated state before its patch arrived (now waited for); no game change |
 | 2026-10-27 (M8) | unit + integration on PostgreSQL 16.15 | 402/402 pass | `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: the 43 database tests repeated on PostgreSQL, including the 9 university ones (two copies of one lecture recorded at the same moment count once) |
@@ -853,6 +912,16 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   shows "Next lecture …" rather than "Attended …". Trying lectures or exams
   at a chosen real time means restarting the server with the offset from
   `npm run clock` (everyone on a server shares its one clock).
+- **Relationships and safety (M9):** nothing lowers a relationship (no
+  rivalry, arguments or decay); no romance, groups or reputation; *Chat* is
+  an action, there is no typed chat. Blocked players still see each other
+  walk around. Moderation decisions (warnings, mutes, bans) and the
+  owner's admin page come with sign-in (M12); until then `npm run reports`
+  lists reports, and with the embedded development database the game must
+  be stopped first. Blocks load a moment after a player enters the world;
+  during that moment the server doesn't yet know their blocks. A failed
+  story write is logged, not retried. The numbers (gains, caps, levels) are
+  not play-tested.
 - **World art pass limitations:**
   - The district is Stage-1 procedural art (D-033): only the hall and the
     library doors lead inside (M7c); no interiors behind the other doors
@@ -1054,3 +1123,12 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     Saturday, *Sit the exam* shows the grade you would get; after 3 real
     minutes you get a grade. To try it at any time: `npm run clock -- wed
     10:00` prints the PowerShell line that starts the game at that time.
+44. **Relationships and safety (M9):** with a second player (an InPrivate
+    window or the phone) nearby, tap them → *Chat*: after 10 seconds both
+    see a note, and *Profile* shows "Acquaintance" with "Chatted". From the
+    card, *Block* → confirm: the other player's *Chat* says "They can't be
+    reached right now". Your character panel lists them under Blocked
+    players → *Unblock*. *Report…* asks for a reason (and an optional note)
+    and blocks them. Stop the game and run `npm run reports`: the report is
+    listed. Your story (character panel) lists your job, first shift,
+    enrolment, exams and new friends.

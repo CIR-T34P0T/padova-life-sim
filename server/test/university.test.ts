@@ -184,6 +184,9 @@ describe("university on an exam day (Wednesday 13:01: a sitting is open, no lect
     expect(life.course).toMatchObject({ status: "enrolled", finalGrade: null, lastResult: { grade: 12, passed: false } });
     expect(life.course!.lastSittingKey).toMatch(/^d\d+$/);
     expect(life.mood.events.map((e) => e.id)).toContain("failed_exam");
+    // The result goes into Fede's story log (M9).
+    await waitFor(() => fede.received("story").some((m: { events: { kind: string }[] }) => m.events.some((e) => e.kind === "exam_failed")), 6000, "exam in the story");
+    expect(fede.received("story").at(-1).events[0]).toMatchObject({ kind: "exam_failed", details: { courseId: COURSE, grade: 12 } });
     expect(await act(fede, "lecture-desk-3a", "exam")).toMatchObject({ status: "rejected", reason: "already_sat" });
     const rows = await context.server.db.query<{ grade: number; passed: boolean }>(`SELECT grade, passed FROM assessments WHERE character_id = $1`, [characterIdOf(fede)]);
     expect(rows.rows).toEqual([{ grade: 12, passed: false }]);

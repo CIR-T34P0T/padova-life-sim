@@ -245,7 +245,7 @@ describe("greeting another player", () => {
     expect(reply.status).toBe("queued");
     await alice.waitForStatus("started");
     await waitFor(() => bruno.greetings.length === 1, 3000, "Bruno notified");
-    expect(bruno.greetings[0]).toEqual({ fromId: alice.id, fromName: "Alice" });
+    expect(bruno.greetings[0]).toEqual({ fromId: alice.id, fromName: "Alice", action: "greet" });
     await waitFor(() => stateOf(bruno, alice.id).activity === "greeting", 2000, "gesture replicated");
     expect(stateOf(bruno, alice.id).targetId).toBe(bruno.id);
     const a = stateOf(bruno, alice.id);

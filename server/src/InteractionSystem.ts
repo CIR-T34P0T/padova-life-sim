@@ -15,6 +15,10 @@
 //   → finish (timed actions end on a server timer) or keep state (sitting).
 // A finished shift is paid, and a finished lecture or exam recorded
 // ("paying"), before it counts as completed; one that ends early never counts.
+// Player actions (greet, chat since M9) walk to the other player first; a
+// block either way refuses them (the social system's call). Shared moments
+// (a greeting, a completed chat, studying at the same table or attending the
+// same lecture) are passed to the social system for relationships.
 // The client is told about each step but never decides one: arrival, timers,
 // payments and completion are all measured here. Life effects (needs, skills,
 // money) are applied through `hooks`, implemented by the LifeSystem.
@@ -50,6 +54,7 @@ import {
   type Vec2,
 } from "@padova/shared";
 import type { AreaWorld } from "./areas.ts";
+import type { SocialHooks } from "./social/SocialSystem.ts";
 import { log } from "./log.ts";
 import type { PendingAction, PlayerRuntime } from "./runtime.ts";
 import type { PlayerState, PlazaState } from "./schema.ts";
@@ -69,6 +74,8 @@ export interface InteractionHooks {
   onCompleted(sessionId: string, pending: PendingAction): void;
   /** A greeting started. */
   onGreeting(greeterId: string, targetId: string): void;
+  /** A chat finished: the other player's share of it (M9). */
+  onChatted(initiatorId: string, targetId: string): void;
   /** The character's job, or null (decides whether the counter offers "ask about work" or a shift). */
   jobOf(sessionId: string): JobId | null;
   /** Hires the character on arrival at the counter. */
@@ -94,6 +101,7 @@ const NO_HOOKS: InteractionHooks = {
   refund: () => undefined,
   onCompleted: () => undefined,
   onGreeting: () => undefined,
+  onChatted: () => undefined,
   jobOf: () => null,
   hire: async () => "hire_failed",
   startShift: () => "not_employed",
@@ -116,6 +124,8 @@ export interface InteractionDeps {
   send: (sessionId: string, type: string, payload: unknown) => void;
   now: () => number;
   hooks?: InteractionHooks;
+  /** Blocks and shared moments (M9). Optional so the system works without it. */
+  social?: SocialHooks;
 }
 
 const PATH_FAILURE_TO_REASON: Record<PathFailure, InteractionFailure> = {
@@ -211,11 +221,14 @@ export class InteractionSystem {
     const targetView = targetPlayer
       ? { id: request.targetId, x: targetPlayer.x, z: targetPlayer.z, connected: targetPlayer.connected }
       : null;
+    // A block either way comes first, so a blocked player always gets the same neutral answer (M9).
+    const blocked = targetPlayer ? this.deps.social?.refusal(sessionId, request.targetId) : null;
+    if (blocked) return this.reject(sessionId, request, blocked);
     const check = validatePlayerAction(
       this.actorView(sessionId),
       targetView,
       request.action,
-      runtime.lastGreetAt.get(request.targetId),
+      runtime.lastSocialAt.get(`${request.action}:${request.targetId}`),
       this.deps.now(),
       this.deps.tuning.maxInteractionDistance,
     );
@@ -227,7 +240,7 @@ export class InteractionSystem {
     const planned = this.planGreeting(sessionId, runtime, pending, targetPlayer);
     if (planned === "unreachable") return this.reject(sessionId, request, "unreachable");
     runtime.pending = pending;
-    if (planned === "in_range") this.beginGreeting(sessionId, pending, targetPlayer);
+    if (planned === "in_range") this.beginWithPlayer(sessionId, pending, targetPlayer);
     else this.update(sessionId, { actionId: pending.id, status: "queued", ...target(request) });
   }
 
@@ -252,6 +265,11 @@ export class InteractionSystem {
         }
         if (pending.phase === "approach" && runtime.character.intent.kind === "idle") {
           this.arriveForGreeting(sessionId, runtime, pending, targetPlayer);
+          continue;
+        }
+        // A chat needs the two players to stay close (M9).
+        if (pending.action === "chat" && pending.phase === "active" && Math.hypot(targetPlayer.x - runtime.character.x, targetPlayer.z - runtime.character.z) > INTERACTION_CONFIG.chatRange) {
+          this.fail(sessionId, "target_moved");
           continue;
         }
       } else if (pending.phase === "approach" && runtime.character.intent.kind === "idle") {
@@ -293,6 +311,17 @@ export class InteractionSystem {
     if (!runtime || !player) return null;
     const seated = player.seatId ? findSeat(this.deps.area(sessionId).layout, player.seatId) : null;
     return seated ? { ...seated.seat.approach } : { x: runtime.character.x, z: runtime.character.z };
+  }
+
+  /** Stops any greeting or chat between two players, either way (after one blocks the other, M9). */
+  cancelBetween(a: string, b: string): void {
+    for (const [self, other] of [
+      [a, b],
+      [b, a],
+    ] as const) {
+      const pending = this.deps.runtimes.get(self)?.pending;
+      if (pending?.targetKind === "player" && pending.targetId === other) this.cancel(self, "cancelled");
+    }
   }
 
   /** Stops a shift being walked to, worked or paid (quitting the job). Unpaid unless its wage was already being paid. */
@@ -465,7 +494,8 @@ export class InteractionSystem {
       pending.action === "wash" ||
       pending.action === "work" ||
       pending.action === "attend" ||
-      pending.action === "exam"
+      pending.action === "exam" ||
+      pending.action === "chat"
     ) {
       return actionDurationsMs[pending.action];
     }
@@ -495,35 +525,46 @@ export class InteractionSystem {
 
   private arriveForGreeting(sessionId: string, runtime: PlayerRuntime, pending: PendingAction, targetPlayer: PlayerState): void {
     const distance = Math.hypot(targetPlayer.x - runtime.character.x, targetPlayer.z - runtime.character.z);
-    if (distance <= INTERACTION_CONFIG.greetRange) return this.beginGreeting(sessionId, pending, targetPlayer);
+    if (distance <= INTERACTION_CONFIG.greetRange) return this.beginWithPlayer(sessionId, pending, targetPlayer);
     // They walked away while we approached: re-plan a few times, then give up.
     if (pending.replans >= INTERACTION_CONFIG.maxGreetReplans) return this.fail(sessionId, "target_moved");
     pending.replans++;
     const planned = this.planGreeting(sessionId, runtime, pending, targetPlayer);
-    if (planned === "in_range") this.beginGreeting(sessionId, pending, targetPlayer);
+    if (planned === "in_range") this.beginWithPlayer(sessionId, pending, targetPlayer);
     else if (planned === "unreachable") this.fail(sessionId, "target_moved");
   }
 
-  private beginGreeting(sessionId: string, pending: PendingAction, targetPlayer: PlayerState): void {
+  /**
+   * In range of the other player: a greeting (instant effects) or a chat (a
+   * timed effect, completed later). Either way the other player is told.
+   */
+  private beginWithPlayer(sessionId: string, pending: PendingAction, targetPlayer: PlayerState): void {
     const context = this.context(sessionId);
     if (!context) return;
     const { player, runtime } = context;
     const now = this.deps.now();
     const facing = facingTowards(runtime.character, targetPlayer);
-    const durationMs = this.deps.tuning.actionDurationsMs.greet;
+    const chat = pending.action === "chat";
+    const effect = chat ? this.hooks.effectFor("chat") : null;
+    const durationMs = chat ? this.deps.tuning.actionDurationsMs.chat : this.deps.tuning.actionDurationsMs.greet;
     runtime.character.intent = { kind: "idle" };
     runtime.character.rotation = facing;
-    runtime.lastGreetAt.set(pending.targetId, now);
+    runtime.lastSocialAt.set(`${pending.action}:${pending.targetId}`, now);
     player.rotation = facing;
-    player.activity = "greeting";
+    player.activity = chat ? (effect?.activity ?? "chatting") : "greeting";
     player.targetId = pending.targetId;
     pending.phase = "active";
+    pending.effect = effect;
+    pending.appliedFraction = 0;
     pending.startedAt = now;
     pending.endsAt = now + durationMs;
     this.update(sessionId, { actionId: pending.id, status: "started", durationMs, ...target(pending) });
-    const greeted: GreetedPayload = { fromId: sessionId, fromName: player.name };
+    const greeted: GreetedPayload = { fromId: sessionId, fromName: player.name, action: chat ? "chat" : "greet" };
     this.deps.send(pending.targetId, ServerMessage.Greeted, greeted);
-    this.hooks.onGreeting(sessionId, pending.targetId);
+    if (!chat) {
+      this.hooks.onGreeting(sessionId, pending.targetId);
+      this.deps.social?.shared(sessionId, pending.targetId, "greet");
+    }
   }
 
   private complete(sessionId: string, pending: PendingAction): void {
@@ -531,8 +572,13 @@ export class InteractionSystem {
     if (!context) return;
     const { player, runtime } = context;
     this.hooks.onCompleted(sessionId, pending);
+    if (pending.action === "chat") {
+      this.hooks.onChatted(sessionId, pending.targetId);
+      this.deps.social?.shared(sessionId, pending.targetId, "chat");
+    }
+    if (pending.action === "study" || pending.action === "attend") this.sharedWithCompanions(sessionId, pending);
     if (SEATED_TIMED.includes(pending.action)) player.activity = "sitting"; // stays seated
-    if (pending.action === "greet") {
+    if (pending.action === "greet" || pending.action === "chat") {
       player.activity = "idle";
       player.targetId = "";
     }
@@ -542,6 +588,22 @@ export class InteractionSystem {
     }
     runtime.pending = null;
     this.update(sessionId, { actionId: pending.id, status: "completed", ...target(pending) });
+  }
+
+  /**
+   * Studying at the same table, or attending the same lecture, as someone
+   * still doing it when this one finishes is a shared moment (M9). Counted
+   * once, by whoever finishes first.
+   */
+  private sharedWithCompanions(sessionId: string, pending: PendingAction): void {
+    if (!this.deps.social) return;
+    const kind = pending.action === "study" ? "study_together" : "lecture_together";
+    for (const [otherId, other] of this.deps.runtimes) {
+      const theirs = other.pending;
+      if (otherId === sessionId || !theirs || theirs.action !== pending.action || (theirs.phase !== "active" && theirs.phase !== "paying")) continue;
+      const together = pending.action === "study" ? theirs.targetId === pending.targetId : theirs.course !== undefined && theirs.course.key === pending.course?.key;
+      if (together && other.area === this.deps.runtimes.get(sessionId)?.area) this.deps.social.shared(sessionId, otherId, kind);
+    }
   }
 
   private cancel(sessionId: string, reason: CancelReason): void {
@@ -570,7 +632,7 @@ export class InteractionSystem {
       }
     } else if (SEATED_TIMED.includes(pending.action)) {
       player.activity = "sitting";
-    } else if (pending.action === "greet") {
+    } else if (pending.action === "greet" || pending.action === "chat") {
       player.activity = "idle";
       player.targetId = "";
     } else if (STANDING.includes(pending.action)) {
@@ -675,6 +737,7 @@ const FALLBACK_ACTIVITY: Partial<Record<ActionId, string>> = {
   work: "working",
   attend: "attending",
   exam: "exam",
+  chat: "chatting",
 };
 const activityFallback = (action: ActionId): string => FALLBACK_ACTIVITY[action] ?? "idle";
 

@@ -297,6 +297,56 @@ everything. Traits (up to two, optional) are picked on the name and
 personality step (`ui/screens/setupScreen.ts`; the M4–M6 `ui/profilePanel.ts`
 was replaced by the title screen flow in M6b).
 
+## Relationships, safety and the story log (M9)
+
+Rules and numbers: `GAME_DESIGN.md` "Relationships (M9)", "Safety (M9)" and
+"Story log (M9)"; choices in D-042 and D-043.
+
+**Rules (`shared/`).** `life/relationships.ts`: the level of a score, a
+moment's effect under the daily cap, the fixed order of a pair, the story
+and relationship view types. `interactions.ts`: *Chat* is a player action
+like *Greet*, with its own cooldown (`validatePlayerAction` looks the
+cooldown up per action). `protocol.ts`: `parseTarget`, `parseUnblock`,
+`parseReport`. Tuning: `RELATIONSHIP_CONFIG`, `ACTION_EFFECTS.chat`,
+`CHAT_EFFECTS` (`life/config.ts`), `SAFETY_CONFIG` (`config.ts`).
+
+**Server (`server/src/social`).**
+- `socialRepository.ts`: all SQL for relationships and their moments,
+  blocks, reports (with their limits and the 90-day deletion) and story
+  events; every call checks each owner's (character, account) pair.
+- `SocialSystem.ts`: keeps the blocks of the accounts in the world in
+  memory, so the interaction system can ask synchronously whether one
+  player may target another (`refusal`, a block either way → the neutral
+  `not_reachable`). It records shared moments (`shared`), tells both
+  players, and on reaching Friend writes both stories and gives both a mood
+  event; it answers player cards, blocks, unblocks and reports, sends each
+  owner their `safety` and `story`, and deletes old reports (on start and
+  hourly, set up by the room).
+- `InteractionSystem` calls the social hooks: the block check comes first
+  for any player action (before cooldowns, so a blocked player always gets
+  the same answer); a greeting counts when it starts; a chat is a timed
+  effect for the starter (the life system applies it like studying),
+  completed only if the two stay within 4 m, then `onChatted` gives the
+  other player their share and the moment counts; when a study session or
+  a lecture completes, anyone still studying at the same table or attending
+  the same lecture shares the moment (counted once, by whoever finishes
+  first). `cancelBetween` stops a greeting or chat when a block lands.
+- `LifeSystem` writes story events through a `story` callback after the
+  database confirms: hired, first shift (one key for every shift, so it is
+  written once), enrolled, exam result.
+- `reportsCli.ts` (`npm run reports`): deletes expired reports, then lists
+  the newest for the product owner.
+
+**Client.** `ui/socialController.ts` owns the player card
+(`ui/playerCard.ts`: portrait from `ui/screens/portraits.ts`, relationship,
+Block or Unblock, Report), the block and report dialogs
+(`ui/screens/dialog.ts`, which gained a list of choices), the notes for
+level-ups and safety results, and the private lists (blocked players with
+their block ids, the story) that the player menu and the character panel
+show (`ui/story.ts` words the story and the moments). The player menu
+offers *Greet*, *Chat*, *Profile*, *Block…*, *Report…*, or for someone you
+blocked *Profile* and *Unblock*.
+
 ## From a player action to saved state (implemented)
 
 The same path for every action, shown with buying a panino. Which values
@@ -480,6 +530,7 @@ inside the 4.5–6 m deep shells, or one Colyseus room per interior).
 - UI framework for larger panels (inventory, build mode). Plain DOM was
   enough for M3 menus and the M5 character panel; see D-007.
 - Real sign-in: decided (sign in with Google and with email and password; guests can upgrade without losing characters, D-042), to be built in M12.
+- Moderation decisions (warnings, mutes, bans) and the owner's admin page for reports (M12, D-042); text chat.
 - Hosting, managed PostgreSQL and backups.
 - Authored character models (rigged glTF/VRM) to replace the procedural
   Stage-1 characters — requirements in `ASSET_PIPELINE.md`.
