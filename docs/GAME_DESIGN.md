@@ -373,8 +373,8 @@ injures a character, there is no game over, absence never creates a crisis
 | System | Today (implemented) | Proposed next | Milestone (proposed) |
 | --- | --- | --- | --- |
 | Needs | Hunger, energy, hygiene, social, fun | **Comfort**, which the owner's brief lists (*approved*: added in M10 with furniture of different comfort, not now while every seat is a bench or chair); **sleep** in a bed as the main energy source; showers at home for hygiene (the fountain stays a quick wash) | M10 |
-| Mood | Score from needs plus recent events, with reasons; *Good day's work* after a shift (M7) | New events from new systems (exam passed or failed, new friend, rent paid); mood visible on the character (poses first; faces need expressions the procedural model lacks) | M8–M10 |
-| Skills | Five skills, levels 0–10; communication level 2 unlocks the barista wage (M7) | Academic level improves exam results (M8); cooking unlocks home recipes (M10); fitness unlocks running (needs a movement design: speed, energy cost, server limits) | M8, M10 |
+| Mood | Score from needs plus recent events, with reasons; *Good day's work* after a shift (M7); *Interesting lecture*, *Passed an exam*, *Failed an exam* (M8) | New events from new systems (new friend, rent paid); mood visible on the character (poses first; faces need expressions the procedural model lacks) | M9–M10 |
+| Skills | Five skills, levels 0–10; communication level 2 unlocks the barista wage (M7); academic level counts in the exam grade (M8) | Cooking unlocks home recipes (M10); fitness unlocks running (needs a movement design: speed, energy cost, server limits) | M10 |
 | Personality | Four traits, chosen at creation, fixed | Keep four until a new trait has a distinct, testable effect; traits stay fixed after creation | — |
 | Money in | €100 start, €7.50 per game day played, wages per completed café shift (M7) | More jobs or grades as new places open (e.g. the university in M8) | Later |
 | Money out | Café food and drinks | Rent and bills with housing, charged on a game-week schedule from the ledger; furniture and groceries into an inventory. With no debt (D-023), rent that can't be paid gives a notice and a mood event, then a move to a cheaper room (*approved*) | M10 |
@@ -455,6 +455,102 @@ the daily limit are tuning values; unpaid partial shifts are a design choice
 the product owner can reverse (proportional pay instead); showing
 unavailable shifts greyed out with a reason is recorded in D-036.
 
+## University (M8)
+
+**Implemented in M8** (multiplayer functional and persistence verified in
+automated tests; see TESTING.md for results). Numbers are tuning values in
+`shared/src/life/config.ts` (`COURSES`, `ACTION_EFFECTS.attend` and
+`.exam`, `MOOD_EVENTS`) and still need play-testing by the product owner.
+The rules are pure functions in `shared/src/life/university.ts`.
+
+**One fictional course.** *Introduction to City Studies*: "a fictional
+first-year course on how cities live and work". No real course names, and
+nothing suggests a link with any real university. More courses, years and
+graduation come later.
+
+**The week.** Day 1 of the game clock is a Monday, so every game day has a
+weekday (shown in the clock chip, "Wed 10:24 · €105.50", and in the panel).
+A game day lasts 2.4 real hours at the kept clock (D-038), so a game week
+lasts 16.8 real hours; the timetable is built for that:
+
+| What | When (game time) | Where |
+| --- | --- | --- |
+| Lectures | Monday to Friday, on the hour 09:00–12:00 and 14:00–17:00 (eight a day, 50 minutes each, lunch at 13:00) | The university hall's lecture room, at a lecture desk |
+| Joining a lecture | From its start until 20 minutes after (late entry); one attendance per lecture | Same |
+| Exam sittings | Wednesday and Saturday, 09:00–19:00; one attempt per sitting | Same |
+
+On a weekday between 09:00 and 17:00 game time the next lecture is at most
+six real minutes away (except over lunch); there are none at night or at
+weekends. Exam sittings come round 7.2 or 9.6 real hours apart and stay
+open for one real hour.
+
+**Enrolling.** The **University notice board** beside the university hall's
+door (north-west corner of the square) offers *Enrol: Introduction to City
+Studies* ("Free · lectures Mon–Fri, on the hour 09:00–12:00 and
+14:00–17:00"). The character walks to it and is enrolled as soon as the
+database records it. Enrolling is free and works at any hour. Once enrolled
+(or passed), the option stays in the menu greyed out with the status.
+
+**Attending a lecture.** Lecture desks offer enrolled students *Attend the
+lecture* with the lecture's time ("09:00 lecture · join until 09:20"), or
+greyed out with the reason ("Next lecture 14:00 · in about 8 min",
+"Attended · next 10:00 …", "Too tired"). Attending is a seated, server-timed
+action: **2 real minutes** (20 game minutes), activity `attending` (others
+see "· in a lecture"), energy −6 and fun −3 and +10 academic XP gradually,
+then +20 academic XP and the mood event *Interesting lecture* (+6 for 2
+game hours) on completion. The timetable is checked when the student asks
+and again when they reach the desk; the lecture counts only when completed
+and recorded (`recordLecture`, one row per lecture key such as `d12-0900`).
+A lecture left early never counts and can still be attended while late
+entry is open.
+
+**Studying counts.** While enrolled, every completed study session at any
+desk or table (the square, the lecture room, the reading room, the café)
+also counts for the course.
+
+**The exam.** During a sitting, lecture desks offer *Sit the exam* with the
+grade it would give now ("Expected 24/30 · 3 min · open until 19:00").
+Sitting it is a seated, server-timed action of **3 real minutes** (30 game
+minutes), activity `exam` (others see "· in an exam"), energy −10 and fun
+−6, +20 academic XP on completion. When it ends the server grades it from
+the stored attendance and study count and the character's academic level
+(`examGrade`), in one transaction with its record:
+
+- attendance counts in full at **8 lectures**, study at **6 sessions**,
+  academic level at **level 4**; weights 45 %, 35 % and 20 %;
+- grade = 12 + 19 × score, rounded: from 12 (no preparation) to 31, shown
+  as **30 cum laude**; **18 passes** (the Italian 18–30 scale);
+- for example: 4 lectures alone give 16 (not passed); 4 lectures and 2
+  study sessions give 18; 8 lectures and 6 sessions give 27; everything at
+  academic level 4 gives 30 cum laude.
+
+The grade is deterministic, so the panel can say what sitting now would
+give. **Passed:** the course is complete ("Exam passed: 27/30! You
+completed Introduction to City Studies"), the mood event *Passed an exam*
+(+15 for 6 game hours). **Not passed:** a gentle consequence: the grade
+is recorded, the mood event *Failed an exam* (−8 for 4 game hours), the
+course stays open with everything done so far, and the exam can be retaken
+at the next sitting ("Not passed this time: 13/30. Attend lectures and
+study, then try again. Retake it at the next sitting (Sat 09:00)"). An
+exam left early is not graded and can be started again in the same
+sitting.
+
+**What the player sees.** The character panel has a **University** section
+between Work and Money: the course, the lecture timetable and room, the
+next lecture ("Next lecture 14:00 · in about 8 min" or "09:00 lecture ·
+join until 09:20"), bars for lectures attended ("3 of 8") and study
+sessions ("2 of 6"), the exam sittings and the next one, the grade sitting
+now would give, and the last result if it was not a pass. After passing it
+shows "Introduction to City Studies · Passed 27/30". Without an enrolment it
+says where the notice board is. Attendance, study and results are private:
+only the owner receives them (`life` message), and they are saved.
+
+**Defaults chosen, open to change:** the timetable (hourly lectures, two
+sittings a week) is built for the real-time clock and can be changed in
+data; the grade formula and its targets are tuning values; a failed exam has
+no cost beyond the mood event and waiting for the next sitting (no fees, no
+limit on retakes). Recorded in D-040.
+
 ## Indoor rooms (M7c)
 
 Every building gets a room for each of its uses, when that use arrives
@@ -469,7 +565,7 @@ so you always see the room.
 
 | Building | Room | Use | Status |
 | --- | --- | --- | --- |
-| University hall | Lecture room | Rows of desks facing a blackboard and lectern: study and sit now; lectures and the exam with M8 | **Built (M7c)** |
+| University hall | Lecture room | Rows of desks facing a blackboard and lectern: study and sit; the course's lectures and exam (M8) | **Built (M7c, lectures M8)** |
 | Library | Reading room | Shelves and two long reading tables: study and sit | **Built (M7c)** |
 | Shops | A shop interior | A second workplace | Proposed (later milestone) |
 | Residences and bookshop | Bookshop; flats | Books (later); homes (M10) | Proposed |

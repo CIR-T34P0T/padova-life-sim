@@ -8,7 +8,10 @@ import * as THREE from "three";
 import {
   ACTION_LABELS,
   CAFE_MENU,
+  COURSES,
+  COURSE_IDS,
   JOBS,
+  formatGrade,
   findInteractable,
   findMenuItem,
   findSeat,
@@ -21,6 +24,7 @@ import {
   playerActions,
   shiftRefusal,
   timedEffectFor,
+  nextExamSitting,
   type ActionId,
   type WorldLayout,
   type ActionUpdatePayload,
@@ -37,6 +41,7 @@ import type { ActionMenu, MenuChoice, MenuOption, MenuSpec } from "../ui/actionM
 import type { ActionProgress } from "../ui/actionProgress.ts";
 import type { Hud } from "../ui/hud.ts";
 import { reasonText } from "../ui/reasons.ts";
+import { examLine, lectureLine, lectureTimetable, whenLabel } from "../ui/university.ts";
 
 export interface EntityAccess {
   selfId(): string | null;
@@ -77,6 +82,8 @@ const ACTIVITY_SUBTITLE: Record<string, string> = {
   drinking: "Having a coffee",
   washing: "Washing up",
   working: "Working at the café",
+  attending: "In a lecture",
+  exam: "Sitting an exam",
 };
 
 /** Idempotency id for purchases. Uses getRandomValues, which works on plain-http LAN pages too. */
@@ -204,6 +211,9 @@ export class InteractionController {
         // Longer than other toasts: these carry the news of a job or a wage.
         if (update.action === "ask_work") hud.toast(this.hiredText(), 4500);
         if (update.action === "work") hud.toast(this.shiftDoneText(), 4500);
+        if (update.action === "enrol") hud.toast(this.enrolledText(), 6000);
+        if (update.action === "attend") hud.toast(this.lectureDoneText(), 4500);
+        if (update.action === "exam") hud.toast(this.examDoneText(), 7000);
         return;
       case "failed":
         this.currentAction = null;
@@ -313,7 +323,7 @@ export class InteractionController {
       if (!item) return null;
       const options = objectActions(item, actor, this.deps.connection.seats).flatMap((id) =>
         // Doors say where they lead ("Go in", "Go out to the square"), M7c.
-        id === "enter" && item.door ? [{ id, label: item.door.actionLabel }] : this.optionsFor(id),
+        id === "enter" && item.door ? [{ id, label: item.door.actionLabel }] : this.optionsFor(id, item),
       );
       // Seated here: clicking yourself lands on this menu, so it also offers your character panel.
       if (item.seats.some((seat) => seat.id === actor.seatId)) options.push({ id: "character", label: "Character" });
@@ -330,13 +340,18 @@ export class InteractionController {
   }
 
   /** Menu entries for one action. The café expands into its menu, with prices; the server re-checks everything. */
-  private optionsFor(action: ActionId): MenuOption[] {
+  private optionsFor(action: ActionId, item?: Interactable): MenuOption[] {
     const life = this.deps.life();
     if (action === "ask_work") {
       const wage = life ? gradeFor(JOBS.cafe, skillLevels(life)).wageCents : JOBS.cafe.grades[0]!.wageCents;
       return [{ id: action, label: ACTION_LABELS[action], detail: `${formatEuros(wage)} a shift` }];
     }
     if (action === "work") return [this.workOption(life)];
+    if (action === "enrol") return [this.enrolOption(life, item)];
+    if (action === "attend" || action === "exam") {
+      const line = life ? (action === "attend" ? lectureLine(life) : examLine(life)) : null;
+      return [{ id: action, label: ACTION_LABELS[action], ...(line ? { detail: line.text, disabled: line.disabled } : {}) }];
+    }
     if (action === "buy") {
       return CAFE_MENU.map((item) => {
         const short = life !== null && life.money.balanceCents < item.priceCents;
@@ -374,6 +389,41 @@ export class InteractionController {
     return { id: "work", label, detail: `${formatEuros(wage)} · ${Math.round(timedEffectFor("work")!.durationMs / 1000)} s` };
   }
 
+  /** "Enrol" at the notice board: the course and its lectures, or greyed out with the course's status. */
+  private enrolOption(life: LifePayload | null, item?: Interactable): MenuOption {
+    const course = life?.course;
+    if (course?.status === "passed") return { id: "enrol", label: ACTION_LABELS.enrol, detail: `Passed · ${formatGrade(course.finalGrade ?? 0)}`, disabled: true };
+    if (course) return { id: "enrol", label: ACTION_LABELS.enrol, detail: "You're enrolled · see your panel", disabled: true };
+    const courseId = COURSE_IDS.find((id) => COURSES[id].enrolAt === item?.id);
+    if (!courseId) return { id: "enrol", label: ACTION_LABELS.enrol };
+    return { id: "enrol", label: `${ACTION_LABELS.enrol}: ${COURSES[courseId].label}`, detail: `Free · lectures ${lectureTimetable(courseId)}` };
+  }
+
+  private enrolledText(): string {
+    const course = this.deps.life()?.course;
+    if (!course) return "You enrolled.";
+    const def = COURSES[course.courseId];
+    return `You enrolled in ${def.label}. Lectures: ${lectureTimetable(course.courseId)}, in ${def.roomLabel}. Your character panel has the timetable.`;
+  }
+
+  private lectureDoneText(): string {
+    const course = this.deps.life()?.course;
+    if (!course) return "Lecture attended.";
+    const full = COURSES[course.courseId].grading.lecturesForFull;
+    return `Lecture attended: ${course.lecturesAttended} so far (${full} count in full for the exam).`;
+  }
+
+  private examDoneText(): string {
+    const life = this.deps.life();
+    const result = life?.course?.lastResult;
+    if (!life?.course || !result) return "Exam finished.";
+    const label = COURSES[life.course.courseId].label;
+    if (result.passed) return `Exam passed: ${formatGrade(result.grade)}! You completed ${label}.`;
+    const next = nextExamSitting(life.course.courseId, life.gameMinute);
+    const retake = next ? ` Retake it at the next sitting (${whenLabel(life.gameMinute, next.opensAt)}).` : "";
+    return `Not passed this time: ${formatGrade(result.grade)}. Attend lectures and study, then try again.${retake}`;
+  }
+
   private hiredText(): string {
     const life = this.deps.life();
     const grade = gradeFor(JOBS.cafe, life ? skillLevels(life) : {});
@@ -393,6 +443,11 @@ export class InteractionController {
     }
     if (item.kind === "fountain") return "Freshen up";
     if (item.kind === "door") return item.door?.to === "plaza" ? "To the square" : "Door";
+    if (item.kind === "noticeboard") {
+      const course = this.deps.life()?.course;
+      if (!course) return "Courses: enrol here";
+      return course.status === "passed" ? `${COURSES[course.courseId].label}: passed` : `You're enrolled in ${COURSES[course.courseId].label}`;
+    }
     if (item.seats.some((seat) => seat.id === actor.seatId)) return "You're sitting here";
     const free = item.seats.filter((seat) => !this.deps.connection.seats.has(seat.id)).length;
     if (item.seats.length === 1) return free ? "Free" : "Taken";
@@ -481,7 +536,16 @@ export class InteractionController {
     const id = this.deps.entities.selfId();
     const self = id ? this.deps.entities.get(id)?.latest : undefined;
     if (!id || !self) return null;
-    return { id, x: self.x, z: self.z, seatId: self.seatId, activity: self.activity, job: this.deps.life()?.job?.jobId ?? null };
+    const life = this.deps.life();
+    return {
+      id,
+      x: self.x,
+      z: self.z,
+      seatId: self.seatId,
+      activity: self.activity,
+      job: life?.job?.jobId ?? null,
+      course: life?.course ? { courseId: life.course.courseId, status: life.course.status } : null,
+    };
   }
 
   private selfSeat(): Interactable | null {
@@ -541,6 +605,12 @@ function queuedText(update: ActionUpdatePayload, targetName: string): string {
       return "Going to ask about work…";
     case "work":
       return "Going to start a shift…";
+    case "enrol":
+      return "Going to the notice board…";
+    case "attend":
+      return "Going to the lecture…";
+    case "exam":
+      return "Going to sit the exam…";
     default:
       return `Going to ${ACTION_LABELS[update.action].toLowerCase()}…`;
   }
@@ -561,6 +631,12 @@ function activeText(update: ActionUpdatePayload, targetName: string): string {
       return "Working a shift";
     case "ask_work":
       return "Asking about work";
+    case "enrol":
+      return "Enrolling";
+    case "attend":
+      return "In the lecture";
+    case "exam":
+      return "Sitting the exam";
     case "buy": {
       const item = update.itemId ? findMenuItem(update.itemId) : null;
       return item?.activity === "drinking" ? `Drinking ${itemName(update)}` : `Eating ${itemName(update)}`;

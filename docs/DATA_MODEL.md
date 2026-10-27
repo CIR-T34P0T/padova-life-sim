@@ -148,6 +148,34 @@ work_shifts             completed, paid shifts only (M7); never updated
   transaction_id       uuid UNIQUE → wallet_transactions (the wage's ledger row)
   created_at
   index (character_id, game_day) for "shifts today"
+
+enrolments              a character's course (M8); one row per character and course
+  character_id          uuid → characters (cascade delete)  ┐ PK
+  course                text  id from COURSE_IDS             ┘ (validated in code; unknown ids are ignored on load)
+  status                'enrolled' | 'passed'
+  study_sessions        integer ≥ 0   completed study sessions while enrolled
+  enrolled_game_minute  when they enrolled, in game time
+  final_grade           18–31 when passed, else null (31 = 30 cum laude)
+  passed_game_minute    when passed, else null
+  enrolled_at
+  CHECK: status 'passed' exactly when final_grade and passed_game_minute are set
+
+lecture_attendance      completed lectures only (M8); never updated
+  character_id, course  → enrolments (cascade delete)
+  lecture_key           text, e.g. 'd12-0900' (game day and start time)   PK with the two above
+  game_day              integer ≥ 1
+  attended_game_minute  when the lecture was completed, in game time
+  created_at
+
+assessments             completed exams only (M8), one per sitting; never updated
+  character_id, course  → enrolments (cascade delete)
+  sitting_key           text, e.g. 'd13' (the sitting's game day)          PK with the two above
+  kind                  'exam'
+  grade                 integer 0–31
+  passed                boolean
+  lectures_attended, study_sessions, academic_level   the inputs the grade was computed from
+  game_day, sat_game_minute
+  created_at
 ```
 
 **Money changes** (`applyMoneyChange`): one database transaction that locks
@@ -171,6 +199,20 @@ Wages come from the server's job catalogue (`JOBS`), never from a client.
 Hiring (`hireCharacter`) and quitting (`quitJob`) are single owner-scoped
 statements; quitting deletes the job row and keeps the shift history and
 wages.
+
+**University** (M8): enrolling (`enrolCharacter`) and counting a study
+session (`recordStudySession`, only while enrolled) are single owner-scoped
+statements. A completed lecture (`recordLecture`) and a completed exam
+(`recordExam`) each run in one transaction that locks the character's
+enrolment row (scoped to the owning account), so one character's records
+never race. `recordLecture` returns `duplicate` for a lecture key already
+recorded, refuses unless enrolled (not yet passed), then writes the row.
+`recordExam` returns the original result for a sitting already graded,
+refuses unless enrolled, counts the stored lectures, computes the grade with
+`examGrade` from those counts and the academic level the server passes in,
+writes the assessment and, with a passing grade, marks the course passed —
+all or nothing. A lecture or exam that ends early is never written. Grades
+are never sent by a client.
 
 **Migration 0002 for existing characters:** M4-era characters get starting
 needs (80/80/80/70/70), a €100 wallet with a "Starting allowance" ledger row,
@@ -338,16 +380,19 @@ money changes or refusals. Other players see only the public activity
   garden, bike-rack, noticeboard), a label (shown when tapped), its box and
   height, and optionally `facing` (rendering) and `partOf` (a chair belongs
   to its table). Each interactable has a stable id equal to its obstacle's,
-  a kind that decides its actions (bench, desk, cafe, fountain), a menu
-  label and its interaction points. The café counter's two spots behind it
-  are tagged `use: "staff"` (M7): only for working a shift. Doors (M7c) are
-  interactables of kind `door` with a link to the matching door in another
-  area.
+  a kind that decides its actions (bench, desk, cafe, fountain, door,
+  noticeboard), a menu label and its interaction points. The café counter's
+  two spots behind it are tagged `use: "staff"` (M7): only for working a
+  shift. Doors (M7c) are interactables of kind `door` with a link to the
+  matching door in another area. The University notice board (M8) is an
+  interactable of kind `noticeboard` (enrolment); desks tagged
+  `lecture: true` (the lecture room's) also offer lectures and the exam.
 - `areas.ts` and `interiors.ts` (M7c): the list of areas (the square and the
   indoor rooms) and the rooms' layouts (walls, furniture, the door out);
-  object and seat ids are unique across all areas. Twelve interactables since the world
-  art pass: benches 1–5, study desks 1–2, café tables 1–3 (desk rules),
-  the café counter and the fountain (D-034).
+  object and seat ids are unique across all areas. On the square:
+  benches 1–5, study desks 1–2, café tables 1–3 (desk rules), the café
+  counter and the fountain (D-034), the hall's and library's doors (M7c)
+  and the University notice board (M8).
 - `appearance/`: the appearance catalogue (option ids, labels, colours, hair
   textures), the config schema with validation, look strings and look codes,
   skin-tone colour maths (OKLab), presets, the seeded randomiser and the
@@ -362,6 +407,12 @@ money changes or refusals. Other players see only the public activity
   wages; M7).
 - `life/work.ts`: the work rules (grade from skill levels, opening hours,
   shifts today, why a shift can't start).
+- `life/config.ts` also holds the course catalogue (`COURSES`, M8: the
+  fictional course, where to enrol, its room, lecture days and times, late
+  entry, exam sittings and grading); `life/university.ts` holds the
+  university rules (the timetable in absolute game minutes, why a lecture
+  or the exam can't start, the exam grade); `life/clock.ts` gives each game
+  day a weekday (Day 1 is a Monday).
 
 ## Rules to keep
 
@@ -384,13 +435,12 @@ money changes or refusals. Other players see only the public activity
 **Proposed, not implemented.** Sketches that show how the next systems
 would fit the rules above, so their milestones can be estimated; each is
 designed properly, and may change, when its milestone is planned (ROADMAP.md
-"Planned milestones"). None of these tables exists. (M7's job tables were
-built as described above; M7c needed none: `character_state.area` stores the
-room.)
+"Planned milestones"). None of these tables exists. (M7's job tables and
+M8's university tables were built as described above; M7c needed none:
+`character_state.area` stores the room.)
 
 | Milestone (proposed) | Data | Notes |
 | --- | --- | --- |
-| M8 university basics | Fictional course and timetable catalogue in `shared/`; `enrolments` (character, course, status); `lecture_attendance` (character, lecture slot, game day); `assessments` (character, course, kind, grade, game day) | Grades and attendance are decided by the server from game time and recorded actions, never sent by a client |
 | M9 relationships and safety | `relationships` (an ordered pair of characters, score, kind, last interaction); `blocks` (blocking account → blocked account); `reports` (reporter, reported character, reason, short context, status) | Relationship data is private to the two players unless they choose to show it. Reports keep only what moderation needs; retention to be decided |
 | M9 story log | `story_events` (character, kind, game minute, small validated details, visibility) | Written by the server when a meaningful event happens (first shift, exam result, new friend); never edited by clients |
 | M10 home, sleep and comfort | `residences` (character, home); `inventory_items` (character, item, quantity); `placed_objects` (home, object, position, rotation) | Purchases of furniture and groceries use the ledger; placement validated against the home's layout like the square's collision boxes |

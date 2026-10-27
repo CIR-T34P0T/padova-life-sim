@@ -5,7 +5,7 @@
 // The phone is Chromium mobile emulation (Pixel 7), not a physical device.
 
 import { devices, expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
-import { afterFrames, continueFromTitle, createCharacter } from "./helpers.ts";
+import { continueFromTitle, createCharacter, me, objectPoint, players, selfId, useObject, walkTo } from "./helpers.ts";
 
 const ROOM = "hall/lecture-room";
 const openContexts: BrowserContext[] = [];
@@ -26,82 +26,6 @@ async function newPlayer(browser: Browser, name: string, contextOptions = {}): P
 const worldStats = (page: Page) => page.evaluate(() => (window as any).__padova.worldStats() as { indoor: boolean });
 const interaction = (page: Page) => page.evaluate(() => (window as any).__padova.interaction());
 const area = (page: Page) => page.evaluate(() => (window as any).__padova.area as string);
-const players = (page: Page) => page.evaluate(() => (window as any).__padova.players() as { id: string; x: number; z: number; moving: boolean; activity: string; area: string }[]);
-const selfId = (page: Page) => page.evaluate(() => (window as any).__padova.selfId as string);
-const me = async (page: Page) => {
-  const id = await selfId(page);
-  return (await players(page)).find((p) => p.id === id)!;
-};
-const reachesGameView = (page: Page, x: number, y: number) => page.evaluate(([sx, sy]) => document.elementFromPoint(sx, sy)?.tagName === "CANVAS", [x, y] as const);
-
-/**
- * Clicks (or taps) open ground near (x, z) and waits until the character stands
- * there. Tries a few nearby spots, because trees, lamps and desks can cover a
- * point from the camera's angle.
- */
-async function walkTo(page: Page, x: number, z: number, touch = false) {
-  const offsets = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1.5, 1.5], [-1.5, 1.5], [1.5, -1.5], [-1.5, -1.5]] as const;
-  // Aim only once the camera has stopped following the character (see afterFrames).
-  const screenOf = () => page.evaluate(([px, pz]) => (window as any).__padova.worldToScreen(px, pz) as { x: number; y: number }, [x, z] as const);
-  await expect(async () => {
-    const first = await screenOf();
-    await afterFrames(page);
-    const next = await screenOf();
-    expect(Math.hypot(next.x - first.x, next.y - first.y), "camera still moving").toBeLessThan(1);
-  }).toPass({ timeout: 15_000 });
-  for (const [dx, dz] of offsets) {
-    const target = { x: x + dx, z: z + dz };
-    const point = await page.evaluate(([px, pz]) => (window as any).__padova.worldToScreen(px, pz), [target.x, target.z] as const);
-    const pick = await page.evaluate(([sx, sy]) => (window as any).__padova.pickAt(sx, sy), [point.x, point.y] as const);
-    if (pick?.kind !== "ground" || !(await reachesGameView(page, point.x, point.y))) continue;
-    if (touch) await page.touchscreen.tap(point.x, point.y);
-    else await page.mouse.click(point.x, point.y);
-    await expect(async () => {
-      const self = await me(page);
-      const where = `walking to (${pick.point.x.toFixed(2)}, ${pick.point.z.toFixed(2)}), at (${self.x.toFixed(2)}, ${self.z.toFixed(2)})`;
-      expect(Math.hypot(self.x - pick.point.x, self.z - pick.point.z), where).toBeLessThan(0.6);
-      expect(self.moving, where).toBe(false);
-    }).toPass({ timeout: 20_000 });
-    return;
-  }
-  throw new Error(`no open ground to click near (${x}, ${z})`);
-}
-
-/**
- * Screen point of an object once the camera has stopped gliding, checked to be
- * on screen and to pick that object (retried: under software rendering the
- * camera can still be settling after a walk or a door).
- */
-async function objectPoint(page: Page, id: string) {
-  const read = () => page.evaluate((target) => (window as any).__padova.targetScreenPoint("object", target), id);
-  let aim = { x: 0, y: 0 };
-  await expect(async () => {
-    const first = await read();
-    await afterFrames(page);
-    const point = await read();
-    expect(Math.hypot(point.x - first.x, point.y - first.y), `${id} still moving on screen`).toBeLessThan(1);
-    expect(point.visible, `${id} should be on screen`).toBe(true);
-    aim = { x: point.x, y: point.y + 4 };
-    expect(await page.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [aim.x, aim.y] as const)).toMatchObject({ kind: "object", id });
-    expect(await reachesGameView(page, aim.x, aim.y)).toBe(true);
-  }).toPass({ timeout: 15_000 });
-  return aim;
-}
-
-/** Clicks (or taps) an object until its menu opens, then chooses an option. */
-async function useObject(page: Page, id: string, action: string, touch = false) {
-  const menu = touch ? page.locator("#action-sheet") : page.locator("#action-menu");
-  await expect(async () => {
-    const aim = await objectPoint(page, id);
-    if (touch) await page.touchscreen.tap(aim.x, aim.y);
-    else await page.mouse.click(aim.x, aim.y);
-    await expect(menu).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 20_000 });
-  const option = menu.locator(`[data-action="${action}"]`);
-  if (touch) await option.tap();
-  else await option.click();
-}
-
 test("desktop: into the lecture room and out again; only players in the same room see each other; a reload comes back inside", async ({ browser }) => {
   test.setTimeout(300_000);
   const ada = await newPlayer(browser, "Ada");

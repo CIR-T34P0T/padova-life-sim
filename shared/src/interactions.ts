@@ -5,11 +5,12 @@
 
 import { isPositionWalkable, type Vec2 } from "./collision.ts";
 import { GAME_CONFIG, INTERACTION_CONFIG } from "./config.ts";
-import { JOBS, type JobId } from "./life/config.ts";
+import { JOBS, type CourseId, type JobId } from "./life/config.ts";
+import type { CourseStatus } from "./life/university.ts";
 import { findMenuItem } from "./life/economy.ts";
 import type { Interactable, Seat, WorldLayout } from "./world.ts";
 
-export const ACTION_IDS = ["sit", "stand", "study", "greet", "sketch", "buy", "wash", "ask_work", "work", "enter"] as const;
+export const ACTION_IDS = ["sit", "stand", "study", "greet", "sketch", "buy", "wash", "ask_work", "work", "enter", "enrol", "attend", "exam"] as const;
 export type ActionId = (typeof ACTION_IDS)[number];
 
 export type TargetKind = "object" | "player";
@@ -25,7 +26,9 @@ export type Activity =
   | "eating"
   | "drinking"
   | "washing"
-  | "working";
+  | "working"
+  | "attending"
+  | "exam";
 
 export const ACTION_LABELS: Record<ActionId, string> = {
   sit: "Sit",
@@ -39,6 +42,10 @@ export const ACTION_LABELS: Record<ActionId, string> = {
   work: "Work a shift",
   /** Doors (M7c); menus show the door's own wording ("Go in", "Go out to the square"). */
   enter: "Go through",
+  // University (M8)
+  enrol: "Enrol",
+  attend: "Attend the lecture",
+  exam: "Sit the exam",
 };
 
 /** Reasons an interaction can be refused or fail. Shown to players as friendly text. */
@@ -68,7 +75,17 @@ export type InteractionFailure =
   | "closed"
   | "shift_limit"
   | "hire_failed"
-  | "wage_failed";
+  | "wage_failed"
+  // University (M8)
+  | "not_enrolled"
+  | "already_enrolled"
+  | "course_passed"
+  | "no_lecture_now"
+  | "already_attended"
+  | "no_exam_now"
+  | "already_sat"
+  | "enrol_failed"
+  | "record_failed";
 
 /** Why an action ended before completing. */
 export type CancelReason = "cancelled" | "interrupted" | "replaced" | "disconnected";
@@ -83,6 +100,8 @@ export interface ActorView {
   activity: Activity | string;
   /** The actor's job (private: the server passes its own record, a client only its own). */
   job?: JobId | null;
+  /** The actor's course (private, like the job). */
+  course?: { courseId: CourseId; status: CourseStatus } | null;
 }
 
 /** seatId → id of the player occupying or walking to it. */
@@ -139,9 +158,13 @@ export function objectActions(interactable: Interactable, actor: ActorView, occu
     case "bench":
       if (seatedHere) return actor.activity === "sketching" ? ["stand"] : ["sketch", "stand"];
       return hasFreeSeat ? ["sit", "sketch"] : [];
-    case "desk":
-      if (seatedHere) return actor.activity === "studying" ? ["stand"] : ["study", "stand"];
-      return hasFreeSeat ? ["study", "sit"] : [];
+    case "desk": {
+      // Lecture desks also offer the lecture and the exam to enrolled students (M8);
+      // whether one is on now is the timetable's call (shown in menus, checked by the server).
+      const course: ActionId[] = interactable.lecture && actor.course?.status === "enrolled" ? ["attend", "exam"] : [];
+      if (seatedHere) return BUSY_AT_DESK.includes(actor.activity) ? ["stand"] : [...course, "study", "stand"];
+      return hasFreeSeat ? [...course, "study", "sit"] : [];
+    }
     case "cafe": {
       const actions: ActionId[] = hasFreeSeat ? ["buy"] : [];
       if (!actor.job && hasFreeSeat) actions.push("ask_work");
@@ -152,8 +175,14 @@ export function objectActions(interactable: Interactable, actor: ActorView, occu
       return hasFreeSeat ? ["wash"] : [];
     case "door":
       return hasFreeSeat && interactable.door ? ["enter"] : [];
+    case "noticeboard":
+      // Offered even when enrolled: menus show it disabled with the course's status.
+      return hasFreeSeat ? ["enrol"] : [];
   }
 }
+
+/** Activities during which a desk offers only "Stand up". */
+const BUSY_AT_DESK: readonly string[] = ["studying", "attending", "exam"];
 
 /** Actions another player offers. A player never offers actions to themselves. */
 export function playerActions(actor: ActorView, target: { id: string; connected: boolean }): ActionId[] {
@@ -161,14 +190,15 @@ export function playerActions(actor: ActorView, target: { id: string; connected:
   return ["greet"];
 }
 
-const SEAT_ACTIONS: readonly ActionId[] = ["sit", "study", "sketch"];
-const STANDING_SPOT_ACTIONS: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter"];
+const SEAT_ACTIONS: readonly ActionId[] = ["sit", "study", "sketch", "attend", "exam"];
+const STANDING_SPOT_ACTIONS: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter", "enrol"];
 const OBJECT_ACTIONS: Record<Interactable["kind"], readonly ActionId[]> = {
   bench: ["sit", "stand", "sketch"],
-  desk: ["sit", "stand", "study"],
+  desk: ["sit", "stand", "study", "attend", "exam"],
   cafe: ["buy", "ask_work", "work"],
   fountain: ["wash"],
   door: ["enter"],
+  noticeboard: ["enrol"],
 };
 
 /** Server-side validation of an object interaction request. */
@@ -185,6 +215,12 @@ export function validateObjectAction(
   if (action === "buy" && (!itemId || !findMenuItem(itemId))) return fail("unknown_item");
   if (action === "ask_work" && actor.job) return fail("already_employed");
   if (action === "work" && !worksHere(interactable, actor)) return fail("not_employed");
+  if (action === "enrol" && actor.course) return fail(actor.course.status === "passed" ? "course_passed" : "already_enrolled");
+  if (action === "attend" || action === "exam") {
+    if (!interactable.lecture) return fail("action_not_available");
+    if (!actor.course) return fail("not_enrolled");
+    if (actor.course.status === "passed") return fail("course_passed");
+  }
   const centre = interactableCentre(world, interactable);
   if (Math.hypot(centre.x - actor.x, centre.z - actor.z) > maxDistance) return fail("too_far");
   if (objectActions(interactable, actor, occupancy).includes(action)) return ok;

@@ -5,12 +5,16 @@
 //   free, character able, route exists) → reserve the seat/spot → walk to the
 //   interaction point ("approach") → on arrival re-check and execute:
 //     seat:        sit down, then sitting / studying / sketching
+//     seat:        sit down, then sitting / studying / sketching, or at a
+//                  lecture desk attend a lecture or sit the exam (M8: the
+//                  timetable is checked again on arrival)
 //     standing:    stand at the spot; café: pay ("paying") then eat or drink,
 //                  or ask about work (hired once the database confirms),
-//                  or (staff spot) work a shift; fountain: wash
+//                  or (staff spot) work a shift; fountain: wash; notice
+//                  board: enrol (once the database confirms); door: go through
 //   → finish (timed actions end on a server timer) or keep state (sitting).
-// A finished shift is paid ("paying") before it counts as completed; a shift
-// that ends early is never paid.
+// A finished shift is paid, and a finished lecture or exam recorded
+// ("paying"), before it counts as completed; one that ends early never counts.
 // The client is told about each step but never decides one: arrival, timers,
 // payments and completion are all measured here. Life effects (needs, skills,
 // money) are applied through `hooks`, implemented by the LifeSystem.
@@ -32,6 +36,8 @@ import {
   type ActionUpdatePayload,
   type ActorView,
   type CancelReason,
+  type CourseId,
+  type CourseStatus,
   type GreetedPayload,
   type InteractPayload,
   type DoorLink,
@@ -71,6 +77,14 @@ export interface InteractionHooks {
   startShift(sessionId: string, pending: PendingAction): InteractionFailure | null;
   /** The shift's time is up: records it and pays the wage. */
   payShift(sessionId: string, pending: PendingAction): Promise<"ok" | InteractionFailure>;
+  /** The character's course and its status, or null (decides what lecture desks offer, M8). */
+  courseOf(sessionId: string): { courseId: CourseId; status: CourseStatus } | null;
+  /** Enrols the character on arrival at the notice board. */
+  enrol(sessionId: string, pending: PendingAction): Promise<"ok" | InteractionFailure>;
+  /** At the lecture desk: re-checks the timetable and fixes which lecture or sitting counts (sets `pending.course`). */
+  startCourseAction(sessionId: string, pending: PendingAction): InteractionFailure | null;
+  /** The lecture or exam's time is up: records the lecture, or grades the exam. */
+  finishCourseAction(sessionId: string, pending: PendingAction): Promise<"ok" | InteractionFailure>;
 }
 
 const NO_HOOKS: InteractionHooks = {
@@ -84,6 +98,10 @@ const NO_HOOKS: InteractionHooks = {
   hire: async () => "hire_failed",
   startShift: () => "not_employed",
   payShift: async () => "wage_failed",
+  courseOf: () => null,
+  enrol: async () => "enrol_failed",
+  startCourseAction: () => "not_enrolled",
+  finishCourseAction: async () => "record_failed",
 };
 
 export interface InteractionDeps {
@@ -108,9 +126,11 @@ const PATH_FAILURE_TO_REASON: Record<PathFailure, InteractionFailure> = {
 };
 
 /** Seated timed actions: begin at the seat, return to "sitting" afterwards. */
-const SEATED_TIMED: readonly ActionId[] = ["study", "sketch"];
+const SEATED_TIMED: readonly ActionId[] = ["study", "sketch", "attend", "exam"];
 /** Actions done at a standing spot, which is free again as soon as they end. */
-const STANDING: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter"];
+const STANDING: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter", "enrol"];
+/** Timed actions whose result is recorded in the database before they count (M8). */
+const COURSE_ACTIONS: readonly ActionId[] = ["attend", "exam"];
 
 export class InteractionSystem {
   private nextActionId = 1;
@@ -244,6 +264,7 @@ export class InteractionSystem {
 
       if (pending.phase === "active" && pending.endsAt > 0 && now >= pending.endsAt) {
         if (pending.action === "work") this.finishShift(sessionId, pending);
+        else if (COURSE_ACTIONS.includes(pending.action)) this.finishCourseAction(sessionId, pending);
         else this.complete(sessionId, pending);
       }
     }
@@ -314,6 +335,7 @@ export class InteractionSystem {
     if (pending.action === "enter") return this.goThrough(sessionId, pending);
     if (pending.action === "buy") return this.pay(sessionId, pending);
     if (pending.action === "ask_work") return this.hire(sessionId, pending);
+    if (pending.action === "enrol") return this.enrol(sessionId, pending);
     if (pending.action === "work") {
       // Opening hours, the daily limit and tiredness are checked again now that the shift really starts.
       const refused = this.hooks.startShift(sessionId, pending);
@@ -335,6 +357,14 @@ export class InteractionSystem {
     const context = this.context(sessionId);
     if (!context) return;
     const { player, runtime } = context;
+    if (COURSE_ACTIONS.includes(pending.action)) {
+      // The lecture's late entry or the sitting may have closed while walking over.
+      const refused = this.hooks.startCourseAction(sessionId, pending);
+      if (refused) {
+        player.activity = "sitting";
+        return this.fail(sessionId, refused);
+      }
+    }
     if (SEATED_TIMED.includes(pending.action)) return this.beginTimed(sessionId, pending);
     pending.phase = "active";
     player.activity = "sitting";
@@ -367,6 +397,29 @@ export class InteractionSystem {
     pending.phase = "paying";
     void this.hooks.hire(sessionId, pending).then((result) => {
       // Cancelled meanwhile: nothing to undo (the job, if recorded, shows in the character panel).
+      if (this.deps.runtimes.get(sessionId)?.pending !== pending) return;
+      if (result === "ok") this.complete(sessionId, pending);
+      else this.fail(sessionId, result);
+    });
+  }
+
+  /** At the notice board: enrolled as soon as the database records it. */
+  private enrol(sessionId: string, pending: PendingAction): void {
+    if (!this.context(sessionId)) return;
+    pending.phase = "paying";
+    void this.hooks.enrol(sessionId, pending).then((result) => {
+      // Cancelled meanwhile: nothing to undo (the enrolment, if recorded, shows in the character panel).
+      if (this.deps.runtimes.get(sessionId)?.pending !== pending) return;
+      if (result === "ok") this.complete(sessionId, pending);
+      else this.fail(sessionId, result);
+    });
+  }
+
+  /** The lecture or exam is over: it counts as completed only once it is recorded (graded, for the exam). */
+  private finishCourseAction(sessionId: string, pending: PendingAction): void {
+    pending.phase = "paying";
+    void this.hooks.finishCourseAction(sessionId, pending).then((result) => {
+      // Stopped while recording: the lecture or exam was fully done, so a recorded result stands.
       if (this.deps.runtimes.get(sessionId)?.pending !== pending) return;
       if (result === "ok") this.complete(sessionId, pending);
       else this.fail(sessionId, result);
@@ -406,7 +459,14 @@ export class InteractionSystem {
       const item = pending.itemId ? findMenuItem(pending.itemId) : null;
       return Math.max(1, Math.round((item?.consumeMs ?? 5_000) * consumeDurationFactor));
     }
-    if (pending.action === "study" || pending.action === "sketch" || pending.action === "wash" || pending.action === "work") {
+    if (
+      pending.action === "study" ||
+      pending.action === "sketch" ||
+      pending.action === "wash" ||
+      pending.action === "work" ||
+      pending.action === "attend" ||
+      pending.action === "exam"
+    ) {
       return actionDurationsMs[pending.action];
     }
     return effect?.durationMs ?? actionDurationsMs.greet;
@@ -586,6 +646,7 @@ export class InteractionSystem {
       seatId: context.player.seatId,
       activity: context.player.activity,
       job: this.hooks.jobOf(sessionId),
+      course: this.hooks.courseOf(sessionId),
     };
   }
 
@@ -606,7 +667,15 @@ interface Context {
 const seatIsStanding = (seat: Seat | undefined) => seat?.pose === "stand";
 
 /** Public activity for timed actions when no life system supplies an effect. */
-const FALLBACK_ACTIVITY: Partial<Record<ActionId, string>> = { study: "studying", sketch: "sketching", wash: "washing", buy: "eating", work: "working" };
+const FALLBACK_ACTIVITY: Partial<Record<ActionId, string>> = {
+  study: "studying",
+  sketch: "sketching",
+  wash: "washing",
+  buy: "eating",
+  work: "working",
+  attend: "attending",
+  exam: "exam",
+};
 const activityFallback = (action: ActionId): string => FALLBACK_ACTIVITY[action] ?? "idle";
 
 const target = (source: Pick<InteractPayload, "action" | "targetKind" | "targetId" | "itemId">) => ({

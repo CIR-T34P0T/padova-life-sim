@@ -57,8 +57,8 @@ const outside = (obstacles: readonly Obstacle[], id: string, label: string, plaz
 
 // ── University hall: the lecture room ────────────────────────────────────────
 // Rows of two-seat desks facing the board and the lectern; a wide middle
-// aisle from the door. Lectures and the exam come with M8; until then the
-// desks offer the usual study and sit.
+// aisle from the door. The desks offer the usual study and sit, and to
+// enrolled students the course's lectures and exam (M8).
 
 const LECTURE_FLOOR: RoomFloor = { minX: -7, maxX: 7, minZ: -5, maxZ: 5 };
 const lectureObstacles: Obstacle[] = [
@@ -73,7 +73,7 @@ for (const [row, z] of LECTURE_ROWS.entries()) {
     const desk = box(`lecture-desk-${row + 1}${"ab"[column]}`, "desk", x, z, 3.0, 0.6, 0.78, "Lecture desk", "south");
     const seats = seatsAlongEdge(desk, 2, "south", "towards");
     lectureObstacles.push(desk, ...chairsFor(desk, seats));
-    lectureDesks.push({ id: desk.id, kind: "desk", label: "Lecture desk", seats });
+    lectureDesks.push({ id: desk.id, kind: "desk", label: "Lecture desk", seats, lecture: true });
   }
 }
 

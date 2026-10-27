@@ -1,22 +1,26 @@
 // Character panel (M5): the player's own needs, mood (with reasons), skills,
-// work (M7), money and current action. Opened by clicking/tapping your own character
+// work (M7), university (M8), money and current action. Opened by clicking/tapping your own character
 // (→ "Character") or the HUD chip. Desktop: a narrow panel on the right.
 // Touch: a bottom sheet capped below half the screen height. Everything shown
 // comes from the server's `life` message; nothing here is calculated as truth.
 
 import {
+  COURSES,
   JOBS,
   NEEDS_CONFIG,
   NEED_IDS,
   SKILL_CONFIG,
   SKILL_IDS,
   TRAITS,
+  WEEKDAY_NAMES,
   formatEuros,
+  formatGrade,
   formatTimeOfDay,
   gradeFor,
   isOpen,
   nextGradeFor,
   readClock,
+  weekdayOf,
   xpForLevel,
   type LifePayload,
   type MoodLevel,
@@ -24,6 +28,7 @@ import {
   type SkillId,
   type TraitId,
 } from "@padova/shared";
+import { examLine, examTimetable, expectedGrade, lectureLine, lectureTimetable } from "./university.ts";
 
 const NEED_LABELS: Record<NeedId, string> = {
   hunger: "Hunger",
@@ -193,6 +198,7 @@ export class CharacterPanel {
       this.needsSection(life),
       this.skillsSection(life),
       this.workSection(life),
+      this.universitySection(life),
       this.moneySection(life),
     );
   }
@@ -216,7 +222,7 @@ export class CharacterPanel {
 
   private nowSection(life: LifePayload): HTMLElement {
     const section = sectionWithTitle("Now");
-    section.append(text("p", "cp-now", `${this.currentAction ?? "Idle"} · ${readClock(life.gameMinute).label}`));
+    section.append(text("p", "cp-now", `${this.currentAction ?? "Idle"} · ${WEEKDAY_NAMES[weekdayOf(life.gameMinute)]} · ${readClock(life.gameMinute).label}`));
     return section;
   }
 
@@ -260,6 +266,43 @@ export class CharacterPanel {
     const shifts = text("p", "cp-shifts", `Shifts today ${life.job.shiftsToday} of ${job.maxShiftsPerDay} · ${hours}`);
     shifts.dataset.testid = "shifts";
     section.append(shifts, this.quitButton);
+    return section;
+  }
+
+  private universitySection(life: LifePayload): HTMLElement {
+    const section = sectionWithTitle("University");
+    section.dataset.testid = "university";
+    const course = life.course;
+    if (!course) {
+      section.append(text("p", "cp-muted", "Not enrolled. Enrol at the University notice board beside the university hall (north-west of the square)."));
+      return section;
+    }
+    const def = COURSES[course.courseId];
+    if (course.status === "passed") {
+      const passed = text("p", "cp-job", `${def.label} · Passed ${formatGrade(course.finalGrade ?? 0)}`);
+      passed.dataset.testid = "course-passed";
+      section.append(passed);
+      return section;
+    }
+    section.append(text("p", "cp-job", def.label));
+    section.append(text("p", "cp-muted", `Lectures ${lectureTimetable(course.courseId)}, in ${def.roomLabel}.`));
+    const lecture = text("p", "cp-course-line", lectureLine(life).text);
+    lecture.dataset.testid = "lecture";
+    section.append(lecture);
+    const g = def.grading;
+    section.append(
+      meter("Lectures attended", course.lecturesAttended / g.lecturesForFull, `${course.lecturesAttended} of ${g.lecturesForFull}`, false, "lectures", true),
+      meter("Study sessions", course.studySessions / g.studyForFull, `${course.studySessions} of ${g.studyForFull}`, false, "study-sessions", true),
+    );
+    const exam = text("p", "cp-course-line", `Exam (${examTimetable(course.courseId)}): ${examLine(life).text}`);
+    exam.dataset.testid = "exam";
+    section.append(exam);
+    const expected = text("p", "cp-muted", `If you sat it now: ${formatGrade(expectedGrade(life) ?? 0)} (${g.passMark} passes). Lectures, study and your Academic level count.`);
+    expected.dataset.testid = "expected";
+    section.append(expected);
+    if (course.lastResult && !course.lastResult.passed) {
+      section.append(text("p", "cp-muted", `Last exam: ${formatGrade(course.lastResult.grade)}, not passed. You can retake it at the next sitting.`));
+    }
     return section;
   }
 

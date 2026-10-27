@@ -7,6 +7,7 @@ import {
   activeMoodEvents,
   findMenuItem,
   gameDayOf,
+  isCourseId,
   isJobId,
   offlineCatchUp,
   realMsToGameHours,
@@ -15,6 +16,8 @@ import {
   sanitizeSkills,
   sanitizeStoredTraits,
   type ActiveMoodEvent,
+  type CourseId,
+  type CourseState,
   type JobId,
   type Needs,
   type SkillXp,
@@ -26,16 +29,26 @@ import type { Database } from "../db/database.ts";
 import { saveState, type Owner, type SavedState } from "../profiles/profileRepository.ts";
 import {
   applyMoneyChange,
+  enrolCharacter,
   hireCharacter,
+  loadCourses,
   loadLife,
   loadWork,
   quitJob,
+  recordExam,
+  recordLecture,
   recordShift,
+  recordStudySession,
   saveLife,
+  type CompletedExam,
+  type CompletedLecture,
   type CompletedShift,
+  type ExamResult,
+  type LectureResult,
   type LifeSnapshot,
   type MoneyChangeResult,
   type ShiftResult,
+  type StoredCourse,
 } from "./lifeRepository.ts";
 
 /** A character's life as the room simulates it. */
@@ -48,6 +61,8 @@ export interface LoadedLife {
   recent: TransactionView[];
   /** Job and today's completed shifts (M7). */
   work: WorkState;
+  /** The course, attendance and results (M8), or null when not enrolled. */
+  course: CourseState | null;
   /** Game hours of offline time that were applied (after the cap is applied by the rules). */
   offlineGameHours: number;
 }
@@ -71,8 +86,12 @@ export class LifeService {
   /** Loads life data and applies the capped offline catch-up (D-022). Null if not the owner's. */
   async load(owner: Owner, gameMinute: number): Promise<LoadedLife | null> {
     const day = gameDayOf(gameMinute);
-    const [stored, storedWork] = await Promise.all([loadLife(this.db, owner, ECONOMY_CONFIG.recentTransactions), loadWork(this.db, owner, day)]);
-    if (!stored || !storedWork) return null;
+    const [stored, storedWork, storedCourses] = await Promise.all([
+      loadLife(this.db, owner, ECONOMY_CONFIG.recentTransactions),
+      loadWork(this.db, owner, day),
+      loadCourses(this.db, owner),
+    ]);
+    if (!stored || !storedWork || !storedCourses) return null;
     const traits = sanitizeStoredTraits(stored.traits);
     const savedNeeds = sanitizeNeeds(stored.needs);
     const offlineMs = stored.needsSavedAt ? Math.max(0, this.now() - stored.needsSavedAt.getTime()) : 0;
@@ -86,6 +105,8 @@ export class LifeService {
       recent: stored.recent,
       // A job id this server doesn't know (from a newer version) is treated as no job; the row is left alone.
       work: { jobId: isJobId(storedWork.jobId) ? storedWork.jobId : null, shiftsDay: day, shiftsToday: storedWork.shiftsToday },
+      // Likewise a course id this server doesn't know is ignored (and left alone in the database).
+      course: toCourseState(storedCourses.find((c) => isCourseId(c.courseId))),
       offlineGameHours,
     };
   }
@@ -158,4 +179,38 @@ export class LifeService {
   payShift(owner: Owner, shift: CompletedShift): Promise<ShiftResult> {
     return recordShift(this.db, owner, shift);
   }
+
+  /** Enrols the character in a course (M8). */
+  enrol(owner: Owner, courseId: CourseId, gameMinute: number): Promise<"enrolled" | "already_enrolled" | "not_owner"> {
+    return enrolCharacter(this.db, owner, courseId, gameMinute);
+  }
+
+  /** Records a completed lecture, once per lecture. */
+  recordLecture(owner: Owner, lecture: CompletedLecture): Promise<LectureResult> {
+    return recordLecture(this.db, owner, lecture);
+  }
+
+  /** Counts a completed study session towards the course; the new count, or null when not enrolled. */
+  recordStudy(owner: Owner, courseId: CourseId): Promise<number | null> {
+    return recordStudySession(this.db, owner, courseId);
+  }
+
+  /** Grades and records a completed exam, once per sitting. */
+  sitExam(owner: Owner, exam: CompletedExam): Promise<ExamResult> {
+    return recordExam(this.db, owner, exam);
+  }
+}
+
+function toCourseState(stored: StoredCourse | undefined): CourseState | null {
+  if (!stored || !isCourseId(stored.courseId)) return null;
+  return {
+    courseId: stored.courseId,
+    status: stored.status,
+    lecturesAttended: stored.lecturesAttended,
+    studySessions: stored.studySessions,
+    lastLectureKey: stored.lastLectureKey,
+    lastSittingKey: stored.lastSittingKey,
+    lastResult: stored.lastResult,
+    finalGrade: stored.finalGrade,
+  };
 }

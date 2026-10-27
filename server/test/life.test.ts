@@ -99,8 +99,9 @@ describe("the first life loop", () => {
   it("enters with starting needs, money and an empty skill sheet, and the clock comes from the server", async () => {
     const alice = track(await joinWithNewCharacter(context.server.url, "Alice"));
     const life = await lifeAfter(alice, (l) => l.money.balanceCents === START_PLUS_DAY, "starting allowance + daily allowance");
-    expect(Object.keys(life).sort()).toEqual(["gameMinute", "job", "money", "mood", "needs", "skills", "traits"]);
+    expect(Object.keys(life).sort()).toEqual(["course", "gameMinute", "job", "money", "mood", "needs", "skills", "timeScale", "traits"]);
     expect(life.job).toBeNull();
+    expect(life.course).toBeNull();
     expect(life.needs).toEqual(NEEDS_CONFIG.initial);
     expect(Object.values(life.skills).every((s) => s.xp === 0 && s.level === 0)).toBe(true);
     expect(life.traits).toEqual([]);

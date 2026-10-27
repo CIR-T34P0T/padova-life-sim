@@ -1,11 +1,13 @@
-// In-room life simulation (M5, work since M7). For every character in the
-// world it advances needs with game time, applies the effects of running
-// actions, tracks skills, mood events, money and the character's job, and
-// sends the owner their own data (D-024). Every rule comes from
+// In-room life simulation (M5, work since M7, university since M8). For every
+// character in the world it advances needs with game time, applies the effects
+// of running actions, tracks skills, mood events, money, the character's job
+// and course, and sends the owner their own data (D-024). Every rule comes from
 // shared/src/life; this class only applies them.
 
 import { randomUUID } from "node:crypto";
 import {
+  COURSES,
+  COURSE_IDS,
   ECONOMY_CONFIG,
   JOBS,
   JOB_IDS,
@@ -17,12 +19,16 @@ import {
   applyNeedChanges,
   computeMood,
   effectPortion,
+  examRefusal,
   findMenuItem,
   gameDayOf,
   gradeFor,
   greetingEffect,
   isTooTired,
+  joinableLecture,
+  lectureRefusal,
   levelForXp,
+  openExamSitting,
   realMsToGameHours,
   shiftRefusal,
   shiftsOn,
@@ -32,6 +38,9 @@ import {
   timedEffectFor,
   type ActionId,
   type ActiveMoodEvent,
+  type CourseId,
+  type CourseState,
+  type CourseStatus,
   type InteractionFailure,
   type JobId,
   type LifePayload,
@@ -76,6 +85,10 @@ interface CharacterLife {
   work: WorkState;
   /** A hire or quit is being written: no other job change or shift until it lands. */
   jobBusy: boolean;
+  /** Course, attendance and results (M8). Changed only after the database confirms. */
+  course: CourseState | null;
+  /** An enrolment is being written: no second one until it lands. */
+  courseBusy: boolean;
   lastSentKey: string;
   lastSentAt: number;
 }
@@ -122,6 +135,8 @@ export class LifeSystem {
       allowanceInFlight: false,
       work: { ...loaded.work },
       jobBusy: false,
+      course: loaded.course ? { ...loaded.course } : null,
+      courseBusy: false,
       lastSentKey: "",
       lastSentAt: 0,
     });
@@ -187,6 +202,12 @@ export class LifeSystem {
     if (life && (action === "ask_work" || action === "work") && life.jobBusy) return "busy";
     if (life && action === "ask_work" && life.work.jobId) return "already_employed";
     if (life && action === "work") return shiftRefusal(life.work, this.deps.clock.minute(), life.needs);
+    if (life && action === "enrol") {
+      if (life.courseBusy) return "busy";
+      if (life.course) return life.course.status === "passed" ? "course_passed" : "already_enrolled";
+    }
+    if (life && action === "attend") return lectureRefusal(life.course, this.deps.clock.minute(), life.needs);
+    if (life && action === "exam") return examRefusal(life.course, this.deps.clock.minute(), life.needs);
     const effect = timedEffectFor(action, itemId);
     if (!life || !effect) return null;
     if (effect.focus && isTooTired(life.needs)) return "too_tired";
@@ -263,6 +284,7 @@ export class LifeSystem {
     if (pending.effect.moodEvent) this.addMoodEvent(life, pending.effect.moodEvent);
     this.sendUpdate(sessionId, true);
     if (Object.keys(pending.effect.skills).length > 0 || Object.keys(onCompletion).length > 0) this.deps.requestSave(sessionId);
+    if (pending.action === "study" && life.course?.status === "enrolled") this.countStudy(sessionId, life, life.course.courseId);
   }
 
   // ── Work (M7) ───────────────────────────────────────────────────────────
@@ -392,6 +414,127 @@ export class LifeSystem {
       });
   }
 
+  // ── University (M8) ─────────────────────────────────────────────────────
+
+  /** The character's course and status, or null. */
+  courseOf(sessionId: string): { courseId: CourseId; status: CourseStatus } | null {
+    const course = this.lives.get(sessionId)?.course;
+    return course ? { courseId: course.courseId, status: course.status } : null;
+  }
+
+  /** Enrols the character in the course whose notice board it walked to. */
+  async enrol(sessionId: string, pending: PendingAction): Promise<"ok" | InteractionFailure> {
+    const life = this.lives.get(sessionId);
+    const courseId = COURSE_IDS.find((id) => COURSES[id].enrolAt === pending.targetId);
+    if (!life || !courseId) return "enrol_failed";
+    if (life.course) return life.course.status === "passed" ? "course_passed" : "already_enrolled";
+    if (life.courseBusy) return "busy";
+    life.courseBusy = true;
+    try {
+      const result = await this.deps.service.enrol(life.owner, courseId, this.deps.clock.minute());
+      if (result === "enrolled") {
+        life.course = {
+          courseId,
+          status: "enrolled",
+          lecturesAttended: 0,
+          studySessions: 0,
+          lastLectureKey: null,
+          lastSittingKey: null,
+          lastResult: null,
+          finalGrade: null,
+        };
+        log.info("life", `${sessionId} enrolled (${courseId})`);
+        return "ok";
+      }
+      return result === "already_enrolled" ? "already_enrolled" : "enrol_failed";
+    } catch (error) {
+      log.error("life", `enrolment failed for ${sessionId}: ${(error as Error).message}`);
+      return "enrol_failed";
+    } finally {
+      life.courseBusy = false;
+      this.sendUpdate(sessionId, true);
+    }
+  }
+
+  /** At the lecture desk: checks the timetable now and fixes which lecture or sitting this counts for. */
+  startCourseAction(sessionId: string, pending: PendingAction): InteractionFailure | null {
+    const life = this.lives.get(sessionId);
+    if (!life) return "not_enrolled";
+    const gameMinute = this.deps.clock.minute();
+    if (pending.action === "attend") {
+      const refused = lectureRefusal(life.course, gameMinute, life.needs);
+      if (refused) return refused;
+      const lecture = joinableLecture(life.course!.courseId, gameMinute)!;
+      pending.course = { kind: "lecture", courseId: life.course!.courseId, key: lecture.key, gameDay: lecture.day };
+      return null;
+    }
+    if (pending.action === "exam") {
+      const refused = examRefusal(life.course, gameMinute, life.needs);
+      if (refused) return refused;
+      const sitting = openExamSitting(life.course!.courseId, gameMinute)!;
+      pending.course = { kind: "exam", courseId: life.course!.courseId, key: sitting.key, gameDay: sitting.day };
+      return null;
+    }
+    return "action_not_available";
+  }
+
+  /** The lecture or exam is over: record the lecture, or grade the exam (mood event from the result). */
+  async finishCourseAction(sessionId: string, pending: PendingAction): Promise<"ok" | InteractionFailure> {
+    const life = this.lives.get(sessionId);
+    const slot = pending.course;
+    if (!life || !slot) return "record_failed";
+    const endedGameMinute = this.deps.clock.minute();
+    try {
+      if (slot.kind === "lecture") {
+        const result = await this.deps.service.recordLecture(life.owner, { courseId: slot.courseId, lectureKey: slot.key, gameDay: slot.gameDay, endedGameMinute });
+        if (result.status === "recorded" || result.status === "duplicate") {
+          if (life.course?.courseId === slot.courseId) life.course = { ...life.course, lecturesAttended: result.lecturesAttended, lastLectureKey: slot.key };
+          log.info("life", `${sessionId} attended lecture ${slot.key} (${result.lecturesAttended} so far)`);
+          // Sent before the action completes, so the client's "lecture attended" note shows the new count.
+          this.sendUpdate(sessionId, true);
+          return "ok";
+        }
+        return result.status === "not_enrolled" ? "not_enrolled" : "record_failed";
+      }
+      const academicLevel = levelForXp(life.skills.academic);
+      const result = await this.deps.service.sitExam(life.owner, { courseId: slot.courseId, sittingKey: slot.key, gameDay: slot.gameDay, endedGameMinute, academicLevel });
+      if (result.status === "graded" || result.status === "duplicate") {
+        if (life.course?.courseId === slot.courseId) {
+          life.course = {
+            ...life.course,
+            status: result.passed ? "passed" : life.course.status,
+            finalGrade: result.passed ? result.grade : life.course.finalGrade,
+            lastSittingKey: slot.key,
+            lastResult: { grade: result.grade, passed: result.passed, gameDay: slot.gameDay },
+            lecturesAttended: result.lecturesAttended,
+            studySessions: result.studySessions,
+          };
+        }
+        if (result.status === "graded") this.addMoodEvent(life, result.passed ? "passed_exam" : "failed_exam");
+        log.info("life", `${sessionId} sat the exam (${slot.key}): ${result.grade}, ${result.passed ? "passed" : "not passed"}`);
+        this.sendUpdate(sessionId, true);
+        return "ok";
+      }
+      return result.status === "not_enrolled" ? "not_enrolled" : "record_failed";
+    } catch (error) {
+      log.error("life", `recording ${slot.kind} ${slot.key} failed for ${sessionId}: ${(error as Error).message}`);
+      return "record_failed";
+    }
+  }
+
+  /** A completed study session counts towards the course (written straight away, like attendance). */
+  private countStudy(sessionId: string, life: CharacterLife, courseId: CourseId): void {
+    this.deps.service
+      .recordStudy(life.owner, courseId)
+      .then((count) => {
+        if (count !== null && life.course?.courseId === courseId) {
+          life.course = { ...life.course, studySessions: count };
+          this.sendUpdate(sessionId, true);
+        }
+      })
+      .catch((error) => log.error("life", `study session not counted for ${sessionId}: ${(error as Error).message}`));
+  }
+
   /** A greeting started: both players feel it. */
   onGreeting(greeterId: string, targetId: string): void {
     const gameMinute = this.deps.clock.minute();
@@ -477,6 +620,7 @@ export class LifeSystem {
       payload.money.balanceCents,
       payload.job?.jobId ?? "",
       payload.job?.shiftsToday ?? 0,
+      JSON.stringify(payload.course),
       Math.floor(payload.gameMinute),
     ]);
     if (!force && key === life.lastSentKey) return;
@@ -505,6 +649,8 @@ export class LifeSystem {
       traits: [...life.traits],
       money: { balanceCents: life.balanceCents, recent: [...life.recent] },
       job: life.work.jobId ? { jobId: life.work.jobId, shiftsToday: shiftsOn(life.work, gameMinute) } : null,
+      course: life.course ? { ...life.course, lastResult: life.course.lastResult ? { ...life.course.lastResult } : null } : null,
+      timeScale: this.deps.clock.scale,
     };
   }
 }

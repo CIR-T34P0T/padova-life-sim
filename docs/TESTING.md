@@ -209,6 +209,61 @@ back puts you inside at the same spot; an unknown saved area puts you on the
 square); a dropped player stays in the room and both players see each other
 again after the reconnection.
 
+**University rules (18 tests, `shared/test/university.test.ts`, M8):** the
+week starts on a Monday and repeats every seven game days; the course is
+fictional (no real university's name), held in an existing indoor room that
+has lecture desks (and only there); lectures fit in the day, don't overlap,
+outlast late entry, and someone joining at the last moment still finishes in
+time; the exam fits in its sitting; weights add up to 1; eight lectures on
+weekdays with a lunch break and none at weekends; joining from the start
+until late entry closes; the next lecture across lunch and the weekend;
+sittings on Wednesdays and Saturdays, 09:00–19:00, and the next one; real
+waits at the clock's speed; refusals (not enrolled, passed, outside late
+entry, the same lecture twice, too tired; one exam per sitting); grades (12
+unprepared, 30 cum laude prepared, the weights, never worse with more
+preparation, the Italian scale); the notice board offers enrolment and
+refuses it once enrolled or passed; lecture desks offer the lecture and the
+exam only to enrolled students, other desks never; seated in a lecture or
+the exam, only *Stand up*.
+
+**University through the real room (8 tests, `server/test/university.test.ts`,
+M8)** — real servers, databases and WebSocket clients, three servers with
+their clocks set to a Monday at 09:01, a Wednesday at 13:01, and a **fast
+clock** (1 real second = 10 game minutes): enrolling at the notice board
+once (refused twice), the course in the owner's `life` only (no course data
+in the shared state or another player's messages), the enrolment row
+stored; a lecture desk refuses the lecture before enrolling; attending the
+lecture on now counts it once with its timetable key, gives academic XP and
+*Interesting lecture*, and the same lecture is refused again; no exam on a
+Monday; studying counts for the course; a reload keeps attendance and
+study; a lecture left early doesn't count and can still be attended;
+refused outside its slot; an unprepared exam fails gently (12, *Failed an
+exam*, course still open, the same sitting refused, the stored row); a
+prepared student passes with 27 from the stored rows, *Passed an exam*,
+then the desk and the notice board refuse (*course passed*), still passed
+after a reload; on the fast clock, **a lecture accepted at :12 is refused
+at the desk when late entry closed during the walk**, and lectures in
+consecutive hours count separately.
+
+**University database (9 tests per backend, `server/test/universityDatabase.test.ts`,
+M8)** — migration 0006 down and up with no enrolments, **rollback refused,
+changing nothing, once someone is enrolled**; enrol once, never another
+account's character; each lecture counted once (including two recorded at
+the same moment), only while enrolled; study sessions only while enrolled,
+owner only; an unprepared exam graded 12 and kept open, the same result
+when repeated; a grade from 8 stored lectures, 6 sessions and level 2 (29),
+which closes the course (no more lectures, study or exams; no
+re-enrolment); a retake at a later sitting with the progress made since
+(18, passed); the database refusing inconsistent rows (passed without a
+grade, a passing status below 18, attendance without an enrolment); a
+character's university rows deleted with it.
+
+**University wording (6 tests, `client/test/university.test.ts`, M8)** — the
+timetable and sittings in one line each; today / tomorrow / weekday times;
+real waits; what a lecture desk says in each state (on now with late entry,
+next lecture, attended, too tired; expected grade, next sitting, today's
+result, passed); the expected grade.
+
 **Work database (9 tests, `server/test/workDatabase.test.ts`, M7)** —
 migration 0005 down and up again with no job data, the ledger accepting
 `wage` only while it is applied; **rollback refused, changing nothing,
@@ -438,6 +493,23 @@ out in front of the hall ("Back on the square"). Phone (Pixel 7 emulation):
 the door's sheet shows *Go in* at least 48 px tall; inside, tapping the
 room's door and *Go out to the square* works by touch.
 
+**End to end, university (`e2e/university.spec.ts`, M8)** — the suite's
+clock starts on a Wednesday at 09:00 (playwright.config.ts). Desktop, with
+the game's real durations: the clock chip shows "Wed"; the notice board
+beside the hall offers *Enrol: Introduction to City Studies*; enrolling
+works, with its note, and the panel's University section shows the course,
+the timetable, "0 of 8" and an expected 12/30; in the lecture room a
+lecture desk offers *Attend the lecture* (or greys it out with the next one
+and the test waits for it); attending the whole lecture (2 real minutes)
+counts it once, with its note, then the option is greyed out; the desk
+shows *Sit the exam* with "Expected 13/30 · 3 min · open until 19:00";
+sitting it (3 real minutes) fails gently (13/30, the course still open, its
+note), then the option shows "Taken today: 13/30 · next sitting Sat 09:00"; the panel
+shows "1 of 8" and the result, and a reload keeps both. Phone (Pixel 7
+emulation): the clock chip shows the weekday; the notice board's sheet has
+*Enrol* at least 48 px tall; enrolling by touch; the panel sheet's
+University section shows attendance, the next lecture and the sittings.
+
 **End to end, day and night (`e2e/daylight.spec.ts`, M7b)** — the world lab
 (no server) at 12:00, 19:40 and 23:00: the phase, lamps and stars follow the
 time; night costs at most 2 draw calls and under 2 000 triangles more than
@@ -595,6 +667,13 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-27 (M8) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server); no linter is configured |
+| 2026-10-27 (M8) | unit + integration | 359/359 pass | In-memory PGlite: 42 new tests (19 university rules including the clock offset, 8 through the real room including 2 on a fast clock, 9 university database, 6 wording). Existing tests updated: the rollback tests for migration 0006, two life tests for the new `course` and `timeScale` fields. While writing them: the integration tests timed out when run from `server/` (the 30 s limit lives in the root Vitest config; run from the root) and two checks read the seated state before its patch arrived (now waited for); no game change |
+| 2026-10-27 (M8) | unit + integration on PostgreSQL 16.15 | 402/402 pass | `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: the 43 database tests repeated on PostgreSQL, including the 9 university ones (two copies of one lecture recorded at the same moment count once) |
+| 2026-10-27 (M8) | e2e on PostgreSQL 16.15 + upgrade | 6/6 pass | `E2E_DATABASE_URL` on the existing `padova_e2e` database at migration 5 with 15 characters: the server applied 0006 on start; afterwards the 15 characters' balances and the 31 earlier ledger rows were unchanged (compared by fingerprint) and the shift row was still there; new rows as expected (one enrolment with 1 lecture and an exam graded 13, not passed; one enrolment), no lecture recorded twice, no exam without its enrolment. University and persistence specs |
+| 2026-10-27 (M8) | e2e | 28/28 pass (final full run, 32.4 min) | Includes the two new university tests with the real durations (the desktop one 5.8 min). A first full run was cut off by a container restart after 7 passing tests and was run again in full. While writing the university test: (1) one expectation was wrong (after a full lecture late entry has closed, so the desk shows "Next lecture …", not "Attended …"); (2) the phone helper tapped beside a chair where a character can't stand and the server rightly refused the walk, so `walkTo` now skips spots the shared collision rules call unwalkable; (3) in portrait the next spot was off screen (shorter hops). The exam line's wording changed afterwards ("Taken today", was "Sat today", which read like Saturday); the university spec passed again after that (next row) |
+| 2026-10-27 (M8) | e2e, university spec after the wording change | 2/2 pass | Desktop 6.0 min (real lecture and exam), phone 37 s; "Taken today: 13/30 · next sitting Sat 09:00 · in about 7 h" |
+| 2026-10-27 (M8) | visual check (Claude, screenshots) | Pass with known limitations | From the e2e runs: the lecture room during a lecture ("Ada · in a lecture", progress "In the lecture"), the exam result note and the University section on desktop (1280×720); the notice board's sheet and the University section on Pixel 7 emulation; the weekday in the clock chip on both. Not yet seen by the product owner |
 | 2026-10-26 (M7c) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server); no linter is configured |
 | 2026-10-26 (M7c) | unit + integration | 317/317 pass | In-memory PGlite: 41 new tests (15 area and door rules, 6 server area tests through the real room, 20 room art-against-collision checks). While writing them, 9 existing server tests failed because a client at the title screen now has no `players` map until its character exists (each client sees only its own area); the tests now read it as optional, no game change. No migration and no SQL change (the area goes into the existing `character_state.area` column through the same save as before), so the PostgreSQL runs were not repeated: the saved area is verified on PGlite only |
 | 2026-10-26 (M7c) | e2e | 26/26 pass (final full run, 40.6 min) | Includes the two new indoor-room tests. The first full run was 25/26: the phone work test tapped the ground while the camera still glided after a walk (the character stopped 0.8 m from the aimed point). Cause: the tests checked for a still camera with two reads 250 ms apart, which can fall inside one slow software-rendered phone frame. They now read a few drawn frames apart (`afterFrames`, see notes below); then both phone tests 3/3 each, then the full run. The indoor desktop test had needed retries while aiming at objects right after a walk or a door (same cause) |
@@ -766,6 +845,14 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   from the camera's side selects the door; turn the camera to reach them.
   In phone portrait the room fills only the middle third of the screen;
   pinch to zoom in.
+- **University (M8):** one course; no withdrawing, no graduation, no
+  lecturer, and the blackboard doesn't change during a lecture. The numbers
+  (timetable, grade targets) are not play-tested. The browser test fails an
+  unprepared exam; passing is covered by the server and database tests.
+  Attending takes as long as late entry, so right after a lecture the desk
+  shows "Next lecture …" rather than "Attended …". Trying lectures or exams
+  at a chosen real time means restarting the server with the offset from
+  `npm run clock` (everyone on a server shares its one clock).
 - **World art pass limitations:**
   - The district is Stage-1 procedural art (D-033): only the hall and the
     library doors lead inside (M7c); no interiors behind the other doors
@@ -957,3 +1044,13 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
 42. Reload inside the room and press Continue: you are back inside. Tap the
     room's door → **Go out to the square**: you stand in front of the hall.
     Try the library's door (north-east) too: the reading room.
+43. **University (M8):** the clock chip shows the weekday ("Wed 10:24 · …").
+    Tap the **University notice board** beside the hall's door → *Enrol:
+    Introduction to City Studies*. Open your character panel: the University
+    section shows the timetable and the next lecture. On a weekday between
+    09:00 and 17:00 (game time), go into the lecture room, tap a desk →
+    *Attend the lecture* (or see when the next one starts, greyed out);
+    after 2 real minutes the lecture counts ("1 of 8"). On a Wednesday or
+    Saturday, *Sit the exam* shows the grade you would get; after 3 real
+    minutes you get a grade. To try it at any time: `npm run clock -- wed
+    10:00` prints the PowerShell line that starts the game at that time.

@@ -180,7 +180,7 @@ for (const backend of testBackends) {
         expect(await loadCharacterById(db, { accountId: alice.accountId, characterId: id })).not.toBeNull();
         expect(await deleteCharacter(db, { accountId: alice.accountId, characterId: id })).toBe(true);
         expect(await deleteCharacter(db, { accountId: alice.accountId, characterId: id })).toBe(false);
-        for (const table of ["character_appearance", "character_state", "character_needs", "character_wallets", "wallet_transactions", "character_traits", "character_skills", "character_employment", "work_shifts"]) {
+        for (const table of ["character_appearance", "character_state", "character_needs", "character_wallets", "wallet_transactions", "character_traits", "character_skills", "character_employment", "work_shifts", "enrolments", "lecture_attendance", "assessments"]) {
           const left = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table} WHERE character_id = $1`, [id]);
           expect(left.rows[0]!.n, table).toBe(0);
         }
@@ -191,13 +191,13 @@ for (const backend of testBackends) {
 
       it("rolls back migration 0004 only when no profile holds more than one character", async () => {
         const { accountId } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
-        // 0005 (no jobs or wages yet) rolls back first, then 0004.
-        expect(await rollback(db, 2)).toEqual([5, 4]);
+        // 0006 and 0005 (no enrolments, jobs or wages yet) roll back first, then 0004.
+        expect(await rollback(db, 3)).toEqual([6, 5, 4]);
         await expect(createCharacterForAccount(db, accountId, { ...input, displayName: "Blocked" }, PROFILE_VERSION, spawn, seed, 3)).rejects.toThrow();
         await migrate(db);
         const second = await createCharacterForAccount(db, accountId, { ...input, displayName: "Second" }, PROFILE_VERSION, spawn, seed, 3);
         expect(typeof second).toBe("object");
-        expect(await rollback(db)).toEqual([5]);
+        expect(await rollback(db, 2)).toEqual([6, 5]);
         await expect(rollback(db)).rejects.toThrow();
         // Nothing changed: both characters are still there and 0004 is still applied.
         expect(await listCharactersByAccount(db, accountId)).toHaveLength(2);
@@ -224,8 +224,8 @@ for (const backend of testBackends) {
 
       it("rolls back the appearance document to the M5 shape with the closest old look, and upgrades again", async () => {
         const { accountId, character } = await createGuestWithCharacter(db, { ...input, appearance: APPEARANCE_PRESETS[0]!.appearance }, PROFILE_VERSION, spawn, seed);
-        expect(loadMigrations().at(-1)!.version).toBe(5); // rolls back 0005 and 0004 (no data change), then 0003
-        expect(await rollback(db, 3)).toEqual([5, 4, 3]);
+        expect(loadMigrations().at(-1)!.version).toBe(6); // rolls back 0006, 0005 and 0004 (no data change), then 0003
+        expect(await rollback(db, 4)).toEqual([6, 5, 4, 3]);
         const old = await db.query<{ profile_version: number; preset: string; skin_tone: string }>(
           "SELECT c.profile_version, a.preset, a.skin_tone FROM characters c JOIN character_appearance a ON a.character_id = c.id WHERE c.id = $1",
           [character.characterId],

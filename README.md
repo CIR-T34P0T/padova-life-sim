@@ -5,10 +5,11 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms (M0–M7c)
+## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms, university basics (M0–M8)
 
-What exists today is an early, end-to-end slice: one district, one room,
-the first life-simulation loop, character creation and a first job. It proves the
+What exists today is an early, end-to-end slice: one district with two
+indoor rooms, the first life-simulation loop, character creation, a first
+job and one university course. It proves the
 architecture; it is **not** the full game yet. Planned work and its order are
 in `docs/ROADMAP.md`.
 
@@ -23,7 +24,7 @@ in `docs/ROADMAP.md`.
 | Server-authoritative movement and validation | Multiplayer functional, tested |
 | Join / leave / brief-disconnect reconnection | Multiplayer functional, tested |
 | Click/tap objects and players for contextual actions (desktop radial menu, mobile bottom sheet) | Multiplayer functional, tested |
-| Bench: sit / sketch / stand · Study desk and café table: sit / study · Café counter: buy food, ask about work, work a shift · Fountain: wash up · Other player: greet | Multiplayer functional, tested |
+| Bench: sit / sketch / stand · Study desk and café table: sit / study · Café counter: buy food, ask about work, work a shift · Fountain: wash up · University notice board: enrol · Lecture desk: attend the lecture, sit the exam · Other player: greet | Multiplayer functional, tested |
 | Action progress, cancel, and explanations when refused | Multiplayer functional, tested |
 | Saved character profile (name, adult age category, appearance, position) in PostgreSQL | Persistence verified (tested on embedded PGlite and PostgreSQL 16) |
 | Temporary guest identity (one browser = one guest profile with up to 3 characters; no sign-in) | Multiplayer functional, tested; temporary by design (D-017, D-031) |
@@ -38,9 +39,10 @@ in `docs/ROADMAP.md`.
 | First job at the café kiosk: ask about work, 90-second shifts behind the counter (two staff spots), wage paid once per completed shift, two grades by communication level, opening hours 06:00–23:00 game time, 4 shifts per game day, quit from the character panel | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16; desktop and phone emulation); numbers not yet play-tested |
 | Shared world clock (10 game minutes per real minute) and capped offline progression | Multiplayer functional, tested |
 | Indoor rooms: the university hall's lecture room and the library's reading room, through their doors; you see only the players in the same room; you come back inside after a reload | Multiplayer functional, persistence verified on PGlite (tested on desktop and phone emulation); **Stage-1 procedural art** (D-039) |
+| University basics: one fictional course (enrol at the notice board beside the hall), lectures on the hour on weekdays in the lecture room (2 real minutes each, counted once), exam sittings on Wednesdays and Saturdays with a grade computed on the server from attendance, study and Academic level (18–30, 30 cum laude), fail and retake; the weekday in the clock chip; the University section of the character panel | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16; desktop and phone emulation); numbers not yet play-tested (D-040) |
 | Day and night: sun and moon, sky, haze, stars, lit windows, lanterns and pools of lamplight follow the shared game clock; every player sees the same time of day; characters stay easy to see at night | Multiplayer functional, tested (world lab at chosen times, the game at night on desktop and phone emulation); **Stage-1 procedural art** (D-037) |
-| Character panel (your needs, mood, skills, work, money, current action) and top-right time/money chip | Locally functional, tested (desktop and phone emulation) |
-| Sleep/beds, cooking, inventory, more jobs, university courses | Not started (see docs/ROADMAP.md) |
+| Character panel (your needs, mood, skills, work, university, money, current action) and top-right weekday/time/money chip | Locally functional, tested (desktop and phone emulation) |
+| Sleep/beds, cooking, inventory, more jobs, more courses and graduation | Not started (see docs/ROADMAP.md) |
 
 "Tested" means covered by the automated tests in `docs/TESTING.md`. Mobile is
 tested in Chromium mobile emulation only; a real phone has not been tested yet.
@@ -208,6 +210,7 @@ Landscape gives the best view; portrait works.
 | `npm run db:migrate` | Applies pending database migrations |
 | `npm run db:status` | Lists applied and pending migrations |
 | `npm run db:rollback` | Reverts the latest migration (`-- 2` for two). **Deletes the data in the tables it drops** |
+| `npm run clock -- wed 10:00` | Prints the `GAME_CLOCK_OFFSET_MINUTES` value (and the PowerShell line) that starts the game clock at that weekday and time, to try lectures or exams at any real time |
 
 First-time Playwright setup: `npx playwright install chromium`.
 
@@ -224,7 +227,7 @@ First-time Playwright setup: `npx playwright install chromium`.
 | `DB_MIGRATE_ON_START` | server | `true` | Set `false` to apply migrations only with `npm run db:migrate` |
 | `GUEST_CREATIONS_PER_IP_PER_HOUR` | server | `10` | New guest characters allowed per IP address per hour (abuse limit) |
 | `GAME_TIME_SCALE` | server | `10` | Game minutes per real minute (1–1440). Changing it moves the world clock; for development and testing (D-021) |
-| `GAME_CLOCK_OFFSET_MINUTES` | server | `0` | Shifts the world clock by whole game minutes (up to a week either way), e.g. to try the café's opening hours or the night at any real time; for development and testing (D-036) |
+| `GAME_CLOCK_OFFSET_MINUTES` | server | `0` | Shifts the world clock by whole game minutes (up to a week either way), e.g. to try the café's opening hours, the night, a lecture or an exam at any real time; `npm run clock -- wed 10:00` prints the value for a weekday and time; for development and testing (D-036) |
 | `CHROMIUM_PATH` | e2e | Playwright's browser | Use an existing Chromium for tests |
 | `TEST_DATABASE_URL` | tests | unset | Also run database tests on a real PostgreSQL (creates and drops throwaway databases) |
 | `E2E_DATABASE_URL` | e2e | unset | Run the browser tests' server on a real PostgreSQL instead of in-memory |

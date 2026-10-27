@@ -21,6 +21,9 @@ export interface ActionDurations {
   greet: number;
   /** One work shift (M7). */
   work: number;
+  /** Attending one lecture, and sitting the exam (M8). */
+  attend: number;
+  exam: number;
 }
 
 export interface RoomTuning {
@@ -53,6 +56,8 @@ export const DEFAULT_TUNING: RoomTuning = {
     wash: ACTION_EFFECTS.wash.durationMs,
     greet: GREETING_EFFECTS.durationMs,
     work: ACTION_EFFECTS.work.durationMs,
+    attend: ACTION_EFFECTS.attend.durationMs,
+    exam: ACTION_EFFECTS.exam.durationMs,
   },
   consumeDurationFactor: 1,
   guestCreationsPerIpPerHour: PROFILE_CONFIG.guestCreationsPerIpPerHour,

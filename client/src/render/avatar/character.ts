@@ -21,6 +21,9 @@ import { colourMaterial, patternMaterial } from "./materials.ts";
 import { bodyMetrics, type BodyMetrics } from "./metrics.ts";
 
 type PartName = "head" | "torso" | "armL" | "armR" | "thighL" | "thighR" | "shinL" | "shinR";
+
+/** Seated activities with both hands on the desk (no per-frame allocation in the pose code). */
+const DESK_BUSY: ReadonlySet<string> = new Set(["studying", "sketching", "attending", "exam"]);
 const PARTS: readonly PartName[] = ["head", "torso", "armL", "armR", "thighL", "thighR", "shinL", "shinR"];
 
 export interface PoseInput {
@@ -316,11 +319,14 @@ export class CharacterModel {
       const shinLength = m.kneeY;
       const tilt = shinLength > hipHeight ? Math.acos(Math.min(1, hipHeight / shinLength)) : 0;
       shinL = shinR = Math.PI / 2 - tilt;
-      const busy = input.activity === "studying" || input.activity === "sketching";
+      // Hands on the desk while studying, sketching, in a lecture or an exam (M8).
+      const busy = DESK_BUSY.has(input.activity);
       armLX = armRX = busy ? -0.95 + Math.sin(t * 3) * 0.04 : -0.5;
       armLZ = rest * 0.4;
       armRZ = -rest * 0.4;
       if (input.activity === "sketching") armRX = -1.05 + Math.sin(t * 7) * 0.08;
+      // Writing answers in the exam: a slower pen than sketching.
+      if (input.activity === "exam") armRX = -1.0 + Math.sin(t * 4.5) * 0.06;
       breathe = 1;
     } else if (input.moving) {
       const phase = t * 8.5;

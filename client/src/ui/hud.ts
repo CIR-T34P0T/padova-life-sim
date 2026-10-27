@@ -1,4 +1,4 @@
-import { CLOSE_SIGNED_IN_ELSEWHERE, formatEuros, readClock, type LifePayload, type MoodLevel } from "@padova/shared";
+import { CLOSE_SIGNED_IN_ELSEWHERE, WEEKDAY_NAMES, WEEKDAY_SHORT, formatEuros, readClock, weekdayOf, type LifePayload, type MoodLevel } from "@padova/shared";
 import type { ConnectionStatus } from "../net/connection.ts";
 
 const STATUS_TEXT: Record<ConnectionStatus, string> = {
@@ -78,13 +78,16 @@ export class Hud {
       chip.hidden = true;
       return;
     }
-    const clock = readClock(this.gameMinute ?? this.life.gameMinute);
+    const minute = this.gameMinute ?? this.life.gameMinute;
+    const clock = readClock(minute);
     const time = `${String(clock.hours).padStart(2, "0")}:${String(clock.minutes).padStart(2, "0")}`;
+    // The weekday matters since lectures follow a weekly timetable (M8).
+    const weekday = weekdayOf(minute);
     const mood = MOOD_TEXT[this.life.mood.level];
     chip.hidden = false;
     chip.dataset.mood = this.life.mood.level;
-    chip.textContent = `${time} · ${formatEuros(this.life.money.balanceCents)}`;
-    chip.setAttribute("aria-label", `Your character: mood ${mood}, ${clock.label}, ${formatEuros(this.life.money.balanceCents)}. Open character panel.`);
-    chip.title = `Mood: ${mood} · ${clock.label}`;
+    chip.textContent = `${WEEKDAY_SHORT[weekday]} ${time} · ${formatEuros(this.life.money.balanceCents)}`;
+    chip.setAttribute("aria-label", `Your character: mood ${mood}, ${WEEKDAY_NAMES[weekday]}, ${clock.label}, ${formatEuros(this.life.money.balanceCents)}. Open character panel.`);
+    chip.title = `Mood: ${mood} · ${WEEKDAY_NAMES[weekday]} · ${clock.label}`;
   }
 }

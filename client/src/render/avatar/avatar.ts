@@ -37,6 +37,8 @@ const ACTIVITY_LABEL: Record<string, string> = {
   drinking: "drinking",
   washing: "freshening up",
   working: "working",
+  attending: "in a lecture",
+  exam: "in an exam",
   greeting: "",
 };
 

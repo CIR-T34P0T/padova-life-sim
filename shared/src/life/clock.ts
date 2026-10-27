@@ -25,6 +25,33 @@ export function gameDayOf(gameMinute: number): number {
   return Math.floor(gameMinute / MINUTES_PER_DAY) + 1;
 }
 
+/** Day names, Monday first: Day 1 of the game clock is a Monday (M8 timetables). */
+export const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
+export const WEEKDAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+/** Day of the week of a game minute: 0 = Monday … 6 = Sunday. */
+export function weekdayOf(gameMinute: number): number {
+  return (((gameDayOf(gameMinute) - 1) % 7) + 7) % 7;
+}
+
+/** First game minute (00:00) of a game day. */
+export function dayStartMinute(day: number): number {
+  return (day - 1) * MINUTES_PER_DAY;
+}
+
+/**
+ * The clock offset in whole game minutes (GAME_CLOCK_OFFSET_MINUTES) that
+ * makes the game time read `weekday` (0 = Monday) at hh:mm at the real moment
+ * `realMs`: the nearest such moment, so the offset stays within four and a
+ * half days either way. For development and tests (trying a lecture or an
+ * exam at any real time).
+ */
+export function clockOffsetFor(realMs: number, weekday: number, hours: number, minutes = 0, scale: number = TIME_CONFIG.defaultScale): number {
+  const now = gameMinuteAt(realMs, scale);
+  const shift = ((((weekday - weekdayOf(now) + 10) % 7) + 7) % 7) - 3; // −3…+3 days
+  return Math.round(dayStartMinute(gameDayOf(now) + shift) + hours * 60 + minutes - now);
+}
+
 export interface ClockReading {
   day: number;
   hours: number;

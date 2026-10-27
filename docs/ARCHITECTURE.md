@@ -202,9 +202,12 @@ per game hour by activity and traits, gains, offline catch-up), `mood.ts`
 curve, levels, trait and mood multipliers), `traits.ts` (validation),
 `economy.ts` (menu lookup, euro formatting, affordability), `effects.ts`
 (what each timed action or café item does, and how much of it applies after
-a fraction of its duration) and `work.ts` (M7: grade from skill levels,
-opening hours, shifts today, why a shift can't start). All tuning is in
-`life/config.ts`, including the job catalogue `JOBS`.
+a fraction of its duration), `work.ts` (M7: grade from skill levels,
+opening hours, shifts today, why a shift can't start) and `university.ts`
+(M8: the weekly timetable in absolute game minutes, why a lecture or the
+exam can't start, the exam grade). `clock.ts` also gives every game day a
+weekday (Day 1 is a Monday). All tuning is in `life/config.ts`, including
+the job catalogue `JOBS` and the course catalogue `COURSES`.
 
 **World clock (D-021).** One clock per server, derived from real time:
 `gameMinuteAt(Date.now(), timeScale, offset)`, default 10 game minutes per
@@ -217,7 +220,8 @@ never run their own clock, so frame rate cannot change game time.
   profile SQL; money changes are row-locked, idempotent ledger transactions.
 - `LifeService.ts`: load (with the capped offline catch-up, D-022), save
   together with the position in one transaction, purchase/refund with
-  server-side prices, daily allowance; hire, quit and pay a shift (M7).
+  server-side prices, daily allowance; hire, quit and pay a shift (M7);
+  enrol, record a lecture or a study session, grade an exam (M8).
 - `LifeSystem.ts`: in-memory life of every character in the room. Each tick
   (after movement, before interactions complete) it steps needs, adds fitness
   XP for distance actually walked, applies the running action's effect in
@@ -229,11 +233,13 @@ never run their own clock, so frame rate cannot change game time.
 `InteractionHooks` object (implemented by `LifeSystem`): `checkStart` (e.g.
 too tired; can't afford; the café is closed), `effectFor`, `purchase` and
 `refund` (async, on arrival at the counter), `onCompleted`, `onGreeting`,
-and for work (M7) `jobOf`, `hire`, `startShift` and `payShift`. A pending
-action has phases: `approach` (walking) → `paying` (waiting for the
-database: a purchase being charged, the player shows "ordering"; a hire
-being written) → `active` (timed effect); a finished shift goes back to
-`paying` while its wage is recorded and only then completes. If a purchase
+for work (M7) `jobOf`, `hire`, `startShift` and `payShift`, and for the
+university (M8) `courseOf`, `enrol`, `startCourseAction` and
+`finishCourseAction`. A pending action has phases: `approach` (walking) →
+`paying` (waiting for the database: a purchase being charged, the player
+shows "ordering"; a hire or an enrolment being written) → `active` (timed
+effect); a finished shift, lecture or exam goes back to `paying` while it is
+recorded and only then completes. If a purchase
 is cancelled or replaced while paying, the completed payment is refunded
 (D-025). Standing spots (café counter, fountain) reuse the seat mechanism
 with `pose: "stand"` (D-026).
@@ -253,16 +259,40 @@ first, then deletes the job. Job changes are applied in memory only after
 the database confirms, and a per-character busy flag stops two job changes
 or a shift start overlapping.
 
+**University (M8).** Rules and numbers: `GAME_DESIGN.md` "University
+(M8)". *Enrol* (`enrol`) at the square's notice board is untimed like *Ask
+about work*: on arrival the `enrol` hook writes the enrolment
+(`enrolCharacter`) and the action completes once it is stored. *Attend the
+lecture* (`attend`) and *Sit the exam* (`exam`) are seated timed actions at
+desks tagged `lecture` (the lecture room's): `checkStart` refuses them
+outside the timetable with the shared rules (`lectureRefusal`,
+`examRefusal`); on reaching the desk `startCourseAction` checks again (late
+entry may have closed during the walk) and fixes which lecture or sitting
+the action counts for (its timetable key) in the pending action. When the
+time is up `finishCourseAction` records the lecture (`recordLecture`, one
+row per lecture key) or grades the exam (`recordExam`: grade computed in the
+database transaction from stored attendance and study and the academic
+level, one per sitting key); the action completes only if that succeeds.
+The life update with the new count or result is sent before the
+completion, so the client's note reads the new values. A completed study
+session while enrolled also counts (`recordStudySession`, written straight
+away). Course changes are applied in memory only after the database
+confirms.
+
 **Client.** `ui/characterPanel.ts` shows the player's own needs, mood (with
 reasons), skills, work (job, grade, wage, shifts today, opening hours and
-*Quit job*; M7), money with recent transactions, and current action, from
+*Quit job*; M7), university (course, timetable, next lecture, attendance
+and study bars, exam sittings, the grade sitting now would give, the last
+result; M8), money with recent transactions, and current action, from
 the server's `life` message only; nothing is calculated as truth on the
 client. Desktop: a 300 px column on the right; touch: a bottom sheet under
 half the screen in portrait, docked right in landscape. Opened by clicking
-yourself → "Character" or the top-right chip (`ui/hud.ts`: time, money,
-mood colour). Café options show prices and are greyed out when the player
+yourself → "Character" or the top-right chip (`ui/hud.ts`: weekday and
+time, money, mood colour). Café options show prices and are greyed out when the player
 can't afford them; focus actions show "Too tired"; *Work a shift* shows wage
-and length, or is greyed out with the reason it can't start (D-036). The server re-checks
+and length, or is greyed out with the reason it can't start (D-036); the
+lecture and the exam likewise, with the next one's time in game and real
+time (`ui/university.ts`, M8). The server re-checks
 everything. Traits (up to two, optional) are picked on the name and
 personality step (`ui/screens/setupScreen.ts`; the M4–M6 `ui/profilePanel.ts`
 was replaced by the title screen flow in M6b).
@@ -300,8 +330,8 @@ are replicated, private or persistent is the table in `NETWORKING.md`
    title, eviction, room close, the 30 s autosave, after an action that gave
    skill XP). Seats, activity and the pending action are never saved.
 
-**Rule for new systems** (the convention this pattern sets; M7's wages
-follow it): a new valuable change (a wage, a grade, a relationship step, an
+**Rule for new systems** (the convention this pattern sets; M7's wages and
+M8's lectures and grades follow it): a new valuable change (a wage, a grade, a relationship step, an
 item) is an intent from the client, a pure rule in `shared/`, a server check
 over server state, and a write in a repository transaction scoped by the
 owning account, with an idempotency key when a repeat could pay or grant

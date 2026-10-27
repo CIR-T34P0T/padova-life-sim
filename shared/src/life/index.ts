@@ -7,3 +7,4 @@ export * from "./traits.ts";
 export * from "./economy.ts";
 export * from "./effects.ts";
 export * from "./work.ts";
+export * from "./university.ts";

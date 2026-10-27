@@ -33,7 +33,7 @@ export type ObstacleKind =
   | "board"
   | "shelf";
 
-export type InteractableKind = "bench" | "desk" | "cafe" | "fountain" | "door";
+export type InteractableKind = "bench" | "desk" | "cafe" | "fountain" | "door" | "noticeboard";
 
 /**
  * Where a door leads (M7c): the area, and the door in that area you arrive at
@@ -90,6 +90,8 @@ export interface Interactable {
   seats: readonly Seat[];
   /** For doors: where it leads. */
   door?: DoorLink;
+  /** For desks: lectures and exams are held here (M8). */
+  lecture?: boolean;
 }
 
 export interface Obstacle {
@@ -417,6 +419,8 @@ export const PLAZA_LAYOUT: WorldLayout = {
       seats: standingSpotsAlongEdge(obstacle("library-door"), 2, "south"),
       door: { to: "library/reading-room", door: "reading-room-door", actionLabel: "Go in" },
     },
+    // Enrolment in the university's course (M8); lectures and the exam are in the hall's lecture room.
+    { id: "noticeboard", kind: "noticeboard", label: "University notice board", seats: standingSpotsAlongEdge(obstacle("noticeboard"), 1, "south") },
   ],
   spawnPoints: [
     { x: 0, z: 13 },

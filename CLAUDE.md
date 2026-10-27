@@ -46,8 +46,9 @@ or auth model without the product owner's approval.
   (row-locked, idempotent by request key, never below zero). Prices come from
   the server's catalogue, never from a client. No debt unless a design
   decision adds it.
-- **Life data is private.** Needs, mood, skills, traits and money go only to
-  their owner (`life` message), never into the shared Colyseus state.
+- **Life data is private.** Needs, mood, skills, traits, money, the job and
+  the course with its grades go only to their owner (`life` message), never
+  into the shared Colyseus state.
 - **Game time comes from the server clock** (`shared/src/life/clock.ts`,
   replicated as `gameMinute`); clients never run their own game timers.
   Day and night are drawn from it on the client
@@ -66,9 +67,13 @@ or auth model without the product owner's approval.
   `shared/src/interactions.ts`; they don't add special cases to the room.
   Gameplay effects (needs, skills, money) plug in through `InteractionHooks`,
   implemented by `server/src/life/LifeSystem.ts`, and are defined as data in
-  `shared/src/life/config.ts` (`ACTION_EFFECTS`, `CAFE_MENU`, `JOBS`).
-  Wages are paid only for completed shifts, through the same ledger
-  (`recordShift`, one payment per shift id).
+  `shared/src/life/config.ts` (`ACTION_EFFECTS`, `CAFE_MENU`, `JOBS`,
+  `COURSES`). Wages are paid only for completed shifts, through the same
+  ledger (`recordShift`, one payment per shift id). Lectures and exams count
+  only when completed and recorded (`recordLecture`, `recordExam`, one per
+  timetable key); grades are computed on the server from stored rows
+  (`examGrade` in `shared/src/life/university.ts`, D-040). Timetables are in
+  game time; Day 1 is a Monday.
 - **Appearance is cosmetic and never about ethnicity** (D-029). The
   appearance config (`shared/src/appearance/`) has no ethnicity, race or
   heritage field, presets are named by look, and no gameplay rule reads

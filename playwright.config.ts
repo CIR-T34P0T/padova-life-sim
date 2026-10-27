@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { gameMinuteAt } from "@padova/shared";
+import { clockOffsetFor } from "@padova/shared";
 
 // End-to-end tests run the real server and the real client in real browsers.
 // Ports differ from the dev defaults so tests never collide with `npm run dev`.
@@ -12,11 +12,13 @@ const executablePath = process.env.CHROMIUM_PATH || undefined;
 
 // The game clock follows real time, so the café (open 06:00–23:00 game time)
 // could be closed whenever the suite happens to run. Shift the test server's
-// clock so the run starts at 09:00 game time: that leaves 14 game hours (84
-// real minutes at the default speed) of opening time, longer than the suite.
+// clock so the run starts at 09:00 game time on the nearest Wednesday: that
+// leaves 14 game hours (84 real minutes at the default speed) of opening
+// time, longer than the suite, and Wednesday has both lectures (on the hour)
+// and an exam sitting (09:00–19:00) for the university test (M8).
 // E2E_CLOCK_OFFSET_MINUTES overrides it (e.g. to try the closed café).
-const now = gameMinuteAt(Date.now());
-const clockOffset = process.env.E2E_CLOCK_OFFSET_MINUTES ?? String(Math.round(Math.floor(now / 1440) * 1440 + 9 * 60 - now));
+const WEDNESDAY = 2;
+const clockOffset = process.env.E2E_CLOCK_OFFSET_MINUTES ?? String(clockOffsetFor(Date.now(), WEDNESDAY, 9));
 
 const launchOptions = {
   executablePath,

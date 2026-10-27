@@ -1,6 +1,6 @@
 // Friendly text for server refusal and failure reasons.
 
-import { JOBS, formatTimeOfDay } from "@padova/shared";
+import { COURSES, JOBS, formatTimeOfDay } from "@padova/shared";
 
 const REASON_TEXT: Record<string, string> = {
   // Movement
@@ -36,6 +36,16 @@ const REASON_TEXT: Record<string, string> = {
   shift_limit: "That's enough shifts for today. Come back tomorrow.",
   hire_failed: "Couldn't sign you up just now. Nothing changed; try again in a moment.",
   wage_failed: "Your wage couldn't be paid because of a server problem, so the shift didn't count.",
+  // University (M8)
+  not_enrolled: "You're not enrolled. Enrol at the University notice board beside the university hall.",
+  already_enrolled: "You're already enrolled. Your character panel has the timetable.",
+  course_passed: "You've already passed this course.",
+  no_lecture_now: `No lecture you can join right now. Lectures start on the hour; you can join in the first ${COURSES["city-studies"].lateEntryMinutes} minutes.`,
+  already_attended: "You've already attended this lecture. The next one starts on the hour.",
+  no_exam_now: "The exam isn't open now. Your character panel shows the next sitting.",
+  already_sat: "You've already sat the exam at this sitting. Try again at the next one.",
+  enrol_failed: "Couldn't enrol you just now. Nothing changed; try again in a moment.",
+  record_failed: "That couldn't be recorded because of a server problem, so it didn't count.",
 };
 
 export function reasonText(reason: string | undefined): string {

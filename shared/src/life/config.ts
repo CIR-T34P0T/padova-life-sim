@@ -81,6 +81,10 @@ export const MOOD_EVENTS = {
   someone_said_hello: { label: "Someone said hello", value: 6, durationGameMinutes: 90 },
   couldnt_afford: { label: "Couldn't afford it", value: -5, durationGameMinutes: 60 },
   good_days_work: { label: "Good day's work", value: 6, durationGameMinutes: 120 },
+  // University (M8)
+  interesting_lecture: { label: "Interesting lecture", value: 6, durationGameMinutes: 120 },
+  passed_exam: { label: "Passed an exam", value: 15, durationGameMinutes: 360 },
+  failed_exam: { label: "Failed an exam", value: -8, durationGameMinutes: 240 },
 } as const;
 export type MoodEventId = keyof typeof MOOD_EVENTS;
 
@@ -125,6 +129,25 @@ export const ACTION_EFFECTS = {
     skills: {},
     skillsOnCompletion: { communication: 10 },
     moodEvent: "good_days_work",
+    focus: true,
+  },
+  /** Attending a lecture (M8): 2 real minutes = 20 game minutes. Counts for the course only when completed. */
+  attend: {
+    durationMs: 120_000,
+    activity: "attending",
+    needs: { energy: -6, fun: -3 },
+    skills: { academic: 10 },
+    skillsOnCompletion: { academic: 20 },
+    moodEvent: "interesting_lecture",
+    focus: true,
+  },
+  /** Sitting the exam (M8): 3 real minutes = 30 game minutes. Graded only when completed; the mood event depends on the result. */
+  exam: {
+    durationMs: 180_000,
+    activity: "exam",
+    needs: { energy: -10, fun: -6 },
+    skills: {},
+    skillsOnCompletion: { academic: 20 },
     focus: true,
   },
 } as const satisfies Record<string, TimedEffect>;
@@ -214,6 +237,77 @@ export const JOBS: Record<JobId, JobDefinition> = {
       { id: "assistant", label: "Café assistant", wageCents: 600 },
       { id: "barista", label: "Barista", wageCents: 800, requires: { skill: "communication", level: 2 } },
     ],
+  },
+};
+
+export const COURSE_IDS = ["city-studies"] as const;
+export type CourseId = (typeof COURSE_IDS)[number];
+
+export interface CourseGrading {
+  /** Lectures attended, completed study sessions and academic level that each count in full. */
+  lecturesForFull: number;
+  studyForFull: number;
+  levelForFull: number;
+  /** Shares of the score (they add up to 1). */
+  weights: { attendance: number; study: number; level: number };
+  /** Grade for a score of 0 and of 1; 31 is shown as "30 cum laude". */
+  lowestGrade: number;
+  highestGrade: number;
+  /** Lowest passing grade (the Italian scale passes from 18). */
+  passMark: number;
+}
+
+export interface CourseDefinition {
+  label: string;
+  description: string;
+  /** Interactable where students enrol (on the square, beside the university hall). */
+  enrolAt: string;
+  /** Where lectures and exams are held: an area id (M7c) and how to name it. */
+  roomId: string;
+  roomLabel: string;
+  /** Days with lectures (0 = Monday) and their start times in game minutes after midnight. */
+  lectureDays: readonly number[];
+  lectureStarts: readonly number[];
+  lectureMinutes: number;
+  /** A lecture can be joined until this many game minutes after it starts. */
+  lateEntryMinutes: number;
+  /** Exam sittings: days (0 = Monday) and the hours an exam can be started. */
+  examDays: readonly number[];
+  examOpensAt: number;
+  examClosesAt: number;
+  grading: CourseGrading;
+}
+
+/**
+ * University courses (M8). Fictional: no real course names and no link to any
+ * real university. Lectures run on the hour so a player finds one soon on
+ * the real-time clock (a game day lasts 2.4 real hours, a game week 16.8);
+ * two exam sittings a week, each open for ten game hours (one real hour).
+ * Design: docs/GAME_DESIGN.md "University (M8)".
+ */
+export const COURSES: Record<CourseId, CourseDefinition> = {
+  "city-studies": {
+    label: "Introduction to City Studies",
+    description: "A fictional first-year course on how cities live and work.",
+    enrolAt: "noticeboard",
+    roomId: "hall/lecture-room",
+    roomLabel: "the university hall's lecture room",
+    lectureDays: [0, 1, 2, 3, 4],
+    lectureStarts: [9 * 60, 10 * 60, 11 * 60, 12 * 60, 14 * 60, 15 * 60, 16 * 60, 17 * 60],
+    lectureMinutes: 50,
+    lateEntryMinutes: 20,
+    examDays: [2, 5],
+    examOpensAt: 9 * 60,
+    examClosesAt: 19 * 60,
+    grading: {
+      lecturesForFull: 8,
+      studyForFull: 6,
+      levelForFull: 4,
+      weights: { attendance: 0.45, study: 0.35, level: 0.2 },
+      lowestGrade: 12,
+      highestGrade: 31,
+      passMark: 18,
+    },
   },
 };
 

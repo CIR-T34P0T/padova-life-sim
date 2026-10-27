@@ -7,6 +7,7 @@ import { ACTION_IDS, type ActionId, type CancelReason, type InteractionFailure, 
 import type { JobId, MoodEventId, MoodLevel, NeedId, SkillId, TraitId } from "./life/config.ts";
 import { isValidRequestId, type TransactionView } from "./life/economy.ts";
 import type { MoodReason } from "./life/mood.ts";
+import type { CourseState } from "./life/university.ts";
 import type { CharacterProfile, ProfileFailure } from "./profile.ts";
 
 export const ClientMessage = {
@@ -193,6 +194,10 @@ export interface LifePayload {
    * follow from the shared rules (shared/src/life/work.ts).
    */
   job: { jobId: JobId; shiftsToday: number } | null;
+  /** The character's course, attendance and results (M8), or null when not enrolled. */
+  course: CourseState | null;
+  /** Game minutes per real minute, for "in about N real minutes" hints (D-021). */
+  timeScale: number;
 }
 
 export interface GreetedPayload {

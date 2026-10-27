@@ -583,3 +583,53 @@ Built in M7c (ARCHITECTURE.md "Indoor rooms"):
 - **The room is saved:** you come back where you left; an area that no
   longer exists sends you to the square's spawn points.
 - **At the title screen a client receives no players at all.**
+
+## D-040 — University basics: implementation choices (2026-10-27)
+
+M8 was built as planned in ROADMAP.md "M8 — University basics" and
+described in GAME_DESIGN.md "University (M8)", on the kept clock (D-038)
+and in the lecture room (D-039). Choices made while building it; each is a
+default the product owner can change.
+
+- **One fictional course, as data.** *Introduction to City Studies* lives
+  in `COURSES` (`shared/src/life/config.ts`): where to enrol, its room, its
+  timetable and its grading. No real course names; nothing implies a link
+  with any real university.
+- **Enrol outside, study inside.** Enrolment is at the square's existing
+  *University notice board* beside the hall's door, so new players find it
+  without knowing the room exists; lectures and the exam are at the lecture
+  room's desks (tagged `lecture` in the layout).
+- **Day 1 is a Monday.** The weekday is derived from the game day, not
+  stored; the clock chip and the panel show it.
+- **A timetable built for the real-time clock.** A game week lasts 16.8 real
+  hours, so a lecture once a week would be missed by most players. Lectures
+  run on the hour on weekdays (09:00–12:00 and 14:00–17:00, 50 minutes,
+  joinable for the first 20), attending takes 2 real minutes, and exam
+  sittings are on Wednesdays and Saturdays from 09:00 to 19:00 (one real
+  hour each), the exam itself 3 real minutes.
+- **Lectures and exams count only when completed and recorded**, like
+  shifts: the timetable is checked when asked and again on reaching the
+  desk; the record is idempotent by its timetable key (a lecture's game day
+  and start, a sitting's game day). Leaving early never counts and can be
+  retried while the lecture or sitting is open.
+- **The grade is deterministic and computed on the server** inside the
+  transaction that records the exam, from the stored attendance and study
+  count and the academic level the server holds: 45 % attendance (full at 8
+  lectures), 35 % study (full at 6 sessions), 20 % academic level (full at
+  level 4), mapped to 12–31 on the Italian scale (31 shown as 30 cum laude,
+  18 passes). Being deterministic lets the panel show what sitting now would
+  give.
+- **Failing is gentle:** one attempt per sitting, the grade and a mood event
+  (*Failed an exam*, −8), the course stays open with all progress kept, and
+  the exam can be retaken at the next sitting. No fees and no retake limit.
+  Passing closes the course; there is no refusing a passing grade yet.
+- **Study counts for the course while enrolled,** at any desk or table,
+  written straight away like attendance.
+- **Private, like money.** Enrolment, attendance, study count and grades go
+  only to their owner in `life`; others see only the activity (`attending`,
+  `exam`). `life` also carries the server's `timeScale`, so menus can give
+  waits in real time ("in about 25 min").
+- **Browser tests start on a Wednesday at 09:00** (the nearest one), so a
+  lecture and an exam sitting are both available whenever the suite runs.
+- **Not built in M8:** withdrawing from a course, several courses or years,
+  graduation, assignments, a lecturer character (NPCs are M11).

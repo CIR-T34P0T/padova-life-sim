@@ -1,4 +1,4 @@
-import type { ActionId, JobId, MovingCharacter, ResolvedEffect, TargetKind, Vec2 } from "@padova/shared";
+import type { ActionId, CourseId, JobId, MovingCharacter, ResolvedEffect, TargetKind, Vec2 } from "@padova/shared";
 
 /** A shift being worked (M7). Decided by the server when the shift starts; paid only on completion. */
 export interface ShiftInProgress {
@@ -26,8 +26,9 @@ export interface PendingAction {
   seatId: string;
   /**
    * "approach": walking to the interaction point. "paying": waiting for the
-   * database (a purchase being charged, a hire being written, a finished
-   * shift's wage being paid). "active": doing it.
+   * database (a purchase being charged, a hire or an enrolment being written,
+   * a finished shift's wage being paid, a lecture or an exam being recorded).
+   * "active": doing it.
    */
   phase: "approach" | "paying" | "active";
   /** Interaction point the character is walking to. */
@@ -44,6 +45,17 @@ export interface PendingAction {
   replans: number;
   /** The shift, for "work" once it has started. */
   shift?: ShiftInProgress;
+  /** The lecture or exam sitting, for "attend" and "exam" once started (M8). */
+  course?: CourseSlotInProgress;
+}
+
+/** Which lecture or sitting an "attend" or "exam" action counts for, fixed when it starts. */
+export interface CourseSlotInProgress {
+  kind: "lecture" | "exam";
+  courseId: CourseId;
+  /** The timetable key: a lecture ("d12-0900") or a sitting ("d13"). */
+  key: string;
+  gameDay: number;
 }
 
 /** Server-only data per player. Never sent to clients. */

@@ -808,6 +808,13 @@ p.cp-muted {
   font-weight: 700;
 }
 
+/* ── University section (M8): the next lecture and the exam line ──────────── */
+.cp-course-line {
+  margin: 4px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .cp-action.cp-quit {
   flex: none;
   padding: 0 16px;

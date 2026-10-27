@@ -1,12 +1,14 @@
-// SQL for life-simulation data: traits, needs, skills, mood events, money and
-// work (M7).
+// SQL for life-simulation data: traits, needs, skills, mood events, money,
+// work (M7) and university (M8).
 // Like profileRepository.ts, every read and write is scoped by the owning
 // account id taken from the authenticated session, never from client input.
 
 import { randomUUID } from "node:crypto";
 import {
   NEEDS_CONFIG,
+  examGrade,
   type ActiveMoodEvent,
+  type CourseId,
   type JobId,
   type Needs,
   type SkillXp,
@@ -370,4 +372,192 @@ export async function recordShift(db: Database, owner: Owner, shift: CompletedSh
     if (isUniqueViolation(error)) return recordShift(db, owner, shift);
     throw error;
   }
+}
+
+// ── University (M8) ───────────────────────────────────────────────────────
+
+export interface StoredCourse {
+  /** Raw stored course id (validate with isCourseId). */
+  courseId: string;
+  status: "enrolled" | "passed";
+  studySessions: number;
+  lecturesAttended: number;
+  lastLectureKey: string | null;
+  lastSittingKey: string | null;
+  lastResult: { grade: number; passed: boolean; gameDay: number } | null;
+  finalGrade: number | null;
+}
+
+/** A character's courses with attendance and the latest result, or null when `owner.accountId` does not own it. */
+export async function loadCourses(db: Queryable, owner: Owner): Promise<StoredCourse[] | null> {
+  if (!(await owns(db, owner))) return null;
+  const { rows } = await db.query<{
+    course: string;
+    status: "enrolled" | "passed";
+    study_sessions: number;
+    final_grade: number | null;
+    lectures: number;
+    last_lecture: string | null;
+    last_sitting: string | null;
+    last_grade: number | null;
+    last_passed: boolean | null;
+    last_day: number | null;
+  }>(
+    `SELECT e.course, e.status, e.study_sessions, e.final_grade,
+            (SELECT count(*)::int FROM lecture_attendance l WHERE l.character_id = e.character_id AND l.course = e.course) AS lectures,
+            (SELECT l.lecture_key FROM lecture_attendance l WHERE l.character_id = e.character_id AND l.course = e.course
+              ORDER BY l.attended_game_minute DESC LIMIT 1) AS last_lecture,
+            a.sitting_key AS last_sitting, a.grade AS last_grade, a.passed AS last_passed, a.game_day AS last_day
+       FROM enrolments e
+       LEFT JOIN LATERAL (
+         SELECT sitting_key, grade, passed, game_day FROM assessments x
+          WHERE x.character_id = e.character_id AND x.course = e.course
+          ORDER BY x.sat_game_minute DESC LIMIT 1
+       ) a ON true
+      WHERE e.character_id = $1
+      ORDER BY e.enrolled_game_minute`,
+    [owner.characterId],
+  );
+  return rows.map((r) => ({
+    courseId: r.course,
+    status: r.status,
+    studySessions: Number(r.study_sessions),
+    lecturesAttended: Number(r.lectures),
+    lastLectureKey: r.last_lecture,
+    lastSittingKey: r.last_sitting,
+    lastResult: r.last_grade === null ? null : { grade: Number(r.last_grade), passed: Boolean(r.last_passed), gameDay: Number(r.last_day) },
+    finalGrade: r.final_grade === null ? null : Number(r.final_grade),
+  }));
+}
+
+/** Enrols the character in a course. Refused when it is already enrolled in (or has passed) that course. */
+export async function enrolCharacter(db: Queryable, owner: Owner, courseId: CourseId, gameMinute: number): Promise<"enrolled" | "already_enrolled" | "not_owner"> {
+  const { rows } = await db.query(
+    `INSERT INTO enrolments (character_id, course, status, enrolled_game_minute)
+       SELECT c.id, $3, 'enrolled', $4 FROM characters c WHERE c.id = $1 AND c.account_id = $2
+     ON CONFLICT (character_id, course) DO NOTHING
+     RETURNING character_id`,
+    [owner.characterId, owner.accountId, courseId, gameMinute],
+  );
+  if (rows.length > 0) return "enrolled";
+  return (await owns(db, owner)) ? "already_enrolled" : "not_owner";
+}
+
+export interface CompletedLecture {
+  courseId: CourseId;
+  /** The lecture's key from the timetable (e.g. "d12-0900"): one record per lecture. */
+  lectureKey: string;
+  gameDay: number;
+  endedGameMinute: number;
+}
+
+export type LectureResult = { status: "recorded" | "duplicate"; lecturesAttended: number } | { status: "not_enrolled" } | { status: "not_owner" };
+
+/**
+ * Records a completed lecture once. Refused unless the character is enrolled
+ * (not yet passed). Safe to repeat: a lecture already recorded is "duplicate".
+ * The enrolment row is locked, so one character's records never race.
+ */
+export async function recordLecture(db: Database, owner: Owner, lecture: CompletedLecture): Promise<LectureResult> {
+  return db.transaction(async (tx): Promise<LectureResult> => {
+    const enrolment = await lockedEnrolment(tx, owner, lecture.courseId);
+    if (enrolment === "not_owner" || enrolment === "not_enrolled") return { status: enrolment };
+    const already = await tx.query(
+      `SELECT 1 FROM lecture_attendance WHERE character_id = $1 AND course = $2 AND lecture_key = $3`,
+      [owner.characterId, lecture.courseId, lecture.lectureKey],
+    );
+    if (already.rows.length > 0) return { status: "duplicate", lecturesAttended: await countLectures(tx, owner, lecture.courseId) };
+    if (enrolment.status !== "enrolled") return { status: "not_enrolled" };
+    await tx.query(
+      `INSERT INTO lecture_attendance (character_id, course, lecture_key, game_day, attended_game_minute) VALUES ($1, $2, $3, $4, $5)`,
+      [owner.characterId, lecture.courseId, lecture.lectureKey, lecture.gameDay, lecture.endedGameMinute],
+    );
+    return { status: "recorded", lecturesAttended: await countLectures(tx, owner, lecture.courseId) };
+  });
+}
+
+/** Counts one completed study session towards the character's course; the new count, or null when not enrolled. */
+export async function recordStudySession(db: Queryable, owner: Owner, courseId: CourseId): Promise<number | null> {
+  const { rows } = await db.query<{ study_sessions: number }>(
+    `UPDATE enrolments e SET study_sessions = e.study_sessions + 1
+       FROM characters c
+      WHERE e.character_id = c.id AND c.id = $1 AND c.account_id = $2 AND e.course = $3 AND e.status = 'enrolled'
+      RETURNING e.study_sessions`,
+    [owner.characterId, owner.accountId, courseId],
+  );
+  return rows[0] ? Number(rows[0].study_sessions) : null;
+}
+
+export interface CompletedExam {
+  courseId: CourseId;
+  /** The sitting's key from the timetable (e.g. "d13"): one exam per sitting. */
+  sittingKey: string;
+  gameDay: number;
+  endedGameMinute: number;
+  /** The character's academic level when the exam ended (kept in memory by the server). */
+  academicLevel: number;
+}
+
+export interface GradedExam {
+  grade: number;
+  passed: boolean;
+  lecturesAttended: number;
+  studySessions: number;
+  academicLevel: number;
+}
+
+export type ExamResult = ({ status: "graded" | "duplicate" } & GradedExam) | { status: "not_enrolled" } | { status: "not_owner" };
+
+/**
+ * Grades a completed exam in one transaction from the stored attendance and
+ * study count (examGrade in shared/src/life/university.ts), records it, and
+ * marks the course passed with a passing grade. Safe to repeat: a sitting
+ * already graded returns "duplicate" with its original result.
+ */
+export async function recordExam(db: Database, owner: Owner, exam: CompletedExam): Promise<ExamResult> {
+  return db.transaction(async (tx): Promise<ExamResult> => {
+    const enrolment = await lockedEnrolment(tx, owner, exam.courseId);
+    if (enrolment === "not_owner" || enrolment === "not_enrolled") return { status: enrolment };
+    const earlier = await tx.query<{ grade: number; passed: boolean; lectures_attended: number; study_sessions: number; academic_level: number }>(
+      `SELECT grade, passed, lectures_attended, study_sessions, academic_level FROM assessments
+        WHERE character_id = $1 AND course = $2 AND sitting_key = $3`,
+      [owner.characterId, exam.courseId, exam.sittingKey],
+    );
+    const e = earlier.rows[0];
+    if (e) {
+      return { status: "duplicate", grade: Number(e.grade), passed: e.passed, lecturesAttended: Number(e.lectures_attended), studySessions: Number(e.study_sessions), academicLevel: Number(e.academic_level) };
+    }
+    if (enrolment.status !== "enrolled") return { status: "not_enrolled" };
+    const lecturesAttended = await countLectures(tx, owner, exam.courseId);
+    const inputs = { lecturesAttended, studySessions: enrolment.studySessions, academicLevel: Math.max(0, Math.floor(exam.academicLevel)) };
+    const result = examGrade(exam.courseId, inputs);
+    await tx.query(
+      `INSERT INTO assessments (character_id, course, sitting_key, kind, grade, passed, lectures_attended, study_sessions, academic_level, game_day, sat_game_minute)
+       VALUES ($1, $2, $3, 'exam', $4, $5, $6, $7, $8, $9, $10)`,
+      [owner.characterId, exam.courseId, exam.sittingKey, result.grade, result.passed, inputs.lecturesAttended, inputs.studySessions, inputs.academicLevel, exam.gameDay, exam.endedGameMinute],
+    );
+    if (result.passed) {
+      await tx.query(
+        `UPDATE enrolments SET status = 'passed', final_grade = $3, passed_game_minute = $4 WHERE character_id = $1 AND course = $2`,
+        [owner.characterId, exam.courseId, result.grade, exam.endedGameMinute],
+      );
+    }
+    return { status: "graded", grade: result.grade, passed: result.passed, ...inputs };
+  });
+}
+
+/** The character's enrolment row, locked for this transaction (one university change at a time per character). */
+async function lockedEnrolment(tx: Queryable, owner: Owner, courseId: CourseId): Promise<{ status: "enrolled" | "passed"; studySessions: number } | "not_enrolled" | "not_owner"> {
+  const { rows } = await tx.query<{ status: "enrolled" | "passed"; study_sessions: number }>(
+    `SELECT e.status, e.study_sessions FROM enrolments e JOIN characters c ON c.id = e.character_id
+      WHERE e.character_id = $1 AND c.account_id = $2 AND e.course = $3 FOR UPDATE OF e`,
+    [owner.characterId, owner.accountId, courseId],
+  );
+  if (rows[0]) return { status: rows[0].status, studySessions: Number(rows[0].study_sessions) };
+  return (await owns(tx, owner)) ? "not_enrolled" : "not_owner";
+}
+
+async function countLectures(tx: Queryable, owner: Owner, courseId: CourseId): Promise<number> {
+  const { rows } = await tx.query<{ n: number }>(`SELECT count(*)::int AS n FROM lecture_attendance WHERE character_id = $1 AND course = $2`, [owner.characterId, courseId]);
+  return Number(rows[0]?.n ?? 0);
 }
