@@ -332,6 +332,8 @@ before any test with people outside the project (D-035).
 
 1. A real sign-in method upgrades a guest profile without losing its
    characters; account deletion removes all its data.
+   Before the first public test the owner is also asked again about
+   authored character models (Q6; kept procedural for now, D-041).
 2. Hosted behind HTTPS/WSS with managed PostgreSQL and backups that have
    been restored at least once.
 3. Logs and basic monitoring; a load test with the room's player limit.
@@ -374,7 +376,7 @@ marked **waiting**.
 | Q3 | Three lives per guest profile (D-031) | Kept for now | — |
 | Q4 | Time scale and offline cap (D-021, D-022) | Answered 2026-10-26: keep the current clock (D-038) | M8 timetables use it |
 | Q5 | A real sign-in method and account deletion | Approved: decide before M9 and before any public test | Options presented before M9 |
-| Q6 | Authored character models (commission or license, or keep procedural; glTF or VRM) | **Waiting**: the owner likes the idea and wants a plainer explanation | Explained plainly in the M8 report (2026-10-27); procedural characters until answered |
+| Q6 | Authored character models (commission or license, or keep procedural; glTF or VRM) | Answered 2026-10-27: **A**, keep the procedural characters for now and improve them in small steps (D-041) | Asked again before the first public test (M12) |
 | Q7 | A comfort need | Approved: add it in M10 with furniture of different comfort | M10 |
 | Q8 | The daily allowance once jobs exist | Approved: halve it (€15 → €7.50 per game day) in M7 | Done in M7 |
 | Q9 | Rent that can't be paid (no debt, D-023) | Approved: a notice and a mood event, then a move to a cheaper room | M10 |
@@ -447,13 +449,13 @@ saved in the creator and device settings live only in that browser. The world cl
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
 | 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–43) | Planned | Product owner |
 | 4 | Play-test the M5, M7 and M8 balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit, the lecture timetable and exam sittings, the grade targets) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
-| 5 | Remaining decisions in "Decisions for the product owner": Q6 (explained in the M8 report, 2026-10-27), Q5 and Q13 (before M9) | Waiting | Product owner, with explanations from Claude |
+| 5 | Remaining decisions in "Decisions for the product owner": Q5 and Q13 (before M9) | Waiting | Product owner, with explanations from Claude |
 
-**Recommended next task:** the product owner tries M8 and answers Q6
-(authored character models, explained plainly in the M8 report). M9
-(relationships, public profiles and safety) depends on Q5 (a real sign-in
-method) and Q13 (who reviews reports), so Claude presents those two next,
-in plain language, before M9 starts. In parallel the product owner looks at the district by day and at night, the title screen,
+**Recommended next task:** the product owner tries M8 (Q6 was answered on
+2026-10-27: keep the procedural characters, D-041). M9 (relationships,
+public profiles and safety) depends on Q5 (a real sign-in method) and Q13
+(who reviews reports), so Claude presents those two next, in plain
+language, before M9 starts. In parallel the product owner looks at the district by day and at night, the title screen,
 the creation flow and the characters on Windows and a phone (item 1; the
 world lab, `/world-lab.html?time=23:00`, shows every corner at any hour).
 Follow-ups not covered by "Technical work that waits for a trigger":

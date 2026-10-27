@@ -633,3 +633,16 @@ default the product owner can change.
   lecture and an exam sitting are both available whenever the suite runs.
 - **Not built in M8:** withdrawing from a course, several courses or years,
   graduation, assignments, a lecturer character (NPCs are M11).
+
+## D-041 — The product owner's answer on character models (2026-10-27)
+
+- **Q6, authored character models: option A, keep the procedural
+  characters for now.** After the plain explanation in the M8 report (A:
+  keep the code-built characters and improve them bit by bit; B: license a
+  ready-made character kit; C: commission an original set; glTF or VRM only
+  for B or C), the owner chose **A**. The characters stay as built in code
+  (D-027), with improvements made in small steps alongside the milestones;
+  no art is bought or commissioned and no new format or library is added.
+- **Asked again before the first public test (M12).** The authored-avatar
+  loading design in ASSET_PIPELINE.md stays **Proposed** and unbuilt until
+  then.
