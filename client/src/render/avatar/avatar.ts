@@ -15,6 +15,8 @@ export interface AvatarView {
   /** Point for anchoring menus above the character. */
   anchor: THREE.Object3D;
   setName(name: string): void;
+  /** A non-player character's role (M11), shown on its name tag; "" for players. */
+  setRole(role: string): void;
   setAway(away: boolean): void;
   setAppearance(appearance: AppearanceConfig): void;
   /** Activity from the server (idle, sitting, studying, greeting…). */
@@ -78,9 +80,12 @@ export function createAvatar(id: string, appearance: AppearanceConfig, isSelf: b
   const tagElement = document.createElement("div");
   tagElement.className = isSelf ? "name-tag is-self" : "name-tag";
   const nameSpan = document.createElement("span");
+  const roleSpan = document.createElement("span");
+  roleSpan.className = "name-tag-role";
+  roleSpan.hidden = true;
   const activitySpan = document.createElement("span");
   activitySpan.className = "name-tag-activity";
-  tagElement.append(nameSpan, activitySpan);
+  tagElement.append(roleSpan, nameSpan, activitySpan);
   const tag = new CSS2DObject(tagElement);
   character.figure.add(tag);
 
@@ -119,6 +124,11 @@ export function createAvatar(id: string, appearance: AppearanceConfig, isSelf: b
     anchor,
     setName(name) {
       nameSpan.textContent = name;
+    },
+    setRole(role) {
+      roleSpan.textContent = role;
+      roleSpan.hidden = role === "";
+      tagElement.classList.toggle("is-npc", role !== "");
     },
     setAway(away) {
       tagElement.classList.toggle("is-away", away);

@@ -759,3 +759,39 @@ while building it; each is a default the product owner can change.
 - **Nobody else learns anything about a home:** the `housing` message goes
   only to its tenant, home seats never enter the replicated seat map, and
   others only see the tenant leave the square.
+
+## D-045 — Non-player characters: implementation choices (2026-10-27)
+
+M11 was built as planned in ROADMAP.md "M11 — NPCs with routines". Choices
+made while building it; each is a default the product owner can change.
+
+- **NPCs are characters in the same world, run by the same systems.** They
+  are entries in the shared player map with a role and no client; the
+  server walks them with the movement rules, reserves their seats and runs
+  their actions through the interaction system's normal validation and
+  lifecycle. Nothing is special-cased for them except money and records:
+  they are never charged, paid, enrolled or saved.
+- **Four locals to start**, all adults with fictional names: a barista
+  (Giulia) and three students (Marco, Sofia, Luca). More roles (a
+  librarian, a lecturer) are data plus places when they're wanted.
+- **Schedules are data in game time, decisions are deterministic.** What
+  an NPC wants comes only from the game minute (weekday and weekend
+  blocks); which seat it takes depends on what is free. No AI service. Each
+  NPC reconsiders twice a second at most, and only asks for something new
+  when what it is doing no longer fits.
+- **NPCs make room for players.** They use designated places only (never
+  benches 1–2, the study desks, café table 1, the fountain or the front
+  lecture desks), take a seat only while two seats stay free in the room,
+  and use a door or the kiosk's staff spots only while another spot stays
+  free. They arrive from and leave by closed streets at the square's edge
+  (they appear and disappear there; there is no animation for it).
+- **Players can always tell them apart:** a gold name tag with the role,
+  "not a player" in their menu, and they are not counted as players.
+  Players can greet them (the usual effect, and an answer with a line that
+  fits what they are doing); there is no chat, card, friendship, block or
+  report for NPCs.
+- **Tick budget:** the simulation tick should average under 5 ms of its
+  50 ms with every NPC active; the server logs it every five minutes. With
+  four NPCs and two players a test measured about 0.5 ms.
+- **`NPCS=off`** takes them away (operations, measuring); the server tests
+  written before M11 run without them.

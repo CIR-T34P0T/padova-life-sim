@@ -344,16 +344,25 @@ describe("daily allowance", () => {
     const startDay = gameDayOf(alice.room.state.gameMinute);
     await sleep(6_500);
     expect(gameDayOf(alice.room.state.gameMinute)).toBeGreaterThan(startDay);
-    // Starting allowance + one per game day seen.
-    const days = gameDayOf(alice.room.state.gameMinute) - startDay + 1;
-    await sleep(300);
-    expect(await allowances()).toBe(1 + days);
+    // Starting allowance + one per game day seen. Read the ledger inside a
+    // stretch where the game day doesn't change (one passes every 6 s, and
+    // the next day's allowance can land between two reads).
+    let counted: { day: number; days: number; paid: number } | null = null;
+    for (let attempt = 0; attempt < 4 && !counted; attempt++) {
+      await sleep(300);
+      const before = gameDayOf(alice.room.state.gameMinute);
+      const paid = await allowances();
+      await sleep(200);
+      if (gameDayOf(alice.room.state.gameMinute) === before) counted = { day: before, days: before - startDay + 1, paid };
+    }
+    expect(counted, "a stretch within one game day").not.toBeNull();
+    expect(counted!.paid).toBe(1 + counted!.days);
     await alice.room.leave(true);
     await sleep(200);
     const again = track(await connectAndPlay(context.server.url, alice.guestToken));
     await lifeAfter(again, () => true, "life after rejoining");
     await sleep(300);
-    const sameDay = gameDayOf(again.room.state.gameMinute) === gameDayOf(alice.room.state.gameMinute);
-    if (sameDay) expect(await allowances()).toBe(1 + days); // no second payment for the same day
+    const sameDay = gameDayOf(again.room.state.gameMinute) === counted!.day;
+    if (sameDay) expect(await allowances()).toBe(counted!.paid); // no second payment for the same day
   });
 });

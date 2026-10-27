@@ -56,7 +56,9 @@ files**. The only character format is the appearance config
 (`shared/src/appearance/`, D-028): a versioned JSON document of option ids
 and 0–1 sliders. Every client turns it into a 3D character with the
 procedural builder in `client/src/render/avatar/` (D-027). There is no glTF,
-VRM or FBX loader in the project.
+VRM or FBX loader in the project. The non-player characters (M11) are drawn
+the same way from starting looks (presets named by look, D-029); only their
+name tag differs (gold, with the role).
 
 **How characters load today (implemented).**
 - **Other players:** each player's look arrives once as the replicated

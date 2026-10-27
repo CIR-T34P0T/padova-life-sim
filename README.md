@@ -5,12 +5,12 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms, university basics, relationships and safety, a place to live (M0–M10)
+## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms, university basics, relationships and safety, a place to live, locals (M0–M11)
 
 What exists today is an early, end-to-end slice: one district with two
 indoor rooms, the first life-simulation loop, character creation, a first
 job, one university course, friendships with blocking and reporting, and a
-rented room of your own. It proves the
+rented room of your own, and four locals with daily routines. It proves the
 architecture; it is **not** the full game yet. Planned work and its order are
 in `docs/ROADMAP.md`.
 
@@ -46,7 +46,8 @@ in `docs/ROADMAP.md`.
 | Day and night: sun and moon, sky, haze, stars, lit windows, lanterns and pools of lamplight follow the shared game clock; every player sees the same time of day; characters stay easy to see at night | Multiplayer functional, tested (world lab at chosen times, the game at night on desktop and phone emulation); **Stage-1 procedural art** (D-037) |
 | Character panel (your needs, mood, skills, work, university, home, money, story, blocked players, current action) and top-right weekday/time/money chip | Locally functional, tested (desktop and phone emulation) |
 | A place to live: rent a private room in the student housing (box room, single room or studio; first week paid at once, then rent every Monday through the ledger; if it can't be paid, a notice, 12 game hours of grace, then a move to a cheaper room or out, never debt); others see you leave the square; sleep in your bed (energy, comfort); furnish fixed spots from a small catalogue (bought once per request, drawn at once, sit on your seats), storage, cosiness; change room or move out; you come back home after a reload | Multiplayer functional, persistence verified (PGlite and PostgreSQL 16); balance not play-tested |
-| Cooking, showers and bills, shared flats, free furniture placement, inventory for other items, more jobs, more courses and graduation, NPCs | Not started (see docs/ROADMAP.md) |
+| Locals: four non-player characters (a barista who works the café kiosk, three students who go to lectures, the library and the square) on game-time schedules, using the same movement, seats and doors as players and leaving room for them; gold name tag with their role, not counted as players; greet them for an answer; never saved | Multiplayer functional, tested (desktop and phone emulation); tick time measured |
+| Cooking, showers and bills, shared flats, free furniture placement, inventory for other items, more jobs, more courses and graduation | Not started (see docs/ROADMAP.md) |
 
 "Tested" means covered by the automated tests in `docs/TESTING.md`. Mobile is
 tested in Chromium mobile emulation only; a real phone has not been tested yet.
@@ -236,6 +237,7 @@ First-time Playwright setup: `npx playwright install chromium`.
 | `DB_MIGRATE_ON_START` | server | `true` | Set `false` to apply migrations only with `npm run db:migrate` |
 | `GUEST_CREATIONS_PER_IP_PER_HOUR` | server | `10` | New guest characters allowed per IP address per hour (abuse limit) |
 | `GAME_TIME_SCALE` | server | `10` | Game minutes per real minute (1–1440). Changing it moves the world clock; for development and testing (D-021) |
+| `NPCS` | server | on | `off` (or `false`, `0`) takes the non-player characters (M11) off the square, e.g. to measure the server without them |
 | `GAME_CLOCK_OFFSET_MINUTES` | server | `0` | Shifts the world clock by whole game minutes (up to a week either way), e.g. to try the café's opening hours, the night, a lecture or an exam at any real time; `npm run clock -- wed 10:00` prints the value for a weekday and time; for development and testing (D-036) |
 | `CHROMIUM_PATH` | e2e | Playwright's browser | Use an existing Chromium for tests |
 | `TEST_DATABASE_URL` | tests | unset | Also run database tests on a real PostgreSQL (creates and drops throwaway databases) |

@@ -236,6 +236,8 @@ export interface GreetedPayload {
   fromName: string;
   /** "greet" (a wave) or "chat" (a chat began, M9). Absent means "greet". */
   action?: "greet" | "chat";
+  /** An NPC answering your greeting (M11): what it says. */
+  line?: string;
 }
 
 /** A request about another player in the same area, by their session id. */

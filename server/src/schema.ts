@@ -31,6 +31,11 @@ export const PlayerState = schema(
      * receives the players in its own area, so this tells it which area to draw.
      */
     area: t.string(),
+    /**
+     * "" for players; for a non-player character (M11) its role ("Barista",
+     * "Student"), so every client can tell NPCs from players.
+     */
+    role: t.string(),
   },
   "PlayerState",
 );

@@ -58,6 +58,23 @@ export const INTERACTION_CONFIG = {
  * Player safety (M9, D-042). Reports are read by the product owner; their
  * details are deleted after `reportRetentionDays` real days.
  */
+/** Non-player characters (M11): how often they decide, how they make room for players, and the server's tick budget. */
+export const NPC_CONFIG = {
+  /** Each NPC reconsiders what to do at most this often (real ms); NPCs are staggered over it. */
+  thinkIntervalMs: 500,
+  /** After a refused request, an NPC waits this long before trying that again (real ms). */
+  retryMs: 4_000,
+  /** An NPC takes a seat only if at least this many seats stay free in the area for players. */
+  seatsKeptFree: 2,
+  /** A greeted NPC answers after this long (real ms), and waves for this long if it is free. */
+  replyDelayMs: 600,
+  waveMs: 1_500,
+  /** The server's simulation tick (every GAME_CONFIG.tickMs) should average under this, NPCs included (ms). */
+  tickBudgetMs: 5,
+  /** How often the server logs its tick time (real ms). */
+  tickReportIntervalMs: 5 * 60_000,
+} as const;
+
 export const SAFETY_CONFIG = {
   reportReasons: [
     { id: "harassment", label: "Harassment or bullying" },

@@ -112,6 +112,15 @@ or auth model without the product owner's approval.
   (`FURNITURE`) plus a builder in `client/src/render/world/props.ts`;
   `client/test/interiors.test.ts` checks every room type furnished. Look at
   homes with `world-lab.html?area=home&room=<type>&furnished=1`.
+- **NPCs are characters run by the same systems** (M11, D-045): entries in
+  the player map with ids `npc-<id>` and a `role`, no client. Their
+  schedules and rules are data and pure functions in `shared/src/npcs.ts`;
+  `server/src/npc/NpcSystem.ts` asks the interaction system for actions as
+  a client would, and `npcHooks.ts` keeps them unpaid and unsaved. They use
+  only their designated places and keep seats free for players
+  (`npcMayUse`). Clients tell them apart by `role`. The tick time is checked
+  against `NPC_CONFIG.tickBudgetMs`. Server tests run without NPCs unless a
+  test turns them on (`npcs: true`); `NPCS=off` turns them off.
 - **Indoor rooms are areas** (D-039): a room is a layout in
   `shared/src/interiors.ts`, listed in `shared/src/areas.ts`, with a pair of
   linked doors; ids stay unique across areas. The server keeps each

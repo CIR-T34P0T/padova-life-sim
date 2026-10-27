@@ -20,8 +20,8 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M7c | Indoor rooms: the foundation | Tested (persistence verified on PGlite; desktop and phone emulation); Stage-1 art; not yet seen by the product owner | Areas inside the one server room, doors, only your area's players sent to you, the area saved; the hall's lecture room and the library's reading room (D-039) |
 | M8 | University basics | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | One fictional course: enrol at the notice board beside the hall, lectures on the hour on weekdays in the lecture room, two exam sittings a week, a grade computed on the server from attendance, study and academic level; fail and retake; all private and saved (D-040) |
 | M9 | Relationships, public profiles and safety | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | Player cards, *Chat*, friendships grown from greetings, chats, studying and lectures together; blocks and reports between accounts (reports deleted after 90 days, `npm run reports`); a private story log (D-042, D-043) |
-| M10 | A place to live | Planned (order approved; details proposed) | A rented room, sleep, comfort, a small furniture catalogue with server-validated placement |
-| M11 | NPCs with routines | Planned (order approved; details proposed) | A few deterministic NPCs with game-time schedules using the same interaction points |
+| M10 | A place to live | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | A rented room in the student housing (weekly rent, grace period, cheaper room, never debt), sleep, comfort, a small furniture catalogue in fixed spots, storage |
+| M11 | NPCs with routines | Tested (desktop and phone emulation; tick budget measured); not yet seen by the product owner | Four deterministic locals (a barista, three students) on game-time schedules, using the same movement, seats and actions as players; greet them; tick time measured against a budget |
 | M12 | Sign-in, deployment and operations | Planned; before people outside the project play (D-035) | Real sign-in, account deletion, hosting with backups, HTTPS/WSS, monitoring, a load test |
 
 After M7: **playable multiplayer prototype** (earn and spend). The order
@@ -264,12 +264,28 @@ to live (M10)"; choices in D-044. Test counts and results: TESTING.md.
 Not yet **verified** by the product owner: the rents, prices and grace
 period, the room sizes and the furniture's look, on Windows and on a phone.
 
+## M11 NPCs with routines: acceptance criteria
+
+Planned below ("M11 — NPCs with routines"); design in GAME_DESIGN.md
+"Locals: non-player characters (M11)"; choices in D-045. Test counts and
+results: TESTING.md.
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| 1. A few NPCs (a barista, students) follow game-time schedules, walk with the same movement rules and reserve seats and spots like players | Tested | Schedules, places and entry points in `shared/test/npcs.test.ts`; through the real room at fast time scales in `server/test/npcs.test.ts`: the barista arrives from her street and works shifts at a staff spot, students go through the hall's door to their lecture desk and at 14:00 to the library, the barista leaves at the end of her day |
+| 2. Deterministic decisions (no AI service), cheap enough to measure: server tick time with NPCs is recorded against a budget | Tested | Plans depend only on game time (shared tests); the room times every tick and logs it against `NPC_CONFIG.tickBudgetMs` (5 ms); measured with every NPC active and two players: about 0.5 ms average (TESTING.md) |
+| 3. NPCs react to a greeting; players can tell NPCs from players | Tested | A greeted NPC answers with a line (and waves when free), the greeter gets the usual effect, chat is refused (server test); gold tag with the role, "not a player", not counted as a player, *Greet* only (`e2e/npcs.spec.ts`, desktop and Pixel 7 emulation) |
+| 4. Tests: schedules at a fast time scale, no two characters on one seat | Tested | Seat holders checked every 50 ms while students fill their desk (server test); seats kept free for players (`npcMayUse`, shared tests); nothing about NPCs is saved (no character row, no wage) |
+
+Not yet **verified** by the product owner: who the locals are, their days
+and their lines, on Windows and on a phone.
+
 ## Planned milestones (order approved; details proposed)
 
 **The order is approved (D-035); the details below are proposals.** Each
 milestone is reviewed with the product owner and refined before it starts.
-M7, M7b, M7c, M8, M9 and M10 are built (criteria and evidence in their
-acceptance sections above); the others have not started. Data sketches: DATA_MODEL.md "Proposed"; system design:
+M7, M7b, M7c, M8, M9, M10 and M11 are built (criteria and evidence in their
+acceptance sections above); M12 has not started. Data sketches: DATA_MODEL.md "Proposed"; system design:
 GAME_DESIGN.md "Life simulation: proposed next steps". Every milestone also
 keeps the standing criteria: server-authoritative changes, owner-scoped
 persistence verified on PGlite and PostgreSQL, desktop and phone layouts,
@@ -358,6 +374,9 @@ Comfort (Q7) and the rent rule (Q9) are approved.
 
 ### M11 — NPCs with routines
 
+**Built** (2026-10-27): see "M11 NPCs with routines: acceptance criteria"
+above and D-045.
+
 Depends on: places with purpose (M7, M8); the server's movement and
 interaction systems, used unchanged.
 
@@ -432,6 +451,8 @@ marked **waiting**.
 | Q12 | Day and night lighting | Approved: right after M7 | Done in M7b (D-037) |
 | Q13 | Who reviews player reports, and how long reports are kept | Answered 2026-10-27: **A, 90 days**, the owner reviews reports on an admin page; report details deleted after 90 days (D-042) | Reports collected in M9; the admin page comes with sign-in in M12 |
 | Q14 | How to build indoor rooms, and when | Answered 2026-10-26: option C (areas inside the one server room, doors); each building gets its rooms when it has a use, one room per use (D-039) | Built in M7c |
+| Q15 | Hosting for the first deployment (M12): where the game runs, a domain name, and a monthly budget | **Waiting.** Options to compare when M12 starts: a small virtual server with managed PostgreSQL, or a platform service; both with HTTPS/WSS and daily backups | M12's hosting part |
+| Q16 | Accounts the sign-in needs (D-042): a Google OAuth client and an email-sending service, created and owned by the product owner | **Waiting.** Claude can write the step-by-step setup; the keys stay with the owner and on the server, never in the repository | M12's sign-in part |
 
 ## Current state (handoff, 2026-10-27)
 
@@ -440,8 +461,8 @@ Read this first when starting a new session.
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
 M0–M6, M6b (title screen and creation flow), M6c (the first district), M7
 (a first job at the café), M7b (day and night), M7c (indoor rooms), M8
-(university basics), M9 (relationships and safety) and M10 (a place to
-live) implemented and
+(university basics), M9 (relationships and safety), M10 (a place to
+live) and M11 (NPCs with routines) implemented and
 covered by
 automated tests (see `docs/TESTING.md` for the
 counts and latest results). An integration audit on 2026-10-20 checked every
@@ -480,7 +501,9 @@ together; block or report someone (reports are kept 90 days); read your own
 story (job, first shift, enrolment, exams, new friends, moving); rent a
 private room in the student housing (three sizes, rent every Monday, a
 grace period and a move to a cheaper room if it can't be paid), sleep in its
-bed, keep comfortable, buy furniture for its spots and make it cosy; see the square change from dawn to night with everyone
+bed, keep comfortable, buy furniture for its spots and make it cosy; meet
+four locals (a barista and three students with daily routines, marked as
+non-players) and greet them; see the square change from dawn to night with everyone
 else (lit windows, lamps, stars); watch needs, mood (with reasons), skills,
 work, university and money in the character panel; come back later, even
 after a server restart, to the same character with the same look, needs,
@@ -496,7 +519,7 @@ story log, the home (with its rent state and the history of earlier rooms)
 and every piece of furniture, placed or stored. **Temporary:**
 activity, seats, pending actions (including a meal, a shift, a lecture or an
 exam in progress), cooldowns,
-online status; the guest identity itself lives only in one browser; looks
+online status, the non-player characters (rebuilt from their schedules); the guest identity itself lives only in one browser; looks
 saved in the creator and device settings live only in that browser. The world clock is derived from real time, not stored.
 
 **Open items, in priority order:**
@@ -507,11 +530,13 @@ saved in the creator and device settings live only in that browser. The world cl
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
 | 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–46) | Planned | Product owner |
 | 4 | Play-test the balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit, the lecture timetable and exam sittings, the grade targets, relationship gains and daily caps, rents, the grace period, furniture prices, comfort and sleep) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
-| 5 | Decisions for the product owner | None waiting (Q5, Q6 and Q13 answered on 2026-10-27); new questions come with their milestones | — |
+| 5 | Decisions for the product owner | Q15 (hosting, domain, budget) and Q16 (Google OAuth client, email service) wait for M12's hosting and sign-in parts | Product owner |
 
-**Recommended next task:** **M11, NPCs with routines** (see "Planned
-milestones"), when the product owner says go; meanwhile the owner tries M9
-and M10. In parallel the product owner looks at the district by day and at night, the title screen,
+**Recommended next task:** **M12, sign-in, deployment and operations**
+(see "Planned milestones"). Its sign-in and hosting parts wait for the
+product owner's answers to Q15 and Q16; account deletion, the owner's admin
+page for reports, monitoring and a load test can start before them.
+Meanwhile the owner tries M9, M10 and M11. In parallel the product owner looks at the district by day and at night, the title screen,
 the creation flow and the characters on Windows and a phone (item 1; the
 world lab, `/world-lab.html?time=23:00`, shows every corner at any hour).
 Follow-ups not covered by "Technical work that waits for a trigger":

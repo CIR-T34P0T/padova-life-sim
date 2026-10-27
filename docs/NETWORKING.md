@@ -14,6 +14,7 @@ The server is authoritative over every replicated value.
 | Guest token | Client (`localStorage`); server keeps only its hash | Never replicated; sent by the server once, in `identity` | Hash only |
 | Activity (`idle`/`sitting`/`studying`/`sketching`/`greeting`/`ordering`/`eating`/`drinking`/`washing`/`working`/`attending`/`exam`/`chatting`), seat or standing spot, greeting or chat target | Server | Yes | No |
 | Seat and standing-spot occupancy and reservations (`state.seats`) | Server | Yes | No |
+| Non-player characters (M11): their position, activity, look and `role` (e.g. "Barista"; "" for players) | Server (`NpcSystem`, from the schedules in `shared/src/npcs.ts`) | Yes, like players (only to clients in the same area) | **No**: never saved; rebuilt from the schedule when the room starts |
 | World clock (`state.gameMinute`) | Server (derived from real time, D-021) | Yes | No (recomputed from the real clock) |
 | Needs, mood and mood events, skills, traits | Server | **No**: only the owner receives them, in `life` (D-024) | Yes |
 | Balance and transactions | Server (ledger, D-023) | **No**: only the owner, in `life` | Yes, written immediately |
@@ -66,7 +67,7 @@ Server → client:
 | --- | --- | --- |
 | `rejected` | `{ action, reason }` | Movement or malformed `interact`. Reasons: `invalid_payload`, `target_out_of_bounds`, `target_blocked`, `unreachable`, `search_limit`, `rate_limited` |
 | `action` | `{ actionId, status, action, targetKind, targetId, reason?, durationMs?, itemId? }` | Sent only to the actor. Status flow: `queued` → `started` → `completed`, or `rejected` (never started, `actionId` 0), `failed`, `cancelled`. Refusal reasons: `unknown_target`, `target_is_self`, `target_offline`, `action_not_available`, `no_free_seat`, `busy` (standing spot taken), `too_far`, `unreachable`, `blocked`, `target_left`, `target_moved`, `too_soon`, `rate_limited`, and since M5 `too_tired`, `unknown_item`, `insufficient_funds` (checked on request and again when paying). A place to live (M10), at the student housing's door: `enter` without a home and `move_out` without one are refused `no_home`; `rent` needs a known room type (`unknown_item`) other than your current one (`same_room`) and the first week's rent (`insufficient_funds`); a database problem fails with `rent_failed` (nothing changed). `sleep` at your bed runs on a server timer like studying. Failures while paying at the counter (status `failed`): `insufficient_funds`, `duplicate_request` (this request id was already charged; nothing is charged or served again), `purchase_failed` (the payment could not be stored; nothing charged). Work (M7), for `ask_work` and `work` at the café counter: refusals `already_employed`, `not_employed`, `closed` (outside opening hours), `shift_limit` (today's shifts done), `too_tired`, `busy` (both staff spots taken, or a hire or quit is still being written); failures `hire_failed` (the job could not be stored; nothing changed), `wage_failed` (the wage could not be stored; the shift does not count), and `shift_limit` or `not_employed` if the database disagrees when paying. A finished shift goes `started` → `completed` only after its wage is recorded. Cancel reasons: `cancelled`, `interrupted`, `replaced`, `disconnected`. |
-| `greeted` | `{ fromId, fromName, action? }` | Sent to the player being greeted, or (M9, `action: "chat"`) when a chat with them begins. |
+| `greeted` | `{ fromId, fromName, action?, line? }` | Sent to the player being greeted, or (M9, `action: "chat"`) when a chat with them begins. M11: a greeted NPC answers its greeter with one of these, `fromId` the NPC's id (`npc-<id>`) and `line` what it says. |
 | `profileView` | `{ targetId, relationship: { score, level, label, sinceGameMinute, recent: [{ kind, gameMinute }] } \| null, blockedByYou }` | Only to the player who asked (M9). The relationship is private to the two players. |
 | `safety` | `{ blocked: [{ blockId, name, blockedAt }], blockedPlayers: [{ playerId, blockId }] }` | Only to the owner (M9): their blocks, and which players in the world they blocked (for menus). Sent on entering the world, after a reconnection and when it changes. A blocked player is never told. |
 | `story` | `{ events: [{ kind, gameMinute, details }] }` | Only to the owner (M9): the newest ten story events. Sent on entering the world, after a reconnection and when an event is added. |
@@ -160,6 +161,16 @@ action `enter` on a door object; the server walks the character to the door,
 then moves it to the linked area, and every client's view is updated (players
 leave or appear like a join or a leave). Greetings and object actions are
 refused (`unknown_target`) across areas. The seat map is not filtered.
+
+**Non-player characters (M11)** are characters in the same player map with
+session ids `npc-<id>` and a non-empty `role`; no client belongs to them.
+The server moves them and runs their actions through the same interaction
+system as players' requests, and the `StateView` shows them only to
+clients in their area. Players can target them with `interact`
+(`targetKind: "player"`): *Greet* works, *Chat* is refused
+(`action_not_available`); `viewProfile`, `block` and `report` find no
+account behind them and do nothing. `NPCS=off` (or `false`, `0`) on the
+server turns them off.
 
 **Homes (M10)** are areas too: `home/<home id>`, one per tenancy, which the
 server adds while its tenant is in the world and rebuilds when the furniture

@@ -207,7 +207,7 @@ desktop layout.
 | Essential controls within thumb reach | — | Sheet and joystick at the bottom; status chips at the top | Implemented; not yet checked on a real phone |
 | Portrait and landscape | — | Both; landscape preferred for the 3D view | Implemented for the title screens, creator and world; tested in emulation |
 | Your own character: info panel and actions | Click yourself → Character | Tap yourself | Implemented for needs, mood, skills, money and current action (M5), work (M7), university (M8), story and blocks (M9) and home (M10); at home your own menu also offers *Furnish your room* |
-| Another character: public information and social actions | Click → menu | Tap → menu | **Partial:** name and activity tag, *Greet* only. A public info panel and more social actions are **proposed** (M9) |
+| Another character: public information and social actions | Click → menu | Tap → menu | Implemented: *Greet*, *Chat*, *Profile* (the player card), *Block…*, *Report…* (M9). A non-player character (M11) has a gold name tag with its role, and its menu says "not a player" and offers *Greet* only |
 | Private information stays private | — | — | Implemented (D-024): life data goes only to its owner |
 | Place objects | Home panel: pick a piece for a spot | Same panel as a bottom sheet | **Controlled placement (M10):** each room has fixed spots (bed, seats, decorations); you choose what goes in each from a list. Free dragging and rotating are not built |
 | Quality settings for slower devices | Settings → Graphics | *Automatic* picks Performance on touch | Implemented (M6b, M6c) |
@@ -698,6 +698,45 @@ there give *Cosy home* (+6).
 **Not built in M10:** shared flats and roommates, visitors, free placement
 and rotation, kitchens and cooking, showers, bills, selling furniture,
 other buildings' flats (the residences).
+
+## Locals: non-player characters (M11)
+
+Choices behind these rules: D-045. Data and rules: `shared/src/npcs.ts`;
+tuning: `NPC_CONFIG` (`shared/src/config.ts`). Names and lines are
+fictional; every NPC is an adult.
+
+**Who.** Four locals: **Giulia**, the barista at the café kiosk, and three
+students, **Marco**, **Sofia** and **Luca**. Each has a gold name tag with
+their role ("Barista", "Student") and is never counted as a player.
+
+**Their days** follow the shared game clock (Day 1 is a Monday):
+- Giulia works shifts behind the kiosk (06:45–20:30 on weekdays, with a
+  lunch break at a café table 13:00–13:30; 08:00–19:00 at weekends). She
+  works like a hired player, at one of the two staff spots, unpaid.
+- The students arrive in the morning, sit on the square, go into the
+  university hall's lecture room at lecture time and study at their desk,
+  have lunch at a café table, study in the library's reading room in the
+  afternoon, and sketch or sit on the square in the evening; at weekends
+  they spend a few hours on the square (and Sofia in the library).
+- Outside their hours they are away: they arrive from a closed street at
+  the square's edge and leave the same way.
+
+**They share the world fairly.** They walk, sit and use doors with the same
+rules as players and hold a seat while using it, so no two characters ever
+share one. They only use their own places (benches 3–5, café tables 2–3,
+the back lecture desk, the second reading table, the kiosk's staff spots)
+and never the ones players need most. They take a seat only while at least
+two seats stay free in that room, and a door or the kiosk only while
+another spot there stays free.
+
+**Talking to them.** Tap an NPC → *Greet*: you get the usual greeting
+effect (social, mood), and they answer with a line that fits what they are
+doing ("Ciao! The espresso's fresh."). If they are free they turn and wave.
+They can't be chatted with, and have no card, friendship, block or report.
+
+**Not built in M11:** NPCs with needs, money or memories; friendships with
+NPCs; more roles (a librarian, a lecturer); NPCs reacting to the time of
+day beyond their schedule, to crowds or to rain.
 
 ## Indoor rooms (M7c)
 

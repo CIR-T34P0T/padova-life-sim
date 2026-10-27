@@ -231,7 +231,7 @@ export class InteractionSystem {
     const sameArea = this.deps.runtimes.get(request.targetId)?.area === runtime.area;
     const targetPlayer = sameArea ? this.deps.state.players.get(request.targetId) : undefined;
     const targetView = targetPlayer
-      ? { id: request.targetId, x: targetPlayer.x, z: targetPlayer.z, connected: targetPlayer.connected }
+      ? { id: request.targetId, x: targetPlayer.x, z: targetPlayer.z, connected: targetPlayer.connected, npc: targetPlayer.role !== "" }
       : null;
     // A block either way comes first, so a blocked player always gets the same neutral answer (M9).
     const blocked = targetPlayer ? this.deps.social?.refusal(sessionId, request.targetId) : null;

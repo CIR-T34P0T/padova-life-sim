@@ -228,9 +228,10 @@ export function objectActions(interactable: Interactable, actor: ActorView, occu
 const BUSY_AT_DESK: readonly string[] = ["studying", "attending", "exam"];
 
 /** Actions another player offers. A player never offers actions to themselves. Blocks are the server's call. */
-export function playerActions(actor: ActorView, target: { id: string; connected: boolean }): ActionId[] {
+/** What a player can do to another character. An NPC (M11) can be greeted; chats are between players. */
+export function playerActions(actor: ActorView, target: { id: string; connected: boolean; npc?: boolean }): ActionId[] {
   if (target.id === actor.id || !target.connected) return [];
-  return ["greet", "chat"];
+  return target.npc ? ["greet"] : ["greet", "chat"];
 }
 
 /** Minimum time between the same player action towards the same player. */
@@ -294,7 +295,7 @@ export function validateObjectAction(
  */
 export function validatePlayerAction(
   actor: ActorView,
-  target: { id: string; x: number; z: number; connected: boolean } | null,
+  target: { id: string; x: number; z: number; connected: boolean; npc?: boolean } | null,
   action: ActionId,
   lastAt: number | undefined,
   now: number,
@@ -304,7 +305,7 @@ export function validatePlayerAction(
   if (target.id === actor.id) return fail("target_is_self");
   if (!target.connected) return fail("target_offline");
   const cooldown = PLAYER_ACTION_COOLDOWN_MS[action];
-  if (cooldown === undefined) return fail("action_not_available");
+  if (cooldown === undefined || !playerActions(actor, target).includes(action)) return fail("action_not_available");
   if (Math.hypot(target.x - actor.x, target.z - actor.z) > maxDistance) return fail("too_far");
   if (lastAt !== undefined && now - lastAt < cooldown) return fail("too_soon");
   return ok;

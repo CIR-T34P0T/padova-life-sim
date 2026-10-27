@@ -447,7 +447,13 @@ PlayerState
                        | "ordering" | "eating" | "drinking" | "washing"
   seatId: string       seat or standing spot in use, else ""
   targetId: string     player being greeted while greeting, else ""
+  area: string         "plaza", a room id or a home ("home/<id>") (M7c, M10)
+  role: string         "" for players; a non-player character's role, e.g. "Barista" (M11)
 ```
+
+**Non-player characters (M11)** are entries in the same `players` map, with
+ids `npc-<id>`; nothing about them is persistent (no character row, no
+needs, money or records), and the room rebuilds them from their schedules.
 
 Character id, account id, age category, timestamps and the guest token are
 **not** replicated. A player's own full profile is sent only to that player
@@ -471,6 +477,9 @@ money changes or refusals. Other players see only the public activity
   skills, mood events, balance, recent ledger rows, job and today's shift
   count of each character in the world, the allowance day, whether a hire or
   quit is being written, and when the last `life` message was sent.
+- `NpcMind` (`server/src/npc/NpcSystem.ts`, M11): per NPC, when it thinks
+  next, which requests to hold back after a refusal, a wave in progress and
+  greeting replies waiting to be sent. Lost on restart by design.
 - `Session` (`server/src/PlazaRoom.ts`): authenticated account id, owner
   (account + character), read-only flag, last saved position, pending removal.
 - `SessionRegistry`: which session currently plays each account (D-018).
@@ -517,6 +526,13 @@ money changes or refusals. Other players see only the public activity
   university rules (the timetable in absolute game minutes, why a lecture
   or the exam can't start, the exam grade); `life/clock.ts` gives each game
   day a weekday (Day 1 is a Monday).
+- M11: `npcs.ts` holds the non-player characters (name, role, look preset,
+  job, the street they arrive from, weekday and weekend blocks with their
+  designated places and greeting lines) and the pure rules: the block at a
+  game minute, the order of places for the hour, the greeting line, and
+  `npcMayUse` (seats and spots kept free for players); `config.ts` holds
+  `NPC_CONFIG` (thinking interval, retry, seats kept free, reply and wave
+  timing, the tick budget).
 - M10: `life/config.ts` holds the rooms (`ROOM_TYPES`: label, weekly rent),
   the furniture catalogue (`FURNITURE`: category, price, size, cosiness, a
   seat's comfort, a bed's sleep) and `HOUSING_CONFIG` (grace period, cosy

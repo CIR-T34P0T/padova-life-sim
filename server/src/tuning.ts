@@ -48,6 +48,8 @@ export interface RoomTuning {
   clockOffsetMinutes: number;
   startingBalanceCents: number;
   dailyAllowanceCents: number;
+  /** Non-player characters on the square (M11); NPCS=off turns them off (operations, older tests). */
+  npcs: boolean;
 }
 
 export const DEFAULT_TUNING: RoomTuning = {
@@ -73,6 +75,7 @@ export const DEFAULT_TUNING: RoomTuning = {
   clockOffsetMinutes: 0,
   startingBalanceCents: ECONOMY_CONFIG.startingBalanceCents,
   dailyAllowanceCents: ECONOMY_CONFIG.dailyAllowanceCents,
+  npcs: true,
 };
 
 /** Overrides accepted from createGameServer (action durations may be given one by one). */

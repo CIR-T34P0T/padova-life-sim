@@ -141,6 +141,23 @@ body {
   opacity: 0.55;
 }
 
+/* Non-player characters (M11): a gold tag with their role, so nobody takes them for players. */
+.name-tag.is-npc {
+  background: rgb(255 246 222 / 0.94);
+  border: 1px solid var(--gold-deep);
+}
+
+.name-tag-role {
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
 .joystick {
   position: fixed;
   left: max(24px, env(safe-area-inset-left));

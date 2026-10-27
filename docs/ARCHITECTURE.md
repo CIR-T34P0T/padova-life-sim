@@ -408,6 +408,42 @@ leave it. Furniture art: `render/world/props.ts` (bed, armchair, beanbag,
 potted plant, floor lamp; the chair and bookshelf builders are reused); the
 sleeping pose lies the character along the bed (`render/avatar/character.ts`).
 
+## Non-player characters (M11)
+
+Rules and numbers: `GAME_DESIGN.md` "Locals: non-player characters (M11)";
+choices in D-045.
+
+- **Rules (`shared/`).** `npcs.ts`: the roster and schedules as data, and
+  pure functions — the block at a game minute (`npcBlockAt`), the order of a
+  block's places for the hour (`npcPlacesInOrder`), the greeting line
+  (`npcGreetingLine`), and `npcMayUse`, which keeps seats and spots free for
+  players. `interactions.ts`: a player can only greet an NPC
+  (`playerActions` with `npc`).
+- **Server.** `npc/NpcSystem.ts` gives each NPC a small mind: every
+  `NPC_CONFIG.thinkIntervalMs` (staggered) it compares what the NPC is doing
+  with its schedule and, only if it no longer fits, asks the interaction
+  system for the next thing — a door towards the right area, or a free
+  designated place — exactly as a client's `interact` would (validation,
+  reservation, walking, timers all unchanged). It spawns an NPC at its
+  street when its day starts and despawns it there when it ends, answers
+  greetings and waves. `npc/npcHooks.ts` (`withNpcs`) wraps the life hooks:
+  NPCs are never charged, paid, hired, enrolled or recorded; the barista's
+  job and shifts need no life data. `PlazaRoom` adds NPCs to the player map
+  with a `role` and no session (so `StateView` shows them per area), walks
+  them like a player's tap, and leaves them out of saving. The social
+  system finds no account behind them, so cards, blocks and reports do
+  nothing. `NPCS=off` turns them off; server tests have them off unless a
+  test turns them on.
+- **Tick budget.** `PlazaRoom` times every simulation tick (`tickStats.ts`,
+  a rolling window) and logs the average, p95 and maximum every five
+  minutes against `NPC_CONFIG.tickBudgetMs` (5 ms of the 50 ms tick; a
+  warning above it). A server test measures it with every NPC active.
+- **Client.** The replicated `role` puts a gold tag with the role on the
+  NPC (`render/avatar/avatar.ts`); the player count and the debug hook's
+  `players()` leave NPCs out (`npcs()` lists them); the menu says "not a
+  player" and offers *Greet*; a greeting's answer arrives as `greeted` with
+  a `line`.
+
 ## From a player action to saved state (implemented)
 
 The same path for every action, shown with buying a panino. Which values

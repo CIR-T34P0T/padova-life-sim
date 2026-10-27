@@ -41,7 +41,8 @@ export interface TestServer {
 export async function startTestServer(port: number, tuning: TuningOverrides = {}, db?: Database): Promise<TestServer> {
   const database = db ?? (await migratedTestDatabase());
   // Tests create many guests from 127.0.0.1; lift the per-IP limit unless a test sets it.
-  const server = createGameServer({ db: database, tuning: { guestCreationsPerIpPerHour: 10_000, ...tuning } });
+  // NPCs (M11) are off unless a test turns them on, so older tests see only their own players.
+  const server = createGameServer({ db: database, tuning: { guestCreationsPerIpPerHour: 10_000, npcs: false, ...tuning } });
   await server.listen(port, "127.0.0.1");
   return {
     server,

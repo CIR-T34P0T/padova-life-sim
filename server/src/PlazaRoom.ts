@@ -5,10 +5,12 @@ import {
   ClientMessage,
   ERROR_INVALID_GUEST_TOKEN,
   GAME_CONFIG,
+  NPC_CONFIG,
   PLAZA_AREA,
   ServerMessage,
   confirmNameMatches,
   encodeLook,
+  findPreset,
   findSeat,
   gameMinuteAt,
   isHomeArea,
@@ -25,6 +27,8 @@ import {
   type DoorLink,
   type IdentityPayload,
   type JoinOptionsWithIdentity,
+  type NpcDefinition,
+  type Vec2,
   type ProfileErrorPayload,
   type ProfilePayload,
   type RejectedPayload,
@@ -35,6 +39,8 @@ import { InteractionSystem } from "./InteractionSystem.ts";
 import type { LifeService, LoadedLife } from "./life/LifeService.ts";
 import { LifeSystem, type GameClock } from "./life/LifeSystem.ts";
 import { log } from "./log.ts";
+import { withNpcs } from "./npc/npcHooks.ts";
+import { NpcSystem } from "./npc/NpcSystem.ts";
 import { toSummary, type LoadedCharacter, type ProfileService } from "./profiles/ProfileService.ts";
 import type { Owner } from "./profiles/profileRepository.ts";
 import type { SessionRegistry } from "./profiles/sessionRegistry.ts";
@@ -43,6 +49,7 @@ import { PlayerState, PlazaState } from "./schema.ts";
 import { SeatBook } from "./seats.ts";
 import { getServices } from "./services.ts";
 import { SocialSystem } from "./social/SocialSystem.ts";
+import { TickStats, type TickSummary } from "./tickStats.ts";
 import { DEFAULT_TUNING, resolveTuning, type PlazaRoomOptions, type RoomTuning } from "./tuning.ts";
 
 /** What the server knows about one connection's identity. Never sent to clients. */
@@ -92,7 +99,11 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   private life!: LifeSystem;
   private social!: SocialSystem;
   private housing!: HousingSystem;
+  /** Non-player characters (M11); null when turned off. */
+  private npcs: NpcSystem | null = null;
   private seats!: SeatBook;
+  private readonly tickStats = new TickStats();
+  private lastTickReport = Date.now();
   private lifeService!: LifeService;
   private gameClock!: GameClock;
   private profiles!: ProfileService;
@@ -156,10 +167,26 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       tuning: this.tuning,
       send,
       now: () => Date.now(),
-      hooks: this.life,
+      // NPCs act through the same hooks, unpaid and unsaved (M11).
+      hooks: withNpcs(this.life, { onGreeted: (npcId, greeterId) => this.npcs?.onGreeted(npcId, greeterId) }),
       social: this.social,
       housing: this.housing,
     });
+    if (this.tuning.npcs) {
+      this.npcs = new NpcSystem({
+        state: this.state,
+        runtimes: this.runtimes,
+        seats: this.seats,
+        areas: this.areas,
+        clock: this.gameClock,
+        interactions: this.interactions,
+        spawn: (id, npc, at) => this.spawnNpc(id, npc, at),
+        despawn: (id) => this.despawnNpc(id),
+        walkTo: (id, point) => this.walkNpc(id, point),
+        send,
+        now: () => Date.now(),
+      });
+    }
     this.setSimulationInterval((deltaMs) => this.tick(deltaMs), GAME_CONFIG.tickMs);
     this.clock.setInterval(() => void this.autosave(), this.tuning.autosaveIntervalMs);
     // Report details are deleted after 90 days (D-042): checked now and every hour.
@@ -539,6 +566,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     player.seatId = "";
     player.targetId = "";
     player.area = area;
+    player.role = "";
     this.state.players.set(client.sessionId, player);
     this.runtimes.set(client.sessionId, {
       area,
@@ -682,6 +710,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   // ── Simulation and movement ─────────────────────────────────────────────
 
   private tick(deltaMs: number): void {
+    const started = performance.now();
     // Clamp so a stalled event loop cannot produce a giant teleport-like step.
     const dt = Math.min(deltaMs, GAME_CONFIG.tickMs * 4) / 1000;
     for (const [sessionId, runtime] of this.runtimes) {
@@ -699,8 +728,75 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     this.life.tick(dt * 1000);
     this.interactions.tick();
     this.housing.tick();
+    this.npcs?.tick();
     const minute = Math.floor(this.gameClock.minute());
     if (this.state.gameMinute !== minute) this.state.gameMinute = minute;
+    this.recordTick(performance.now() - started);
+  }
+
+  /** Keeps the tick time against its budget (NPC_CONFIG.tickBudgetMs) and logs it now and then. */
+  private recordTick(ms: number): void {
+    this.tickStats.record(ms);
+    const now = Date.now();
+    if (now - this.lastTickReport < NPC_CONFIG.tickReportIntervalMs) return;
+    this.lastTickReport = now;
+    const t = this.tickStats.summary();
+    const text = `tick ${t.avgMs.toFixed(2)} ms average, ${t.p95Ms.toFixed(2)} ms p95, ${t.maxMs.toFixed(1)} ms max over ${t.ticks} ticks (budget ${NPC_CONFIG.tickBudgetMs} ms); ${this.state.players.size} characters, ${this.npcs?.present ?? 0} NPCs`;
+    if (t.avgMs > NPC_CONFIG.tickBudgetMs) log.warn("plaza", text);
+    else log.info("plaza", text);
+  }
+
+  /** Tick time over the latest ticks (tests and diagnostics). */
+  tickSummary(): TickSummary {
+    return this.tickStats.summary();
+  }
+
+  /** A non-player character arrives on the square (M11): a character with a role and no session, never saved. */
+  private spawnNpc(id: string, npc: NpcDefinition, at: { x: number; z: number; rotation: number }): void {
+    const player = new PlayerState();
+    player.name = npc.name;
+    player.role = npc.role;
+    player.x = at.x;
+    player.z = at.z;
+    player.rotation = at.rotation;
+    player.moving = false;
+    player.connected = true;
+    const preset = findPreset(npc.look);
+    if (preset) applyAppearance(player, preset.appearance);
+    player.activity = "idle";
+    player.seatId = "";
+    player.targetId = "";
+    player.area = PLAZA_AREA;
+    this.state.players.set(id, player);
+    this.runtimes.set(id, {
+      area: PLAZA_AREA,
+      character: { x: at.x, z: at.z, rotation: at.rotation, intent: { kind: "idle" } },
+      intentWindowStart: 0,
+      intentsInWindow: 0,
+      pending: null,
+      lastSocialAt: new Map(),
+    });
+    this.refreshViews();
+    log.info("plaza", `NPC ${npc.name} (${npc.role}) arrived`);
+  }
+
+  private despawnNpc(id: string): void {
+    this.interactions.onLeave(id);
+    this.state.players.delete(id);
+    this.runtimes.delete(id);
+    log.info("plaza", `NPC ${id} left`);
+  }
+
+  /** An NPC walks somewhere in its area: the same planning as a player's tap. */
+  private walkNpc(id: string, point: Vec2): boolean {
+    const runtime = this.runtimes.get(id);
+    const start = this.interactions.standingPosition(id);
+    if (!runtime || !start) return false;
+    const path = this.areas.of(runtime.area).nav.findPath(start, point);
+    if (!path.ok) return false;
+    this.interactions.onMovementIntent(id, true);
+    runtime.character.intent = { kind: "path", waypoints: path.waypoints };
+    return true;
   }
 
   private handleMoveTo(client: Client, payload: unknown): void {

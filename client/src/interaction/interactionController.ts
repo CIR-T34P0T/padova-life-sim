@@ -239,6 +239,8 @@ export class InteractionController {
   }
 
   onGreeted(payload: GreetedPayload): void {
+    // An NPC answering your greeting says something of its own (M11).
+    if (payload.line) return this.deps.hud.toast(`${payload.fromName}: “${payload.line}”`, 4000);
     this.deps.hud.toast(payload.action === "chat" ? `${payload.fromName} is chatting with you.` : `${payload.fromName} says "Ciao!"`);
   }
 
@@ -355,6 +357,11 @@ export class InteractionController {
     }
     const target = this.deps.entities.get(selection.id)?.latest;
     if (!target) return null;
+    // A non-player character (M11): greet only; its role says it isn't a player.
+    if (target.role) {
+      const options = playerActions(actor, { id: selection.id, connected: target.connected, npc: true }).map((id) => ({ id, label: ACTION_LABELS[id] }));
+      return { title: target.name, subtitle: `${target.role} · not a player`, options };
+    }
     // Someone you blocked offers only their card and Unblock; others greet, chat, card, block, report (M9).
     const options: MenuOption[] = this.deps.social.isBlocked(selection.id)
       ? [

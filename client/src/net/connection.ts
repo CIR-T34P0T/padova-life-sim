@@ -49,6 +49,8 @@ export interface ReplicatedPlayer {
   targetId: string;
   /** The area the character is in (M7c): "plaza" or a room id. You only receive players in your own area. */
   area: string;
+  /** "" for players; a non-player character's role (M11), e.g. "Barista". */
+  role: string;
 }
 
 export interface ConnectionEvents {

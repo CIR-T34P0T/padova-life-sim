@@ -111,10 +111,18 @@ test("the district is built, solid props refuse taps by name, café tables work 
     // From the arrival area the shops hide this corner; from beside the café
     // kiosk the plane tree is in clear view.
     await walkTo(alice, 9, 6);
-    // Aim at the trunk, a little above its foot.
+    // Aim at the trunk above its foot. People (players and, since M11, NPCs)
+    // can make the walk end a step away, so the lowest part of the trunk may
+    // be behind something else: try a few heights.
     const foot = await alice.evaluate(() => (window as any).__padova.worldToScreen(12.5, 5.5));
-    const trunk = { x: foot.x, y: foot.y - 20 };
-    expect(await alice.evaluate(([x, y]) => (window as any).__padova.pickAt(x, y), [trunk.x, trunk.y] as const)).toMatchObject({ kind: "blocked", label: "Plane tree" });
+    const picks: { y: number; pick: any }[] = [];
+    for (const lift of [20, 40, 60, 80]) {
+      const y = foot.y - lift;
+      picks.push({ y, pick: await alice.evaluate(([px, py]) => (window as any).__padova.pickAt(px, py), [foot.x, y] as const) });
+    }
+    const onTrunk = picks.find((p) => p.pick?.kind === "blocked" && p.pick.label === "Plane tree");
+    expect(onTrunk, `picks up the trunk: ${JSON.stringify(picks)}`).toBeDefined();
+    const trunk = { x: foot.x, y: onTrunk!.y };
     await alice.mouse.click(trunk.x, trunk.y);
     await expect(alice.locator("#toast")).toContainText("Plane tree: you can't walk there.");
   });

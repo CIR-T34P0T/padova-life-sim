@@ -619,6 +619,7 @@ export class Game {
     const isSelf = id === this.connection.sessionId;
     const view = createAvatar(id, appearanceOf(player), isSelf, this.quality);
     view.setName(player.name);
+    view.setRole(player.role ?? "");
     view.setAway(!player.connected);
     view.setActivity(player.activity, player.seatId !== "");
     this.world.scene.add(view.root);
@@ -636,7 +637,7 @@ export class Game {
     const entity: RemoteEntity = { view, buffer, latest: { ...player } };
     this.entities.set(id, entity);
     this.pushSnapshot(entity, player);
-    this.hud.setPlayerCount(this.entities.size);
+    this.hud.setPlayerCount(this.playerCount());
   }
 
   private updateEntity(id: string, player: ReplicatedPlayer): void {
@@ -669,7 +670,14 @@ export class Game {
     this.social.onPlayerRemoved(id);
     entity.view?.dispose();
     this.entities.delete(id);
-    this.hud.setPlayerCount(this.entities.size);
+    this.hud.setPlayerCount(this.playerCount());
+  }
+
+  /** Players in your area (NPCs aren't counted, M11). */
+  private playerCount(): number {
+    let count = 0;
+    for (const entity of this.entities.values()) if (!entity.latest.role) count++;
+    return count;
   }
 
   private pushSnapshot(entity: RemoteEntity, player: ReplicatedPlayer): void {
@@ -721,8 +729,13 @@ export class Game {
       get cameraYaw() {
         return game.rig.yaw;
       },
+      /** Players in your area (not NPCs). */
       players() {
-        return [...game.entities].map(([id, e]) => ({ id, ...e.latest }));
+        return [...game.entities].filter(([, e]) => !e.latest.role).map(([id, e]) => ({ id, ...e.latest }));
+      },
+      /** Non-player characters in your area (M11). */
+      npcs() {
+        return [...game.entities].filter(([, e]) => e.latest.role).map(([id, e]) => ({ id, ...e.latest }));
       },
       /** Geometry stats of one player's character (triangles, meshes, last build time). */
       avatarStats(id: string) {

@@ -610,6 +610,38 @@ takes a note, and blocks. Phone (Pixel 7 emulation): the player sheet's
 options at least 48 px tall, the card as a bottom sheet with Block and
 Report at least 44 px, the report dialog's choices at least 44 px.
 
+**NPC rules (11 tests, `shared/test/npcs.test.ts`, M11):** a few adults
+with roles, known looks and unique ids, one barista; session ids that can't
+be taken for players; blocks ordered, contiguous through the day, with
+places and lines; every place exists in its area and offers its action, and
+none is an object players need most (benches 1–2, study desks, café table
+1, fountain, notice board, the front lecture desks, reading table 1); entry
+points on open ground at the square's edge, reachable from the spawn; the
+weekday and weekend timetables (away outside them, the same plan every
+week); places in a fixed order for the hour, turning each hour; greeting
+lines from the block, the same all day for one greeter; a seat only while
+two stay free in the room, the kiosk and doors only while another spot
+stays free; NPCs can be greeted, not chatted with.
+
+**NPCs through the real room (8 tests, `server/test/npcs.test.ts`, M11)** —
+real servers, databases and WebSocket clients, fast clocks: the barista
+arrives from her street after 06:45, works shift after shift at a staff
+spot, is replicated with her role (players have none), and leaves no
+character row and no wage; greeting her gets a line (and the greeter's
+social need rises), chat is refused; students walk through the hall's door
+to their lecture desk and study there, two at one desk on different seats,
+**while every seat is checked every 50 ms to have one holder only**, and a
+player on the square doesn't receive them; at 14:00 they go to the
+library's reading room; at 20:30 the barista stops, walks to her street and
+leaves; **the tick time with every NPC active stays under the budget**; the
+hooks never charge, pay, hire, enrol or record an NPC.
+
+**End to end, NPCs (`e2e/npcs.spec.ts`, M11)** — desktop: Giulia is listed
+as an NPC with her role, not as a player; the HUD says "1 player here"; her
+gold name tag says "Barista"; her menu is "Giulia", "Barista · not a
+player", *Greet*; greeting her shows her answer. Phone (Pixel 7 emulation):
+her menu as a bottom sheet with a Greet button at least 48 px tall.
+
 **End to end, a place to live (`e2e/home.spec.ts`, M10)** — desktop with two
 players: the student housing's door (camera turned round) offers *Rent a
 room…* "From €25.00 a week"; the dialog lists three rooms and needs a
@@ -782,6 +814,12 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-27 (M11) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server) |
+| 2026-10-27 (M11) | unit + integration | 592/592 pass (37 files) | In-memory PGlite. New: 11 NPC rules (`shared/test/npcs.test.ts`), 8 NPC tests (`server/test/npcs.test.ts`: six through the real room at fast clocks, two on the hooks). The server test helper turns NPCs off unless a test turns them on, so the older tests see only their own players; the contract test gained `role`. While writing them: two tests started too close to an NPC's arrival or departure (starting the test database takes a few seconds, a few game minutes at that speed) and now start earlier; the schedules had short gaps between blocks, which would have sent students off the square and straight back, and are now contiguous (a test checks it) |
+| 2026-10-27 (M11) | unit + integration on PostgreSQL 16.15 | 659/660, then the failure fixed and passed 3/3 | `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15 (810 s). The failure was an older test, unrelated to NPCs (the server tests run without them): the daily allowance test counted game days and then read the ledger, and a new game day (one every 6 real seconds in that test) could start in between, so it saw one allowance more; it now reads both within one game day and stays exact. The whole life test file then passed on PGlite |
+| 2026-10-27 (M11) | tick budget | 0.47 ms average (budget 5 ms) | In the server test with every NPC active (a barista working, three students walking, studying and sitting) and two players, over 126 ticks: 0.466 ms average, 1.14 ms p95, 4.5 ms max (one tick). Measured in the cloud workspace, not on the production host |
+| 2026-10-27 (M11) | e2e | 33/34 in the full run (1.0 h), then the failure passed | With NPCs on for every spec. The new NPC spec passed (desktop and phone). The failure: the world spec's tree tap (at 18:59 game time, all four NPCs on the square) picked another object at the one point it aimed at, most likely because walking skipped a spot an NPC stood on and the view shifted; the test now tries four heights up the trunk, and passed alone at evening game time. The phone NPC test needed short walking hops to bring the barista on screen in portrait |
+| 2026-10-27 (M11) | visual check (Claude, screenshots) | Pass | From the e2e runs: Giulia's gold "Barista" tag, her greet-only menu on desktop and as a phone sheet ("Barista · not a player"), her answer as a note ("Busy morning at the kiosk!"), the count "1 player here" with NPCs about. Not yet seen by the product owner |
 | 2026-10-27 (M10) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server) |
 | 2026-10-27 (M10) | unit + integration | 573/573 pass (35 files) | In-memory PGlite. New: 20 home rules (`shared/test/homes.test.ts`), 6 housing tests (`server/test/housing.test.ts`: four on a hand-moved clock, two through the real room), 15 database tests (`server/test/housingDatabase.test.ts`), 4 housing words (`client/test/housing.test.ts`), and the room art checks repeated for every room type empty and with three furniture mixes (120). Existing tests updated for migration 0008 and the comfort need. While writing them, three real bugs were found and fixed: (1) the same rent or furniture request arriving twice at once could, on PostgreSQL, make the second wait for the wallet, see the first's payment and fail instead of answering "duplicate"; it now returns the home or piece that payment made; (2) repeating a furniture purchase (a lost reply) answered "spot taken" because the server's own check saw the piece it had just bought, so a retry could look like a failure; a taken spot now goes to the database, which recognises repeats first; (3) seats in deep furniture (beanbag, armchair) put the character on the front edge, beside the piece; they now sit in it |
 | 2026-10-27 (M10) | unit + integration on PostgreSQL 16.15 | 641/641 pass | `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: the 68 database tests repeated on PostgreSQL, including the 15 new housing ones (renting and buying the same request twice at once included); 632 s |
@@ -992,6 +1030,13 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   story write is logged, not retried. The story starts with M9: events from
   before (an earlier job, enrolment or exam) aren't filled in. The numbers (gains, caps, levels) are
   not play-tested.
+- **Locals (M11):** four NPCs; they appear and disappear at closed
+  streets on the square's edge (no animation); they have no needs, money or
+  memories, and no friendships with players; their places are fixed lists,
+  so when theirs are taken they wait where they are. Tests that predate M11
+  run with NPCs off on the server (`npcs: false` in the server test helper);
+  the browser tests run with them on. The tick time was measured in the
+  cloud workspace, not on the production host.
 - **A place to live (M10):** one room per character in the student
   housing; no shared flats, roommates or visitors, no free placement or
   rotation, no selling furniture, no kitchen, shower or bills. Rent is
@@ -1225,3 +1270,10 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     out…* ask first; your furniture is kept in storage. To see rent fall
     due, restart the game on a Monday: `npm run clock -- mon 08:00` prints
     the PowerShell line.
+47. **Locals (M11):** on the square during the day, Giulia (gold tag
+    "Barista") works at the café kiosk. Tap her → the menu says "Barista ·
+    not a player" and offers *Greet*; greet her: she answers with a line.
+    The top-left count shows only real players. On a weekday morning
+    (`npm run clock -- mon 08:30`) students arrive, sit on the benches, and
+    after 09:00 go into the university hall (walk in to see them at the back
+    desk).

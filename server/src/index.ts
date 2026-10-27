@@ -29,8 +29,10 @@ const guestCreationsPerIpPerHour = guestLimitFromEnv();
 const timeScale = parseTimeScale(process.env.GAME_TIME_SCALE);
 // Shifts the whole clock by whole game minutes (e.g. to try opening hours or night): for development and tests.
 const clockOffsetMinutes = parseClockOffset(process.env.GAME_CLOCK_OFFSET_MINUTES);
-const server = createGameServer({ db, tuning: { timeScale, clockOffsetMinutes, ...(guestCreationsPerIpPerHour ? { guestCreationsPerIpPerHour } : {}) } });
-log.info("server", `game time: ${timeScale} game minutes per real minute${clockOffsetMinutes ? `, clock shifted by ${clockOffsetMinutes} game minutes` : ""}`);
+// Non-player characters (M11) are on unless NPCS is "off", "false" or "0".
+const npcs = !["off", "false", "0"].includes((process.env.NPCS ?? "").trim().toLowerCase());
+const server = createGameServer({ db, tuning: { timeScale, clockOffsetMinutes, npcs, ...(guestCreationsPerIpPerHour ? { guestCreationsPerIpPerHour } : {}) } });
+log.info("server", `game time: ${timeScale} game minutes per real minute${clockOffsetMinutes ? `, clock shifted by ${clockOffsetMinutes} game minutes` : ""}; NPCs ${npcs ? "on" : "off"}`);
 await server.listen(port, "0.0.0.0");
 log.info("server", `Padova Life SIM server listening on ws://0.0.0.0:${port}`);
 
