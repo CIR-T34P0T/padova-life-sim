@@ -51,6 +51,7 @@ export interface ProfileHandlers {
   onProfile(payload: ProfilePayload): void;
   onIdentity(payload: IdentityPayload): void;
   onProfileError(payload: ProfileErrorPayload): void;
+  onProfileDeleted(): void;
   onDisconnected(code: number | undefined): void;
   onEditAppearance(): void;
   /** The player asked to go back to the title screen (character panel). */
@@ -126,6 +127,7 @@ export class Game {
       onProfile: (payload) => this.profileHandlers.onProfile(payload),
       onIdentity: (payload) => this.profileHandlers.onIdentity(payload),
       onProfileError: (payload) => this.profileHandlers.onProfileError(payload),
+      onProfileDeleted: () => this.profileHandlers.onProfileDeleted(),
       onLife: (payload) => this.onLife(payload),
       onClock: (minute) => {
         this.lastGameMinute = minute;
@@ -435,6 +437,10 @@ export class Game {
 
   deleteCharacter(characterId: string, confirmName: string): void {
     this.connection.deleteCharacter(characterId, confirmName);
+  }
+
+  deleteProfile(confirm: string): void {
+    this.connection.deleteProfile(confirm);
   }
 
   /**

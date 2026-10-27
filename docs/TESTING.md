@@ -5,7 +5,7 @@
 | Command | Scope | Needs |
 | --- | --- | --- |
 | `npm run typecheck` | All packages, strict TypeScript | — |
-| `npm test` | `shared/test` unit tests, `client/test` (the district art against the collision layout, in Node) and `server/test` integration tests | — (starts its own servers on ports 2611–2636, each with an in-memory PGlite database) |
+| `npm test` | `shared/test` unit tests, `client/test` (the district art against the collision layout, in Node) and `server/test` integration tests | — (starts its own servers on ports 2611–2650, each with an in-memory PGlite database) |
 | `TEST_DATABASE_URL=… npm test` | The same, plus every database test repeated on a real PostgreSQL server | A PostgreSQL user allowed to create databases; each test creates and drops a throwaway database |
 | `npm run check` | Both of the above | — |
 | `npm run test:e2e` | Playwright, real server + real client + several browsers | A Chromium (`npx playwright install chromium`, or `CHROMIUM_PATH`). The test server uses an in-memory database (never `.data/`) and a raised guest-creation limit |
@@ -642,6 +642,36 @@ gold name tag says "Barista"; her menu is "Giulia", "Barista · not a
 player", *Greet*; greeting her shows her answer. Phone (Pixel 7 emulation):
 her menu as a bottom sheet with a Greet button at least 48 px tall.
 
+**Operations through the real room (7 tests, `server/test/operations.test.ts`,
+M12)** — deleting a whole guest profile: a profile with two characters, a
+second window at the title screen, a wrong word refused
+(`confirm_mismatch`), "  Delete " accepted; both windows get
+`profileDeleted` and an empty lobby; the account, credential, characters,
+needs, wallet and ledger rows are gone; the old token is refused
+(`ERROR_INVALID_GUEST_TOKEN`); a second deletion answers
+`profile_not_found`. Refused in the world (`in_world`), while a character
+is played in another window (`character_in_use`) and with a malformed
+payload. On every test database backend: `deleteAccount` cascades to
+story, blocks made and received, reports about the account, and keeps
+reports it made with the reporter cleared. `/health` (200, then 503 with
+the database made unreachable) and `/status` (aggregate fields only, no
+names or ids). The log line formats. And a load-test finding: **a client at
+the title screen receives nothing about the player map** while others
+enter the world and move (before the fix it logged `"refId" not found`).
+
+**End to end, your data (`e2e/privacy.spec.ts`, M12)** — desktop, one
+browser profile with two windows: Settings has no *Your data* before a
+profile exists; with a character being played in the first window, the
+second window's *Delete my profile…* (at least 44 px) needs the word
+*delete* (wrong word: button disabled), and is refused with "being played
+in another window"; after the first window goes back to the title, it goes
+through: both windows show "Profile deleted", the stored token is gone, the
+title says "No saved life yet", and after a reload there are no characters,
+no "couldn't find your profile" notice and no *Your data* section.
+
+**Load test (`npm run loadtest`, M12, manual)** — not part of the suites:
+bot players against a running server; results in the log below.
+
 **End to end, a place to live (`e2e/home.spec.ts`, M10)** — desktop with two
 players: the student housing's door (camera turned round) offers *Rent a
 room…* "From €25.00 a week"; the dialog lists three rooms and needs a
@@ -814,6 +844,12 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-27 (M12 part 1) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server) |
+| 2026-10-27 (M12 part 1) | unit + integration | 599/599 pass (38 files) | In-memory PGlite. New: 7 operations tests (`server/test/operations.test.ts`: profile deletion through the room and its refusals, the database cascade, `/health`, `/status`, log formats, and the title-screen regression below) |
+| 2026-10-27 (M12 part 1) | unit + integration on PostgreSQL 16.15 | 668/668 pass (38 files) | `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15 (609 s): the database tests repeated on PostgreSQL, including the profile-deletion cascade |
+| 2026-10-27 (M12 part 1) | e2e | 35/35 pass (59.4 min) | The full suite with the new `e2e/privacy.spec.ts` (51 s alone), NPCs on, in-memory database |
+| 2026-10-27 (M12 part 1) | load test | Pass: 16/16 bots, tick 1.0 ms worst average | `npm run loadtest -- --bots 16 --seconds 120` against a server on PostgreSQL 16.15 with the four locals on (Wednesday 17:30 game time), in the cloud workspace (2 CPUs), bots and server on the same machine. Join p50 18 ms, p95 64 ms; new character p50 43 ms, p95 109 ms; walk request → movement seen p50 69 ms, p95 97 ms (one 50 ms tick plus one 50 ms patch); 698 requests (424 walks, 161 sits, 113 greetings), no message rejected; the refusals were game rules (a bench already full, a greeting interrupted by the bot's next walk). Server tick worst average 1.0 ms, worst p95 2.2 ms, worst max 4.5 ms (budget 5 ms average); memory 106 → 145 MB; CPU at most 0.09 of one core; database round trip p50 0.7 ms, max 1.3 ms. Clean-up deleted all 16 profiles (database checked empty afterwards). With 20 bots: 2 rooms (16 + 4), each a separate copy of the square, ticks within budget. Not measured on the production host or over a real network. **Found and fixed:** clients at the title screen logged `"refId" not found` from the state decoder each time someone entered the world (a locals' arrival included): the server asked every view to remove players it never showed, which sent those clients a delete for a map they didn't have. Views now change only for players that appear or leave them (which also stops resending every visible player's full state on each arrival); regression test in `server/test/operations.test.ts`, which failed before the fix |
+| 2026-10-27 (M12 part 1) | visual check (Claude, screenshots) | Pass | From the browser test: Settings with *Your data* and the delete dialog (wrong-window message shown), the "Profile deleted" screen. Not yet seen by the product owner |
 | 2026-10-27 (M11) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server) |
 | 2026-10-27 (M11) | unit + integration | 592/592 pass (37 files) | In-memory PGlite. New: 11 NPC rules (`shared/test/npcs.test.ts`), 8 NPC tests (`server/test/npcs.test.ts`: six through the real room at fast clocks, two on the hooks). The server test helper turns NPCs off unless a test turns them on, so the older tests see only their own players; the contract test gained `role`. While writing them: two tests started too close to an NPC's arrival or departure (starting the test database takes a few seconds, a few game minutes at that speed) and now start earlier; the schedules had short gaps between blocks, which would have sent students off the square and straight back, and are now contiguous (a test checks it) |
 | 2026-10-27 (M11) | unit + integration on PostgreSQL 16.15 | 659/660, then the failure fixed and passed 3/3 | `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15 (810 s). The failure was an older test, unrelated to NPCs (the server tests run without them): the daily allowance test counted game days and then read the ledger, and a new game day (one every 6 real seconds in that test) could start in between, so it saw one allowance more; it now reads both within one game day and stays exact. The whole life test file then passed on PGlite |
@@ -941,8 +977,11 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   - Guest identity only (D-017): no sign-in, recovery or cross-device play;
     clearing site data loses the character; a script injected into the page
     could read the token from `localStorage`. Needs HTTPS/WSS in production.
-  - Characters can be deleted (since M6b); deleting a whole guest account,
-    and cleanup of abandoned guest accounts, don't exist yet.
+  - Characters can be deleted (since M6b), and a whole guest profile (M12);
+    cleanup of abandoned guest accounts doesn't exist yet.
+  - A room holds 16 players: the 17th opens a second, separate copy of the
+    square with its own locals, and players in different copies don't see
+    each other (load test, M12).
   - Guest-creation limit and session registry are in memory, per server process.
   - Activity, seats and pending actions are not saved; after a reload the
     character stands at the spot it would stand up to.
@@ -1277,3 +1316,15 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     (`npm run clock -- mon 08:30`) students arrive, sit on the benches, and
     after 09:00 go into the university hall (walk in to see them at the back
     desk).
+48. **Your data (M12):** on the title screen open *Settings*: with a saved
+    character there is a **Your data** section. *Delete my profile…* → type
+    something else (the red button stays disabled) → type `delete` →
+    *Delete my profile*: "Profile deleted"; *Back to the title screen* says
+    "No saved life yet"; a reload stays empty and Settings has no Your data
+    section. With the game open in a second tab of the same browser, that
+    tab shows "Profile deleted" too. If a character is being played in the
+    other tab, deleting is refused until that tab goes back to the title.
+49. **Health and status (M12):** while `npm run dev` runs, open
+    `http://localhost:2567/health` (says `{"status":"ok"}`) and
+    `http://localhost:2567/status` (players, NPCs, tick time, memory, no
+    names).

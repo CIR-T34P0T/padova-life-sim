@@ -514,7 +514,7 @@ every query scoped by the owning account id. `ProfileService.ts` loads with
 upgrade/repair (newer versions read-only), creates (guest account + character
 in one transaction, rate-limited per IP; more characters for an existing
 account up to the limit, D-031), lists and deletes an account's characters,
-updates appearance and saves position. Validation rules live in `shared/src/profile.ts` (names, age
+deletes a whole guest account (M12, D-046), updates appearance and saves position. Validation rules live in `shared/src/profile.ts` (names, age
 categories, version upgrades) and `shared/src/appearance/` (appearance).
 
 **Room lifecycle (`server/src/PlazaRoom.ts`).**
@@ -624,13 +624,40 @@ inside the 4.5–6 m deep shells, or one Colyseus room per interior).
   use, one room per use: D-039), shared flats, windows inside rooms, and
   filtering the seat map (home seats are kept out of it instead).
 
+## Operations (M12 part 1, D-046)
+
+**Health and status (`server/src/status.ts`).** `mountStatusRoutes` adds
+`GET /health` and `GET /status` to the HTTP server Colyseus's transport
+already runs (the `express` option of the server in `app.ts`). Rooms report
+themselves through `StatusSource` (`PlazaRoom.statusSummary`: players, NPCs
+and the tick statistics from `tickStats.ts`); they register in
+`GameServices.rooms` when created and leave it when disposed. Only
+aggregate numbers leave the server (NETWORKING.md "HTTP").
+
+**Logs (`server/src/log.ts`).** Readable lines by default; `LOG_FORMAT=json`
+writes one JSON object per line (`time`, `level`, `scope`, `message`) for a
+hosting provider's log collector. Log messages name sessions and character
+ids, never guest tokens.
+
+**Deleting a guest profile.** `PlazaRoom.handleDeleteProfile` checks the
+session (title screen, the typed word, an account, no character in play)
+and deletes through `ProfileService.deleteAccount` inside the session's
+exclusive section; every session of that account loses its account id, is
+told (`profileDeleted`) and gets an empty lobby. The client
+(`client/src/ui/flow.ts`) forgets the stored token.
+
+**Load test (`server/src/loadtestCli.ts`, `npm run loadtest`).** Bot
+players built on the Colyseus client SDK (a server dev dependency) join a
+running server as guests, play for a while, read `/status`, and delete
+their profiles at the end. Results in TESTING.md.
+
 ## Not yet decided or built
 
 - UI framework for larger panels (inventory, build mode). Plain DOM was
   enough for M3 menus and the M5 character panel; see D-007.
 - Real sign-in: decided (sign in with Google and with email and password; guests can upgrade without losing characters, D-042), to be built in M12.
-- Moderation decisions (warnings, mutes, bans) and the owner's admin page for reports (M12, D-042); text chat.
-- Hosting, managed PostgreSQL and backups.
+- Moderation decisions (warnings, mutes, bans) and the owner's admin page for reports (M12, D-042; the page needs a signed-in account, so it comes with sign-in); text chat.
+- Hosting, managed PostgreSQL and backups (Q15). Health checks, status, JSON logs and a load test exist (M12 part 1).
 - Authored character models (rigged glTF/VRM) to replace the procedural
   Stage-1 characters — requirements in `ASSET_PIPELINE.md`.
 - Level of detail for characters (far characters still use full geometry)

@@ -38,6 +38,8 @@ export const ClientMessage = {
   LeaveWorld: "leaveWorld",
   /** Permanently delete one of this account's characters (lobby only). Payload: DeleteCharacterPayload. */
   DeleteCharacter: "deleteCharacter",
+  /** Deletes this browser's whole guest profile and everything in it (M12). Title screen only. Payload: DeleteProfilePayload. */
+  DeleteProfile: "deleteProfile",
   /** Quit the character's job (in the world only; a shift in progress ends unpaid). No payload. */
   QuitJob: "quitJob",
   /** Ask for another player's card (M9): your relationship with them. Payload: TargetPayload. */
@@ -57,6 +59,8 @@ export const ClientMessage = {
 } as const;
 
 export const ServerMessage = {
+  /** Your guest profile was deleted (M12): forget the stored guest token. Payload: {}. */
+  ProfileDeleted: "profileDeleted",
   /** A movement intent was refused. Payload: RejectedPayload. */
   Rejected: "rejected",
   /** Progress of the receiving player's own action. Payload: ActionUpdatePayload. */
@@ -152,7 +156,7 @@ export interface IdentityPayload {
 }
 
 export interface ProfileErrorPayload {
-  action: "createCharacter" | "updateAppearance" | "enterWorld" | "deleteCharacter" | "listCharacters";
+  action: "createCharacter" | "updateAppearance" | "enterWorld" | "deleteCharacter" | "listCharacters" | "deleteProfile";
   reason: ProfileFailure;
   field?: string;
 }
@@ -513,6 +517,23 @@ export function parseEnterWorld(payload: unknown): EnterWorldPayload | null {
   if (typeof payload !== "object" || payload === null) return null;
   const characterId = parseCharacterId((payload as { characterId?: unknown }).characterId);
   return characterId ? { characterId } : null;
+}
+
+/** The word typed to confirm deleting a whole profile (M12). */
+export const PROFILE_DELETE_WORD = "delete";
+
+export interface DeleteProfilePayload {
+  /** What the player typed; must be PROFILE_DELETE_WORD (case and surrounding spaces don't matter). */
+  confirm: string;
+}
+
+/** True when the typed confirmation is the deletion word. */
+export const confirmsProfileDeletion = (typed: string): boolean => typed.trim().toLowerCase() === PROFILE_DELETE_WORD;
+
+export function parseDeleteProfile(payload: unknown): DeleteProfilePayload | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const confirm = (payload as { confirm?: unknown }).confirm;
+  return typeof confirm === "string" && confirm.length <= 40 ? { confirm } : null;
 }
 
 export function parseDeleteCharacter(payload: unknown): DeleteCharacterPayload | null {

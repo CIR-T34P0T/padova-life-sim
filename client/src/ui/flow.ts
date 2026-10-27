@@ -10,6 +10,8 @@ import {
   PROFILE_CONFIG,
   cloneAppearance,
   confirmNameMatches,
+  confirmsProfileDeletion,
+  PROFILE_DELETE_WORD,
   decodeLook,
   type AppearanceConfig,
   type CharacterProfile,
@@ -36,6 +38,7 @@ type Pending =
   | { kind: "edit-lobby"; characterId: string; name: string }
   | { kind: "edit-world" }
   | { kind: "delete"; name: string }
+  | { kind: "delete-profile" }
   | { kind: "leave" };
 
 /** A request the server never answers is reported instead of waiting forever. */
@@ -56,6 +59,8 @@ const ERROR_TEXT: Record<ProfileFailure, string> = {
   profile_newer_version: "This character was saved by a newer version of the game and can't be changed here.",
   rate_limited: "Too many new characters from this network recently. Please try again later.",
   storage_error: "The server couldn't save that. Please try again.",
+  profile_not_found: "There's no saved profile for this browser on the server.",
+  confirm_mismatch: `Type ${PROFILE_DELETE_WORD} to confirm.`,
 };
 
 export class Flow {
@@ -202,7 +207,30 @@ export class Flow {
         if (this.dialog?.isOpen) this.dialog.setError(text);
         else this.manage?.setStatus(text);
         return;
+      case "deleteProfile":
+        if (this.dialog?.isOpen) this.dialog.setError(error.reason === "character_in_use" ? "One of your characters is being played in another window. Go back to the title screen there first." : text);
+        else this.hud.toast(text);
+        return;
     }
+  }
+
+  /** The server deleted this browser's guest profile (asked here or in another window of the same profile). */
+  onProfileDeleted(): void {
+    this.takePending();
+    this.store.clear();
+    this.dialog?.close();
+    this.dialog = null;
+    this.closeCreator();
+    this.notice = undefined;
+    this.lobby = { ...this.lobby, characters: [], message: undefined };
+    this.host.show(
+      new MessageScreen(
+        "Profile deleted",
+        "Your guest profile and all its characters were deleted from the server, and this browser no longer remembers you. You can start a new life whenever you like.",
+        "Back to the title screen",
+        () => this.showTitle(),
+      ),
+    );
   }
 
   onDisconnected(code: number | undefined): void {
@@ -274,7 +302,7 @@ export class Flow {
       onNewLife: () => this.startNewLife(),
       onContinue: (character) => this.play(character, "title"),
       onManage: () => this.showManage(),
-      onSettings: () => this.host.show(new SettingsScreen(() => this.showTitle(), true)),
+      onSettings: () => this.showSettings(),
       onCredits: () => this.host.show(new CreditsScreen(() => this.showTitle())),
       onRetry: () => location.reload(),
     });
@@ -422,6 +450,35 @@ export class Flow {
     });
   }
 
+  private showSettings(): void {
+    // Deleting needs a saved profile and a connection to the server that holds it.
+    const canDelete = this.store.get() !== null && this.lobby.status === "ready";
+    this.host.show(new SettingsScreen(() => this.showTitle(), true, canDelete ? { characters: this.lobby.characters.length, onDelete: () => this.confirmDeleteProfile() } : null));
+  }
+
+  private confirmDeleteProfile(): void {
+    const count = this.lobby.characters.length;
+    const lives = count === 1 ? "your character" : `all ${count} of your characters`;
+    this.dialog = new Dialog({
+      title: "Delete your profile?",
+      body: [
+        `This permanently deletes your guest profile from the server with ${count === 0 ? "everything saved for it" : lives}: their money, skills, studies, job, home, relationships, story and blocks. It can't be undone.`,
+        "Reports you sent stay with the moderators until they expire, without your name.",
+        `Type ${PROFILE_DELETE_WORD} to confirm.`,
+      ],
+      input: { label: `Type ${PROFILE_DELETE_WORD}`, placeholder: PROFILE_DELETE_WORD },
+      canConfirm: (value) => confirmsProfileDeletion(value),
+      confirmLabel: "Delete my profile",
+      danger: true,
+      onConfirm: (value, dialog) => {
+        this.setPending({ kind: "delete-profile" });
+        dialog.setBusy(true);
+        this.game.deleteProfile(value);
+      },
+      onCancel: () => (this.dialog = null),
+    });
+  }
+
   private confirmDelete(character: CharacterSummary): void {
     this.dialog = new Dialog({
       title: `Delete ${character.displayName}?`,
@@ -493,7 +550,7 @@ export class Flow {
     if (!pending || this.signedInElsewhere) return;
     const text = "The server didn't answer. Please try again.";
     if (pending.kind === "create" || pending.kind === "edit-lobby" || pending.kind === "edit-world") this.creator?.setError(text);
-    else if (pending.kind === "delete") this.dialog?.setError(text);
+    else if (pending.kind === "delete" || pending.kind === "delete-profile") this.dialog?.setError(text);
     else if (pending.kind === "enter") this.showTitle(text);
     else if (pending.kind === "leave") {
       this.game.setCovered(false);

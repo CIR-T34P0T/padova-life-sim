@@ -795,3 +795,43 @@ made while building it; each is a default the product owner can change.
   four NPCs and two players a test measured about 0.5 ms.
 - **`NPCS=off`** takes them away (operations, measuring); the server tests
   written before M11 run without them.
+
+## D-046 — Operations without outside services: implementation choices (2026-10-27)
+
+The first part of M12 (ROADMAP.md "M12 part 1"), built while Q15 (hosting)
+and Q16 (the sign-in accounts) wait. Each choice is a default the product
+owner can change.
+
+- **A guest can delete their whole profile** from Settings → *Your data* →
+  *Delete my profile…*, typing the word *delete* to confirm. It is allowed
+  only at the title screen and only while none of the profile's characters
+  is being played in another window. The server deletes the account row and
+  the database cascades to every character and everything they own (money
+  history, job and shifts, studies, home and furniture, relationships and
+  moments, story, blocks made or received). Every open window of that
+  profile is told and returns to a fresh title screen; the browser forgets
+  the guest token, which stops working. This is the deletion D-042 asks
+  for; signed-in accounts (Q16) will use the same path.
+- **Reports survive a deletion only as the moderators' record:** a report
+  the deleted account made stays (without the reporter) until it expires
+  after 90 days; reports about the deleted account go with it, since there
+  is no one left to act on.
+- **Health and status over HTTP, no new dependency:** `GET /health`
+  (200, or 503 when the database doesn't answer within 2 s) for a host's
+  health check, and `GET /status` with aggregate numbers only (uptime,
+  memory, CPU, database latency, players, NPCs, and each room's tick time
+  against the 5 ms budget). No names, ids or addresses. They use the HTTP
+  server Colyseus's transport already runs.
+- **`LOG_FORMAT=json`** writes one JSON object per log line for a hosting
+  provider's log collector; the default stays readable lines.
+- **A load test as a command** (`npm run loadtest`): bot players join as
+  guests, create characters, walk, sit and greet, then delete their profiles
+  so nothing is left behind. It reads `/status` while it runs. For
+  development and staging servers only.
+- **The admin page for reports waits for sign-in.** D-042 puts it behind a
+  real account, so it comes with Q16, not before.
+- **Rooms stay at 16 players** (`GAME_CONFIG.maxPlayersPerRoom`). The 17th
+  player opens a second, separate copy of the square with its own locals;
+  players in different copies don't see each other. Interest management
+  (send only what is near) would let one world hold more people; it stays
+  in "Technical work that waits for a trigger".

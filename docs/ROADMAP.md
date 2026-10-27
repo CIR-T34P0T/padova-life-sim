@@ -22,7 +22,7 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M9 | Relationships, public profiles and safety | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | Player cards, *Chat*, friendships grown from greetings, chats, studying and lectures together; blocks and reports between accounts (reports deleted after 90 days, `npm run reports`); a private story log (D-042, D-043) |
 | M10 | A place to live | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | A rented room in the student housing (weekly rent, grace period, cheaper room, never debt), sleep, comfort, a small furniture catalogue in fixed spots, storage |
 | M11 | NPCs with routines | Tested (desktop and phone emulation; tick budget measured); not yet seen by the product owner | Four deterministic locals (a barista, three students) on game-time schedules, using the same movement, seats and actions as players; greet them; tick time measured against a budget |
-| M12 | Sign-in, deployment and operations | Planned; before people outside the project play (D-035) | Real sign-in, account deletion, hosting with backups, HTTPS/WSS, monitoring, a load test |
+| M12 | Sign-in, deployment and operations | Part 1 tested (deleting a guest profile, health and status, JSON logs, a load test; D-046); sign-in, hosting and the admin page wait for Q15 and Q16; before people outside the project play (D-035) | Real sign-in, account deletion, hosting with backups, HTTPS/WSS, monitoring, a load test |
 
 After M7: **playable multiplayer prototype** (earn and spend). The order
 M7 → M7b → M8 → M9 → M10 → M11 was approved on 2026-10-20 (D-035), with M12
@@ -280,12 +280,31 @@ results: TESTING.md.
 Not yet **verified** by the product owner: who the locals are, their days
 and their lines, on Windows and on a phone.
 
+## M12 part 1 operations: acceptance criteria
+
+The parts of "M12 — Sign-in, deployment and operations" (below) that need
+no outside account or hosting decision; choices in D-046. Test counts and
+results: TESTING.md.
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| 1. A guest can delete their whole profile; it removes all its data (from M12 criterion 1) | Tested | Settings → Your data → *Delete my profile…* with the typed word; title screen only, refused while a character is played elsewhere; every window told, the token stops working (`server/test/operations.test.ts`, `e2e/privacy.spec.ts`); the database cascade checked on PGlite and PostgreSQL |
+| 2. Basic monitoring: a health check for a host and aggregate status numbers | Tested | `GET /health` (503 when the database doesn't answer) and `GET /status` (players, NPCs, tick time against the budget, memory, CPU, database latency; no names or ids), server test |
+| 3. Logs a hosting provider can collect | Tested | `LOG_FORMAT=json`, one JSON object per line (server test) |
+| 4. A load test with the room's player limit | Tested | `npm run loadtest`: 16 bot players with the locals on PostgreSQL 16 for 2 minutes (TESTING.md); it found a real problem, fixed: clients at the title screen received deletes for a player map they didn't have |
+
+Not part 1, waiting: sign-in (Q16), hosting with HTTPS/WSS and restored
+backups (Q15), and the owner's admin page for reports, which D-042 puts
+behind a real account (so it comes with sign-in). Not yet **verified** by
+the product owner: the deletion flow on Windows and on a phone.
+
 ## Planned milestones (order approved; details proposed)
 
 **The order is approved (D-035); the details below are proposals.** Each
 milestone is reviewed with the product owner and refined before it starts.
 M7, M7b, M7c, M8, M9, M10 and M11 are built (criteria and evidence in their
-acceptance sections above); M12 has not started. Data sketches: DATA_MODEL.md "Proposed"; system design:
+acceptance sections above); M12's first part is built (D-046), the rest
+waits for Q15 and Q16. Data sketches: DATA_MODEL.md "Proposed"; system design:
 GAME_DESIGN.md "Life simulation: proposed next steps". Every milestone also
 keeps the standing criteria: server-authoritative changes, owner-scoped
 persistence verified on PGlite and PostgreSQL, desktop and phone layouts,
@@ -389,6 +408,10 @@ interaction systems, used unchanged.
 
 ### M12 — Sign-in, deployment and operations
 
+**Part 1 built** (2026-10-27): deleting a guest profile, health and
+status, JSON logs and a load test; see "M12 part 1 operations: acceptance
+criteria" above and D-046. The rest waits for Q15 and Q16.
+
 Depends on: the sign-in method (Q5, answered: D-042), a Google OAuth client
 and an email-sending service (owned by the product owner), hosting and
 budget decisions. Comes before any test with people outside the project
@@ -404,6 +427,7 @@ budget decisions. Comes before any test with people outside the project
 3. Logs and basic monitoring; a load test with the room's player limit.
 4. Moderation of reports (from M9): the owner's admin page, report details
    deleted after 90 days, decisions kept while the account exists (D-042).
+   The page needs a signed-in owner account, so it is built with sign-in.
 
 ### Technical work that waits for a trigger
 
@@ -411,7 +435,7 @@ budget decisions. Comes before any test with people outside the project
 | --- | --- |
 | Menus that scroll or page | Before any object offers more than about five actions (likely M7 or M9) |
 | Character level of detail and builds spread over frames | Before rooms regularly hold more than about eight players, or if real phones stutter |
-| Interest management (send only what is near) | Before a second area (M10) or more than 16 players |
+| Interest management (send only what is near) | Before more than 16 players should share one square (today the 17th opens a separate copy, measured by the M12 load test) |
 | Client-side movement prediction | If players report the movement delay (D-006) |
 | Configurable key bindings | Any time; small (a Settings option) |
 | Frame-rate measurement on real hardware | As soon as the owner can report it (open items 1 and 3) |
@@ -427,7 +451,7 @@ budget decisions. Comes before any test with people outside the project
 | M9 social | Done (2026-10-27) |
 | M10 home | M7 income (done); areas and doors (M7c) |
 | M11 NPCs | M7 and M8 places |
-| M12 operations | Q5 answered (D-042); a Google OAuth client, an email-sending service, hosting decisions |
+| M12 operations | Part 1 done (2026-10-27); the rest needs a Google OAuth client and an email-sending service (Q16) and hosting decisions (Q15) |
 
 ## Decisions for the product owner
 
@@ -454,7 +478,7 @@ marked **waiting**.
 | Q15 | Hosting for the first deployment (M12): where the game runs, a domain name, and a monthly budget | **Waiting.** Options to compare when M12 starts: a small virtual server with managed PostgreSQL, or a platform service; both with HTTPS/WSS and daily backups | M12's hosting part |
 | Q16 | Accounts the sign-in needs (D-042): a Google OAuth client and an email-sending service, created and owned by the product owner | **Waiting.** Claude can write the step-by-step setup; the keys stay with the owner and on the server, never in the repository | M12's sign-in part |
 
-## Current state (handoff, 2026-10-27)
+## Current state (handoff, 2026-10-27, after M12 part 1)
 
 Read this first when starting a new session.
 
@@ -462,7 +486,8 @@ Read this first when starting a new session.
 M0–M6, M6b (title screen and creation flow), M6c (the first district), M7
 (a first job at the café), M7b (day and night), M7c (indoor rooms), M8
 (university basics), M9 (relationships and safety), M10 (a place to
-live) and M11 (NPCs with routines) implemented and
+live), M11 (NPCs with routines) and the first part of M12 (deleting a guest
+profile, health and status, JSON logs, a load test) implemented and
 covered by
 automated tests (see `docs/TESTING.md` for the
 counts and latest results). An integration audit on 2026-10-20 checked every
@@ -503,7 +528,7 @@ private room in the student housing (three sizes, rent every Monday, a
 grace period and a move to a cheaper room if it can't be paid), sleep in its
 bed, keep comfortable, buy furniture for its spots and make it cosy; meet
 four locals (a barista and three students with daily routines, marked as
-non-players) and greet them; see the square change from dawn to night with everyone
+non-players) and greet them; delete their whole guest profile from Settings; see the square change from dawn to night with everyone
 else (lit windows, lamps, stars); watch needs, mood (with reasons), skills,
 work, university and money in the character panel; come back later, even
 after a server restart, to the same character with the same look, needs,
@@ -528,19 +553,20 @@ saved in the creator and device settings live only in that browser. The world cl
 | --- | --- | --- | --- |
 | 1 | Look at the district (by day and at night), the title screen, the creation flow and the characters on the Windows PC (`git pull`, `npm ci`, `npm run dev`) and a phone; say what to change in the art direction (world, light, menus, characters) and whether the frame rate feels smooth | Planned | Product owner |
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
-| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–46) | Planned | Product owner |
+| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–49) | Planned | Product owner |
 | 4 | Play-test the balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit, the lecture timetable and exam sittings, the grade targets, relationship gains and daily caps, rents, the grace period, furniture prices, comfort and sleep) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
 | 5 | Decisions for the product owner | Q15 (hosting, domain, budget) and Q16 (Google OAuth client, email service) wait for M12's hosting and sign-in parts | Product owner |
 
-**Recommended next task:** **M12, sign-in, deployment and operations**
-(see "Planned milestones"). Its sign-in and hosting parts wait for the
-product owner's answers to Q15 and Q16; account deletion, the owner's admin
-page for reports, monitoring and a load test can start before them.
-Meanwhile the owner tries M9, M10 and M11. In parallel the product owner looks at the district by day and at night, the title screen,
+**Recommended next task:** the product owner answers **Q15** (hosting,
+domain, budget) and **Q16** (a Google OAuth client and an email-sending
+service); then **M12 part 2**: sign-in with a guest upgrade, the admin page
+for reports, and hosting with HTTPS/WSS and restored backups (see "Planned
+milestones"). Until then, Claude can take the follow-ups below.
+Meanwhile the owner tries M9, M10, M11 and the profile deletion. In parallel the product owner looks at the district by day and at night, the title screen,
 the creation flow and the characters on Windows and a phone (item 1; the
 world lab, `/world-lab.html?time=23:00`, shows every corner at any hour).
 Follow-ups not covered by "Technical work that waits for a trigger":
 precompile the world's shaders while the title screen is open (entering
 takes about 4 s with software rendering, 2.4 s of it the first world frame);
-deleting a whole guest profile (with Q5); per-object level of detail for the
+per-object level of detail for the
 district if real phones need it.

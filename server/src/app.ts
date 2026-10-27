@@ -7,7 +7,11 @@ import { LifeService } from "./life/LifeService.ts";
 import { ProfileService } from "./profiles/ProfileService.ts";
 import { SessionRegistry } from "./profiles/sessionRegistry.ts";
 import { registerServices } from "./services.ts";
+import { mountStatusRoutes, type RouteApp, type StatusSource } from "./status.ts";
 import { resolveTuning, type TuningOverrides } from "./tuning.ts";
+
+/** The server's version, reported by /status (from package.json). */
+const SERVER_VERSION = "0.1.0";
 
 export interface GameServerOptions {
   /** A migrated database (see db/migrate.ts). */
@@ -19,9 +23,12 @@ export interface GameServerOptions {
 /** Builds the game server. Shared by the entry point and the integration tests. */
 export function createGameServer({ db, tuning }: GameServerOptions): Server {
   const resolved = resolveTuning(tuning);
+  const rooms = new Set<StatusSource>();
   const server = new Server({
     transport: new WebSocketTransport({ pingInterval: 3000, pingMaxRetries: 2 }),
     gracefullyShutdown: false,
+    // Health and status for operations (M12), on the same port as the game.
+    express: (app) => mountStatusRoutes(app as unknown as RouteApp, { db, rooms, npcs: resolved.npcs, version: SERVER_VERSION }),
   });
   const servicesKey = registerServices({
     profiles: new ProfileService(db, {
@@ -30,6 +37,7 @@ export function createGameServer({ db, tuning }: GameServerOptions): Server {
     }),
     life: new LifeService(db, { timeScale: resolved.timeScale, dailyAllowanceCents: resolved.dailyAllowanceCents }),
     sessions: new SessionRegistry(),
+    rooms,
   });
   server.define(ROOM_NAME, PlazaRoom, { tuning, servicesKey });
   return server;

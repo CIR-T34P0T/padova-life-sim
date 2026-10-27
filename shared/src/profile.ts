@@ -71,6 +71,10 @@ export type ProfileFailure =
   | "in_world"
   /** Another profile request from this window is still being handled. */
   | "busy"
+  /** M12: this window has no saved profile (nothing to delete). */
+  | "profile_not_found"
+  /** M12: the confirmation word for deleting the whole profile wasn't typed. */
+  | "confirm_mismatch"
   | "profile_newer_version"
   | "rate_limited"
   | "storage_error";

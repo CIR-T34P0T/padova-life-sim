@@ -21,6 +21,7 @@ import { log } from "../log.ts";
 import {
   createCharacterForAccount,
   createGuestWithCharacter,
+  deleteAccount,
   deleteCharacter,
   findAccountIdByGuestToken,
   listCharactersByAccount,
@@ -87,6 +88,11 @@ export class ProfileService {
   /** Permanently deletes one of the account's characters. False if it isn't theirs. */
   delete(owner: Owner): Promise<boolean> {
     return deleteCharacter(this.db, owner);
+  }
+
+  /** Deletes the whole guest account and everything in it (M12). The number of characters it held, or null if it didn't exist. */
+  deleteAccount(accountId: string): Promise<number | null> {
+    return deleteAccount(this.db, accountId);
   }
 
   /** Simple sliding-window limit on new guest accounts per IP. */

@@ -5,7 +5,7 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms, university basics, relationships and safety, a place to live, locals (M0–M11)
+## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms, university basics, relationships and safety, a place to live, locals (M0–M11), first operations tools (M12 part 1)
 
 What exists today is an early, end-to-end slice: one district with two
 indoor rooms, the first life-simulation loop, character creation, a first
@@ -47,6 +47,8 @@ in `docs/ROADMAP.md`.
 | Character panel (your needs, mood, skills, work, university, home, money, story, blocked players, current action) and top-right weekday/time/money chip | Locally functional, tested (desktop and phone emulation) |
 | A place to live: rent a private room in the student housing (box room, single room or studio; first week paid at once, then rent every Monday through the ledger; if it can't be paid, a notice, 12 game hours of grace, then a move to a cheaper room or out, never debt); others see you leave the square; sleep in your bed (energy, comfort); furnish fixed spots from a small catalogue (bought once per request, drawn at once, sit on your seats), storage, cosiness; change room or move out; you come back home after a reload | Multiplayer functional, persistence verified (PGlite and PostgreSQL 16); balance not play-tested |
 | Locals: four non-player characters (a barista who works the café kiosk, three students who go to lectures, the library and the square) on game-time schedules, using the same movement, seats and doors as players and leaving room for them; gold name tag with their role, not counted as players; greet them for an answer; never saved | Multiplayer functional, tested (desktop and phone emulation); tick time measured |
+| Delete your whole guest profile (Settings → Your data; type *delete*; every window of the profile is told and the browser forgets you) | Multiplayer functional, tested (PGlite and PostgreSQL 16; desktop browser test) |
+| Operations: `/health` and `/status` (aggregate numbers only), JSON logs (`LOG_FORMAT=json`), a load test with bot players (`npm run loadtest`) | Locally functional, tested; not deployed anywhere yet (hosting waits for the product owner, Q15) |
 | Cooking, showers and bills, shared flats, free furniture placement, inventory for other items, more jobs, more courses and graduation | Not started (see docs/ROADMAP.md) |
 
 "Tested" means covered by the automated tests in `docs/TESTING.md`. Mobile is
@@ -162,7 +164,10 @@ The client runs on port 5173 and the game server on port 2567.
   money and skills. *Play*, *Edit look*, or *Delete* (type the name to
   confirm; it can't be undone).
 - **Settings** (this device only): graphics (applies after a reload), camera
-  turning speed, interface animation, controls reminder.
+  turning speed, interface animation, controls reminder. **Your data**
+  (when you have a saved profile): *Delete my profile…* deletes every
+  character and everything saved for them (type *delete* to confirm; it
+  can't be undone).
 
 ### Character lab and world lab (developer pages)
 
@@ -188,8 +193,9 @@ for a rented room, empty or furnished. Neither page is linked from the game.
   While you're away, needs change slowly for at most 8 game hours.
 - Your **browser** keeps only a temporary guest key. Clearing the site's data,
   using another browser or device, or deleting `.data/` starts over. There is
-  no sign-in, recovery or account deletion yet (docs/DECISIONS.md D-017);
-  sign-in with Google and with email and password is planned for M12 (D-042).
+  no sign-in or recovery yet (docs/DECISIONS.md D-017); sign-in with Google
+  and with email and password is planned for M12 (D-042). You can delete your
+  whole profile from Settings → Your data (D-046).
 - To reset the development database: stop the server and delete the `.data`
   folder.
 - To use a real PostgreSQL server instead, set `DATABASE_URL`, for example
@@ -220,9 +226,31 @@ Landscape gives the best view; portrait works.
 | `npm run db:status` | Lists applied and pending migrations |
 | `npm run db:rollback` | Reverts the latest migration (`-- 2` for two). **Deletes the data in the tables it drops** |
 | `npm run reports` | Lists recent player reports (newest first) and deletes those older than 90 days. With the embedded development database, stop the game first |
+| `npm run loadtest -- --bots 16 --seconds 60` | Bot players join a running server, play, and delete their profiles at the end; prints join times, how fast a walk shows up, refusals, and the server's tick time, memory, CPU and database latency (see "Load test" below) |
 | `npm run clock -- wed 10:00` | Prints the `GAME_CLOCK_OFFSET_MINUTES` value (and the PowerShell line) that starts the game clock at that weekday and time, to try lectures or exams at any real time |
 
 First-time Playwright setup: `npx playwright install chromium`.
+
+### Health, status and load test
+
+While the server runs, <http://localhost:2567/health> answers `{"status":"ok"}`
+(503 if the database doesn't answer) and <http://localhost:2567/status> shows
+aggregate numbers: players, NPCs, tick time against its 5 ms budget, memory,
+CPU and database latency. No names or ids.
+
+**Load test** (development and staging servers only): start a server that
+allows many new guests, then run the bots from a second terminal. In
+PowerShell:
+
+```powershell
+$env:GUEST_CREATIONS_PER_IP_PER_HOUR="1000"; npm start
+# second window:
+npm run loadtest -- --bots 16 --seconds 60
+```
+
+Each bot creates a guest and a character, walks, sits and greets, and
+deletes its profile at the end. A room holds 16 players; more bots (or a
+browser already playing) open a second, separate copy of the square.
 
 ## Configuration
 
@@ -230,6 +258,7 @@ First-time Playwright setup: `npx playwright install chromium`.
 | --- | --- | --- | --- |
 | `PORT` | server | `2567` | WebSocket server port |
 | `LOG_LEVEL` | server | `info` | `debug`, `info`, `warn`, `error`, `silent` |
+| `LOG_FORMAT` | server | plain lines | `json` writes one JSON object per line (`time`, `level`, `scope`, `message`) for a hosting provider's log collector |
 | `CLIENT_PORT` | client | `5173` | Vite dev server port |
 | `VITE_SERVER_URL` | client | `ws://<page host>:2567` | Game server address |
 | `DATABASE_URL` | server | unset | Real PostgreSQL connection URL. Unset = embedded PGlite. Keep it secret; it never reaches the browser |

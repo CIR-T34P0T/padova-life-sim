@@ -12,7 +12,8 @@
     "db:rollback": "tsx src/db/cli.ts rollback",
     "db:status": "tsx src/db/cli.ts status",
     "clock": "tsx src/clockCli.ts",
-    "reports": "tsx src/reportsCli.ts"
+    "reports": "tsx src/reportsCli.ts",
+    "loadtest": "tsx src/loadtestCli.ts"
   },
   "dependencies": {
     "@colyseus/core": "^0.18.19",
@@ -23,6 +24,7 @@
     "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@types/pg": "8.23"
+    "@types/pg": "8.23",
+    "@colyseus/sdk": "^0.18.5"
   }
 }

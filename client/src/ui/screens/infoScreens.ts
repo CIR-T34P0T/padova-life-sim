@@ -29,6 +29,30 @@ const SETTING_TEXT: Record<keyof Settings, { title: string; hint: string }> = {
   hints: { title: "Controls reminder", hint: "The line of controls at the bottom of the screen while playing." },
 };
 
+export interface ProfileDataOptions {
+  /** How many characters the profile has, for the explanation. */
+  characters: number;
+  onDelete: () => void;
+}
+
+/** "Your data": deleting the guest profile and everything saved for it (M12). */
+function profileDataRow(options: ProfileDataOptions): HTMLElement {
+  const row = el("div", "setting-row is-data");
+  row.dataset.setting = "profile-data";
+  const lives = options.characters === 1 ? "its character" : `its ${options.characters} characters`;
+  const remove = button("Delete my profile…", { className: "ui-button is-danger-quiet", action: "delete-profile", onClick: options.onDelete });
+  row.append(
+    el("div", "setting-title", "Your data"),
+    remove,
+    el(
+      "p",
+      "setting-hint",
+      `Your guest profile is kept on the game server with ${options.characters === 0 ? "anything saved for it" : lives}. Deleting it removes them for good, and this browser forgets you.`,
+    ),
+  );
+  return row;
+}
+
 export class SettingsScreen implements Screen {
   readonly element: HTMLElement;
   private readonly startGraphics = getSettings().graphics;
@@ -37,11 +61,14 @@ export class SettingsScreen implements Screen {
     private readonly onBack: () => void,
     /** True when the 3D view already exists (it is created at page load), so a graphics change needs a reload. */
     private readonly rendererStarted: boolean,
+    /** Set when this browser has a saved guest profile on the server it is connected to (M12). */
+    profileData: ProfileDataOptions | null = null,
   ) {
     this.element = el("section", "settings-screen flow-screen");
     this.element.dataset.screen = "settings";
     const list = el("div", "settings-list");
     for (const key of Object.keys(SETTING_CHOICES) as (keyof Settings)[]) list.append(this.row(key));
+    if (profileData) list.append(profileDataRow(profileData));
     const status = el("p", "settings-status");
     status.setAttribute("role", "status");
     status.dataset.role = "settings-status";

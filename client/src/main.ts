@@ -31,6 +31,7 @@ const game = new Game(byId("game"), byId("joystick"), hud, {
   onProfile: (payload) => flow.onProfile(payload),
   onIdentity: ({ guestToken }) => flow.onIdentity(guestToken),
   onProfileError: (error) => flow.onProfileError(error),
+  onProfileDeleted: () => flow.onProfileDeleted(),
   onDisconnected: (code) => flow.onDisconnected(code),
   onEditAppearance: () => flow.onEditAppearance(),
   onLeaveToTitle: () => flow.onLeaveToTitle(),

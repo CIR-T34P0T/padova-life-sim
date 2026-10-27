@@ -106,7 +106,8 @@ fresco-like sky over lit porticoes, D-032) with **New life**, **Continue**,
   the piazza.
 - **Settings** (this device): graphics, camera turning speed, interface
   animation (follows the device's reduced-motion setting by default),
-  controls reminder.
+  controls reminder. With a saved profile, **Your data** offers *Delete my
+  profile…* (M12, below).
 
 **Screen flow (implemented, M6b; `client/src/ui/flow.ts`).** Square brackets
 are the requests sent to the server; nothing is sent before them.
@@ -119,7 +120,8 @@ Title ─┬─ New life ─► 1 Name & personality ─► 2 Look ─► 3 Revi
        │                     ├─ Edit look ─► Look ─► Review ─► [updateAppearance] ─► Manage ("Look saved")
        │                     ├─ Delete ─► type the name ─► [deleteCharacter] ─► Manage ("… was deleted")
        │                     └─ New life (only while a place is free; otherwise "All 3 lives are in use")
-       ├─ Settings ─► Back
+       ├─ Settings ─┬─ Back
+       │            └─ Your data: Delete my profile… ─► type "delete" ─► [deleteProfile] ─► "Profile deleted" ─► Title (empty)
        └─ Credits ─► Back
 World ── yourself or the panel ─► Edit look ─► Look ─► Review ─► [updateAppearance] ─► World
 World ── panel ─► Back to title ─► [leaveWorld] ─► Title
@@ -620,6 +622,19 @@ today"), five reports per hour. The product owner reads reports with `npm
 run reports` until the admin page comes with sign-in (M12); **every report
 is deleted 90 days after it is made**, checked when the server starts and
 every hour. Warnings, mutes and bans come with the admin page (M12).
+
+## Your data: deleting a profile (M12)
+
+Choices in D-046. **Settings → Your data → Delete my profile…** appears when
+this browser has a saved guest profile and the game is connected. The
+dialog says what goes (every character with their money, skills, studies,
+job, home, relationships, story and blocks) and that reports you sent stay
+with the moderators until they expire, without your name; you type
+*delete* to confirm. It works only from the title screen, and not while one
+of your characters is being played in another window ("Go back to the title
+screen there first"). Afterwards every open window of the profile shows
+"Profile deleted", the browser forgets you, and the title screen is empty:
+a new life starts a new guest profile. Nothing can be recovered.
 
 ## Story log (M9)
 

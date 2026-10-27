@@ -5,11 +5,14 @@
 import type { LifeService } from "./life/LifeService.ts";
 import type { ProfileService } from "./profiles/ProfileService.ts";
 import type { SessionRegistry } from "./profiles/sessionRegistry.ts";
+import type { StatusSource } from "./status.ts";
 
 export interface GameServices {
   profiles: ProfileService;
   life: LifeService;
   sessions: SessionRegistry;
+  /** The rooms running on this server, for /status (M12). */
+  rooms: Set<StatusSource>;
 }
 
 const registry = new Map<string, GameServices>();

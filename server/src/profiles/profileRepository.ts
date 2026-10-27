@@ -234,6 +234,22 @@ export async function deleteCharacter(db: Queryable, owner: Owner): Promise<bool
   return rows.length > 0;
 }
 
+/**
+ * Deletes a whole guest account (M12): its credential and every character
+ * with everything they own cascade; blocks made by or against it go too;
+ * reports it made stay without its name (their reporter is set to null),
+ * reports about it go with it. Returns how many characters it held, or null
+ * when there was no such account.
+ */
+export async function deleteAccount(db: Queryable, accountId: string): Promise<number | null> {
+  const { rows } = await db.query<{ characters: number }>(
+    `WITH gone AS (DELETE FROM accounts WHERE id = $1 RETURNING id)
+     SELECT (SELECT count(*)::int FROM characters WHERE account_id = $1) AS characters FROM gone`,
+    [accountId],
+  );
+  return rows[0] ? Number(rows[0].characters) : null;
+}
+
 export async function loadCharacterById(db: Queryable, owner: Owner): Promise<StoredCharacter | null> {
   const { rows } = await db.query<CharacterRow>(`${SELECT_CHARACTER} WHERE c.id = $1 AND c.account_id = $2`, [owner.characterId, owner.accountId]);
   return rows[0] ? toStored(rows[0]) : null;

@@ -125,7 +125,8 @@ or auth model without the product owner's approval.
   `shared/src/interiors.ts`, listed in `shared/src/areas.ts`, with a pair of
   linked doors; ids stay unique across areas. The server keeps each
   character in one area (movement, collision, interactions per area) and
-  sends each client only its area's players (`StateView`). A building gets a
+  sends each client only its area's players (`StateView`; add or remove a
+  player from a view only when that changes, `refreshViews`). A building gets a
   room when it has a use, one room per use. Check rooms with
   `world-lab.html?area=<id>`.
 - **The title screen is the lobby** (D-031). Joining lists the account's
@@ -137,6 +138,14 @@ or auth model without the product owner's approval.
 - **Menus follow D-032**: palette tokens at the top of `styles.css`, Spritz
   orange only for the one main action of a screen, at least 44 px touch
   targets, and no option or setting without a working effect.
+- **Operations (M12 part 1, D-046).** `/health` and `/status`
+  (`server/src/status.ts`) report aggregate numbers only, never names, ids,
+  tokens or addresses. A guest profile is deleted only through
+  `deleteAccount` (one `DELETE FROM accounts`; the schema cascades), from
+  the title screen, with the typed word, and never while one of its
+  characters is played; new tables that hold an account's data must
+  cascade from `accounts` or `characters` (or say why not). `npm run
+  loadtest` is for development and staging servers only.
 - **Input is device-agnostic.** `client/src/input` turns mouse/touch/keyboard
   into gestures; gameplay code never checks the device type.
 - Placeholders must be labelled as placeholders in code and docs.

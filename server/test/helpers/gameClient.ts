@@ -91,7 +91,7 @@ export async function connect(url: string, options: { guestToken?: string } = {}
   room.onMessage(ServerMessage.Profile, (payload: ProfilePayload) => client.profiles.push(payload));
   room.onMessage(ServerMessage.ProfileError, (payload: ProfileErrorPayload) => client.errors.push(payload));
   room.onMessage(ServerMessage.Identity, (payload: IdentityPayload) => client.identities.push(payload));
-  for (const type of [ServerMessage.Greeted, ServerMessage.ProfileView, ServerMessage.Safety, ServerMessage.Story, ServerMessage.Relationship, ServerMessage.SocialResult, ServerMessage.Housing, ServerMessage.FurnishResult]) {
+  for (const type of [ServerMessage.Greeted, ServerMessage.ProfileView, ServerMessage.Safety, ServerMessage.Story, ServerMessage.Relationship, ServerMessage.SocialResult, ServerMessage.Housing, ServerMessage.FurnishResult, ServerMessage.ProfileDeleted]) {
     room.onMessage(type, (payload: unknown) => client.social.push({ type, payload }));
   }
   await waitFor(() => client.profiles.length > 0, 6000, "first profile message");

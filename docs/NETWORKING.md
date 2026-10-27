@@ -58,6 +58,7 @@ Client → server (intents only):
 | `enterWorld` | `{ characterId }` | Title screen only. `characterId` must be a UUID **of the session's own account** (checked in the database query; anything else is `character_not_found`). Claims the account (another window playing it is saved and closed with 4100), loads the character and places it in the world. Answers `profile` (`ready`). |
 | `leaveWorld` | none | Saves the character, removes it from the world for everyone and answers a fresh `profile` (`lobby`). At the title screen it just answers the lobby again. |
 | `deleteCharacter` | `{ characterId, confirmName }` | Title screen only. Permanently deletes one of the session's own characters and everything that belongs to it, if `confirmName` matches its name (ignoring case and extra spaces: `confirm_name_mismatch`) and nobody is playing it in any window (`character_in_use`). Answers the updated lobby. |
+| `deleteProfile` | `{ confirm }` | Title screen only (M12, D-046). Permanently deletes the session's whole guest profile: every character and everything they own, and the guest token. `confirm` must be the word `delete` (ignoring case and extra spaces: `confirm_mismatch`); refused in the world (`in_world`), while any of the profile's characters is played in another window (`character_in_use`) and without a saved profile (`profile_not_found`). Every window of that profile gets `profileDeleted` and then an empty lobby. |
 | `updateAppearance` | `{ appearance, characterId? }` | In the world: always the character being played (from the session; any id in the payload is ignored). At the title screen: `characterId` names one of the session's own characters that isn't being played (`character_in_use`). `appearance` is a complete appearance config (version 1): every option a catalogue id, every slider a number 0–1, or the request is refused naming the field (`hair.style`, `skin.tone`…). Changes the look only, never needs, money, skills or traits. Saved, then replicated as the new `look` (in the world) or answered with the updated lobby (title screen). In the world it counts toward the intent rate limit. |
 | anything else | — | Ignored and logged at warn level. |
 
@@ -78,7 +79,8 @@ Server → client:
 | `life` | `LifePayload`: `{ gameMinute, needs, mood: { score, level, reasons, events }, skills: { xp, level, progress } per skill, traits, money: { balanceCents, recent }, job: { jobId, shiftsToday } \| null, course: { courseId, status, lecturesAttended, studySessions, lastLectureKey, lastSittingKey, lastResult: { grade, passed, gameDay } \| null, finalGrade } \| null, timeScale }` | Sent to the owner only (D-024). `job` (M7) is the character's job and its completed shifts on the current game day; grade, wage and opening hours follow from the shared rules (`shared/src/life/work.ts`). `course` (M8) is the character's enrolment, attendance and latest result; the timetable and the "expected grade" follow from `shared/src/life/university.ts`. `timeScale` is the server's game minutes per real minute, so menus can say "in about 25 min" in real time. Pay and grades are never replicated: others see only the public activities `working`, `attending` and `exam`. Sent on entering the world, at most every 500 ms while a visible value changed, and at once after a money change, a refusal that affects mood, or a completed action. Other players never receive it. |
 | `profile` | `{ status: "lobby" \| "ready", characters?, maxCharacters?, profile?, readOnly?, notices? }` | Sent to the owner only. `lobby` (after joining, leaving the world, deleting, or a title-screen look change): `characters` = this account's characters, most recently played first, each `{ characterId, displayName, look, traits, createdAt, lastPlayedAt, readOnly, notices }` (no life data); empty for a new visitor. `ready` (after entering, creating, or an in-world look change): `profile` = the character in the world. `readOnly` = stored by a newer version, not editable here. `notices` = e.g. a retired option was replaced. |
 | `identity` | `{ guestToken }` | Sent once, when a new guest account is created. The client stores it. |
-| `profileError` | `{ action, reason, field? }` | `action`: `createCharacter`, `updateAppearance`, `enterWorld`, `deleteCharacter`, `listCharacters`. Reasons: `invalid_payload`, `invalid_name`, `age_category_not_allowed`, `invalid_appearance`, `invalid_traits`, `too_many_characters`, `character_not_found`, `character_in_use`, `confirm_name_mismatch`, `in_world`, `busy` (another profile request from this window is still running), `profile_newer_version`, `rate_limited`, `storage_error`. |
+| `profileDeleted` | `{}` | To every window of a guest profile that was just deleted (M12). The client forgets its guest token; a lobby with no characters follows, and the next new life creates a new guest. |
+| `profileError` | `{ action, reason, field? }` | `action`: `createCharacter`, `updateAppearance`, `enterWorld`, `deleteCharacter`, `deleteProfile`, `listCharacters`. Reasons: `invalid_payload`, `invalid_name`, `age_category_not_allowed`, `invalid_appearance`, `invalid_traits`, `too_many_characters`, `character_not_found`, `character_in_use`, `confirm_name_mismatch`, `in_world`, `busy` (another profile request from this window is still running), `profile_newer_version`, `rate_limited`, `storage_error`, and for `deleteProfile` also `confirm_mismatch` and `profile_not_found`. |
 
 ### Joining and identity
 
@@ -155,7 +157,9 @@ Every character in the world is in one area: `plaza` or an indoor room
 (`hall/lecture-room`, `library/reading-room`). The player map is filtered per
 client with a Colyseus `StateView`: a client receives **only the players in
 its own area**, and none while at the title screen (the map is absent on the
-client until its own character enters). Each player carries `area`, so a
+client until its own character enters; the server changes a view only for
+players that appear or leave it, so a client at the title screen receives
+nothing about the map, M12). Each player carries `area`, so a
 client knows which area to draw. Going through a door is an `interact` with
 action `enter` on a door object; the server walks the character to the door,
 then moves it to the linked area, and every client's view is updated (players
@@ -182,6 +186,17 @@ in the replicated seat map; the home's layout reaches only its tenant, in
 `housing`. A character saved at home comes back there only if it is still
 their current home.
 
+## HTTP: health and status (M12, D-046)
+
+The game server also answers two HTTP requests on its port (the HTTP server
+Colyseus's transport runs; no extra dependency). Both send
+`Cache-Control: no-store` and carry no names, ids or addresses.
+
+| Route | Answer |
+| --- | --- |
+| `GET /health` | `200 {"status":"ok"}` when the database answers `SELECT 1` within 2 s; otherwise `503 {"status":"error","database":"unreachable"}`. For a host's health check or an uptime monitor. |
+| `GET /status` | `{ status: "ok" \| "degraded", version, uptimeSeconds, memory: { rssMb, heapUsedMb }, cpu: { sinceLastStatus }, database: { ok, latencyMs, kind: "postgresql" \| "pglite" }, npcs: "on" \| "off", tickBudgetMs, players, rooms: [{ players, npcs, tick: { ticks, avgMs, p95Ms, maxMs } }] }`. `cpu.sinceLastStatus` is the share of one core used since the previous `/status` request; the tick numbers cover the last 1 200 ticks (one minute). |
+
 ## Game time (D-021)
 
 The server derives the game minute from its real clock and the time scale
@@ -199,7 +214,7 @@ still one server clock that every player shares.
 
 ## Not yet implemented
 
-- Interest management / proximity filtering (one small room makes it unnecessary so far).
+- Interest management / proximity filtering (one small room makes it unnecessary so far). A room holds 16 players; the 17th opens a second, separate copy of the square with its own locals, and players in different copies don't see each other (measured by the load test, M12).
 - Several server rooms or room transfer between districts (indoor rooms are
   areas inside the one server room since M7c, see "Areas").
 - Real authentication (only temporary guest accounts exist, D-017).

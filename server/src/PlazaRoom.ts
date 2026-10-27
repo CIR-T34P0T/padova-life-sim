@@ -18,6 +18,8 @@ import {
   parseAppearance,
   parseCharacterId,
   parseDeleteCharacter,
+  parseDeleteProfile,
+  confirmsProfileDeletion,
   parseEnterWorld,
   parseMoveDirection,
   parseMoveTo,
@@ -50,6 +52,7 @@ import { SeatBook } from "./seats.ts";
 import { getServices } from "./services.ts";
 import { SocialSystem } from "./social/SocialSystem.ts";
 import { TickStats, type TickSummary } from "./tickStats.ts";
+import type { RoomStatus, StatusSource } from "./status.ts";
 import { DEFAULT_TUNING, resolveTuning, type PlazaRoomOptions, type RoomTuning } from "./tuning.ts";
 
 /** What the server knows about one connection's identity. Never sent to clients. */
@@ -84,7 +87,7 @@ interface AuthResult {
  * simulates movement at a fixed rate, runs interactions, persists profiles
  * and replicates the result.
  */
-export class PlazaRoom extends Room<{ state: PlazaState }> {
+export class PlazaRoom extends Room<{ state: PlazaState }> implements StatusSource {
   override maxClients = GAME_CONFIG.maxPlayersPerRoom;
   override patchRate = GAME_CONFIG.patchMs;
   override maxMessagesPerSecond = GAME_CONFIG.maxMessagesPerSecond;
@@ -104,6 +107,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   private seats!: SeatBook;
   private readonly tickStats = new TickStats();
   private lastTickReport = Date.now();
+  private statusRooms: Set<StatusSource> | null = null;
   private lifeService!: LifeService;
   private gameClock!: GameClock;
   private profiles!: ProfileService;
@@ -119,6 +123,8 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     const offset = this.tuning.clockOffsetMinutes;
     this.gameClock = { scale, minute: () => gameMinuteAt(Date.now(), scale, offset) };
     this.registry = services.sessions;
+    this.statusRooms = services.rooms;
+    services.rooms.add(this);
     this.areas = new AreaWorlds(this.tuning.world);
     this.state = new PlazaState();
     this.state.gameMinute = Math.floor(this.gameClock.minute());
@@ -205,6 +211,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     this.onMessage(ClientMessage.EnterWorld, (client, payload) => void this.handleEnterWorld(client, payload));
     this.onMessage(ClientMessage.LeaveWorld, (client) => void this.handleLeaveWorld(client));
     this.onMessage(ClientMessage.DeleteCharacter, (client, payload) => void this.handleDeleteCharacter(client, payload));
+    this.onMessage(ClientMessage.DeleteProfile, (client, payload) => void this.handleDeleteProfile(client, payload));
     this.onMessage(ClientMessage.QuitJob, (client) => this.handleQuitJob(client));
     // Player cards, blocks and reports (M9): in the world only, under the same rate limit.
     this.onMessage(ClientMessage.ViewProfile, (client, payload) => {
@@ -312,6 +319,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   }
 
   override async onDispose(): Promise<void> {
+    this.statusRooms?.delete(this);
     await Promise.all([...this.sessions.keys()].map((sessionId) => this.saveCharacter(sessionId)));
     log.info("plaza", `room ${this.roomId} disposed`);
   }
@@ -492,6 +500,39 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   }
 
   /**
+   * Deletes this window's whole guest profile (M12): every character and
+   * everything they own. Title screen only, with the confirmation word typed,
+   * and not while any of its characters is being played. Every window of the
+   * profile in this room is told to forget its guest token and becomes a new
+   * visitor.
+   */
+  private async handleDeleteProfile(client: Client, payload: unknown): Promise<void> {
+    const session = this.sessions.get(client.sessionId);
+    if (!session || session.evicted) return;
+    if (session.owner) return this.profileError(client, { action: "deleteProfile", reason: "in_world" });
+    const parsed = parseDeleteProfile(payload);
+    if (!parsed) return this.profileError(client, { action: "deleteProfile", reason: "invalid_payload" });
+    if (!confirmsProfileDeletion(parsed.confirm)) return this.profileError(client, { action: "deleteProfile", reason: "confirm_mismatch" });
+    const accountId = session.accountId;
+    if (!accountId) return this.profileError(client, { action: "deleteProfile", reason: "profile_not_found" });
+
+    await this.exclusive(client, session, "deleteProfile", async () => {
+      if (this.registry.characterOf(accountId)) return this.profileError(client, { action: "deleteProfile", reason: "character_in_use" });
+      const characters = await this.profiles.deleteAccount(accountId);
+      if (characters === null) return this.profileError(client, { action: "deleteProfile", reason: "profile_not_found" });
+      log.info("plaza", `${client.sessionId} deleted its guest profile (${characters} character${characters === 1 ? "" : "s"})`);
+      for (const [sessionId, other] of this.sessions) {
+        if (other.accountId !== accountId) continue;
+        other.accountId = null;
+        const otherClient = this.clients.getById(sessionId);
+        if (!otherClient) continue;
+        otherClient.send(ServerMessage.ProfileDeleted, {});
+        await this.sendLobby(otherClient, other);
+      }
+    });
+  }
+
+  /**
    * Changes appearance only: needs, money, skills, traits and position are
    * never touched. In the world: the character being played (any id in the
    * payload is ignored). At the title screen: the character named by
@@ -600,8 +641,11 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       const mine = this.runtimes.get(client.sessionId)?.area;
       this.state.players.forEach((player, sessionId) => {
         const visible = mine !== undefined && this.runtimes.get(sessionId)?.area === mine;
-        if (visible) view.add(player);
-        else view.remove(player);
+        // Only changes: re-adding a visible player resends its whole state, and
+        // removing one the client never had sends a delete for a map it doesn't
+        // know (a client at the title screen logged "refId not found", M12 load test).
+        if (visible && !view.has(player)) view.add(player);
+        else if (!visible && view.has(player)) view.remove(player);
       });
     }
   }
@@ -744,6 +788,15 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     const text = `tick ${t.avgMs.toFixed(2)} ms average, ${t.p95Ms.toFixed(2)} ms p95, ${t.maxMs.toFixed(1)} ms max over ${t.ticks} ticks (budget ${NPC_CONFIG.tickBudgetMs} ms); ${this.state.players.size} characters, ${this.npcs?.present ?? 0} NPCs`;
     if (t.avgMs > NPC_CONFIG.tickBudgetMs) log.warn("plaza", text);
     else log.info("plaza", text);
+  }
+
+  /** Aggregate numbers for /status (M12): no names or ids. */
+  statusSummary(): RoomStatus {
+    let npcs = 0;
+    this.state.players.forEach((player) => {
+      if (player.role) npcs++;
+    });
+    return { players: this.state.players.size - npcs, npcs, tick: this.tickStats.summary() };
   }
 
   /** Tick time over the latest ticks (tests and diagnostics). */

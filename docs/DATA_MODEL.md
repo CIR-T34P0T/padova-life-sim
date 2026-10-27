@@ -354,7 +354,18 @@ data (0008: any home or furniture, a rent payment, or a M10 story event);
 player typed its name): one `DELETE FROM characters` scoped by the owning
 account; appearance, position, traits, needs, skills, mood events, wallet,
 every ledger row, the job and the shift history, homes and furniture cascade. The account, its credential and its other
-characters stay. Deleting the whole guest account is not offered yet.
+characters stay.
+
+**Deleting a whole guest profile** (`deleteProfile`, M12, D-046; title
+screen only, after the player typed *delete*, and only while none of its
+characters is being played): one `DELETE FROM accounts` for the session's
+account (`deleteAccount` in `profileRepository.ts`). The guest credential,
+every character with everything above that cascades from it, and every
+block the account made or received go with it. Relationships cascade from
+the characters, so the other player's side of a friendship goes too.
+Reports the account made stay until they expire (90 days) with the
+reporter set to null; reports about the account are deleted. Nothing about
+the account remains except those anonymous reports.
 
 **The title screen list** (`listCharactersByAccount`): the account's
 characters, most recently played first (`character_state.updated_at`, which
@@ -558,9 +569,10 @@ money changes or refusals. Other players see only the public activity
 - Currency changes are recorded as ledger transactions with an idempotency
   key, never as a client-set balance. The balance never goes below zero.
 - Store the minimum personal data. Guest accounts hold no personal data beyond
-  a chosen display name. A player can delete a character with all its data;
-  deleting a whole account and moderation decisions (warnings, mutes, bans)
-  are still to be built (M12, D-042; see TESTING.md known gaps). Report
+  a chosen display name. A player can delete a character with all its data,
+  or the whole guest profile (M12, D-046); moderation decisions (warnings,
+  mutes, bans) are still to be built with sign-in (M12, D-042; see TESTING.md
+  known gaps). Report
   details are deleted after 90 days (M9).
 - Migrations are numbered, run in a transaction each, and have a `down`
   section. Back up before destructive migrations.

@@ -66,6 +66,8 @@ export interface ConnectionEvents {
   onProfile(payload: ProfilePayload): void;
   onIdentity(payload: IdentityPayload): void;
   onProfileError(payload: ProfileErrorPayload): void;
+  /** The guest profile behind this connection was deleted (M12); a lobby message follows. */
+  onProfileDeleted(): void;
   /** The player's own needs, mood, skills and money (D-024). */
   onLife(payload: LifePayload): void;
   /** The replicated world clock changed (game minute). */
@@ -132,6 +134,7 @@ export class GameConnection {
     room.onMessage(ServerMessage.Profile, (payload: ProfilePayload) => this.events.onProfile(payload));
     room.onMessage(ServerMessage.Identity, (payload: IdentityPayload) => this.events.onIdentity(payload));
     room.onMessage(ServerMessage.ProfileError, (payload: ProfileErrorPayload) => this.events.onProfileError(payload));
+    room.onMessage(ServerMessage.ProfileDeleted, () => this.events.onProfileDeleted());
     room.onMessage(ServerMessage.Life, (payload: LifePayload) => this.events.onLife(payload));
     room.onMessage(ServerMessage.ProfileView, (payload: ProfileViewPayload) => this.events.onProfileView(payload));
     room.onMessage(ServerMessage.Safety, (payload: SafetyPayload) => this.events.onSafety(payload));
@@ -196,6 +199,11 @@ export class GameConnection {
 
   deleteCharacter(characterId: string, confirmName: string): void {
     this.room?.send(ClientMessage.DeleteCharacter, { characterId, confirmName });
+  }
+
+  /** Asks the server to delete this guest profile and all its characters (M12); `confirm` is the word the player typed. */
+  deleteProfile(confirm: string): void {
+    this.room?.send(ClientMessage.DeleteProfile, { confirm });
   }
 
   /** Asks the server to end this character's job (M7). */
