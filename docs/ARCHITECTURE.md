@@ -479,7 +479,7 @@ inside the 4.5–6 m deep shells, or one Colyseus room per interior).
 
 - UI framework for larger panels (inventory, build mode). Plain DOM was
   enough for M3 menus and the M5 character panel; see D-007.
-- A real sign-in method to replace guest accounts (needs the product owner's decision).
+- Real sign-in: decided (sign in with Google and with email and password; guests can upgrade without losing characters, D-042), to be built in M12.
 - Hosting, managed PostgreSQL and backups.
 - Authored character models (rigged glTF/VRM) to replace the procedural
   Stage-1 characters — requirements in `ASSET_PIPELINE.md`.

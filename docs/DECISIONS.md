@@ -646,3 +646,33 @@ default the product owner can change.
 - **Asked again before the first public test (M12).** The authored-avatar
   loading design in ASSET_PIPELINE.md stays **Proposed** and unbuilt until
   then.
+
+## D-042 — The product owner's answers on sign-in and reports (2026-10-27)
+
+- **Q5, a real sign-in method: B and C.** Players will be able to **sign in
+  with Google** (B; other providers such as Apple or Microsoft can be added
+  the same way later) and **with an email address and a password** (C).
+  Guests stay, so anyone can try the game; a guest can turn into an account
+  with either method without losing its characters, and deleting an account
+  removes all its data. This replaces the guest-only rule of D-017 when it
+  is built, in **M12** (before any public test), not in M9. M9's blocks and
+  reports are tied to accounts, so they carry over when a guest signs in.
+- **What building it will need** (not needed yet): a Google Cloud project
+  with an OAuth client, created and owned by the product owner (client id
+  and secret kept on the server; redirect addresses for local development
+  and the public site); for email and password, passwords stored only as
+  slow, salted hashes (Node's built-in `scrypt`, no new library), limits on
+  sign-in attempts, and an email-sending service to confirm addresses and
+  reset passwords (provider and cost not chosen yet). Both methods store an
+  email address, which is personal data: a privacy notice and the deletion
+  path come with them.
+- **Q13, player reports: A, 90 days.** The product owner reviews reports on
+  a simple admin page that only their account can open; the details of a
+  report are deleted **90 days** after it is made. Taken with it, as
+  recommended in the same explanation and open to change: the decision on a
+  report (no action, warning, mute, ban) is kept while the reported account
+  exists, and reporting someone also blocks them for the reporter at once,
+  so their safety doesn't wait for a review.
+- **Order:** M9 collects reports and enforces blocks; the admin page needs a
+  real account to protect it, so it comes with sign-in in M12. Until then
+  the owner can list reports with a server command (designed with M9).

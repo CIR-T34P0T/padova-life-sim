@@ -23,6 +23,8 @@ Never imply affiliation with the University of Padua.
 - Database: PostgreSQL via `pg` in production (`DATABASE_URL`); embedded
   PGlite for development and tests (D-015). Own SQL migration runner (D-016).
 - Identity: temporary guest tokens only (D-017). Do not present them as accounts.
+  Approved for M12, not built: sign in with Google and with email and
+  password, a guest upgrading without losing characters (D-042).
 - Tests: Vitest (unit + server integration), Playwright (multi-browser e2e).
 
 Do not change the renderer, networking framework, database, package manager

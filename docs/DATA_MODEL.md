@@ -426,7 +426,7 @@ money changes or refusals. Other players see only the public activity
 - Store the minimum personal data. Guest accounts hold no personal data beyond
   a chosen display name. A player can delete a character with all its data;
   deleting a whole account and moderation workflows are still to be built
-  (see TESTING.md known gaps).
+  (M12, D-042; see TESTING.md known gaps).
 - Migrations are numbered, run in a transaction each, and have a `down`
   section. Back up before destructive migrations.
 
@@ -441,7 +441,8 @@ M8's university tables were built as described above; M7c needed none:
 
 | Milestone (proposed) | Data | Notes |
 | --- | --- | --- |
-| M9 relationships and safety | `relationships` (an ordered pair of characters, score, kind, last interaction); `blocks` (blocking account → blocked account); `reports` (reporter, reported character, reason, short context, status) | Relationship data is private to the two players unless they choose to show it. Reports keep only what moderation needs; retention to be decided |
+| M9 relationships and safety | `relationships` (an ordered pair of characters, score, kind, last interaction); `blocks` (blocking account → blocked account); `reports` (reporter, reported character, reason, short context, status) | Relationship data is private to the two players unless they choose to show it. Reports keep only what moderation needs; report details deleted 90 days after the report, the decision kept while the reported account exists (D-042) |
+| M12 sign-in | `account_identities` (account, provider `google` or `password`, the provider's user id or the email address, verified or not); `password_credentials` (account, `scrypt` hash with its salt and parameters); guests keep their token until they upgrade | Owner-scoped like everything else; email addresses are personal data and are deleted with the account (D-042) |
 | M9 story log | `story_events` (character, kind, game minute, small validated details, visibility) | Written by the server when a meaningful event happens (first shift, exam result, new friend); never edited by clients |
 | M10 home, sleep and comfort | `residences` (character, home); `inventory_items` (character, item, quantity); `placed_objects` (home, object, position, rotation) | Purchases of furniture and groceries use the ledger; placement validated against the home's layout like the square's collision boxes |
 

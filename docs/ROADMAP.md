@@ -278,9 +278,11 @@ when M8 starts.
 ### M9 — Relationships, public profiles and safety
 
 Depends on: the greet interaction (M3) and profiles (M4); the sign-in
-method, decided before M9 (Q5, approved), because blocking and reporting are
-weak while anyone can make a new guest profile; and how reports are reviewed
-and kept (Q13, raised again before M9).
+method (Q5, answered: Google and email with password, built in M12, D-042),
+because blocking and reporting are weak while anyone can make a new guest
+profile, so blocks and reports belong to accounts and carry over; and how
+reports are reviewed and kept (Q13, answered: by the owner, details kept 90
+days, D-042).
 
 1. Tapping another player opens a public panel: name, look, activity and
    your relationship with them; never their needs, money or skills.
@@ -288,8 +290,10 @@ and kept (Q13, raised again before M9).
    actions such as chatting or studying together) and keep a short history;
    private to the two players.
 3. Block (they can't target you; their greetings no longer reach you,
-   enforced by the server) and report (stored with minimal context) from the
-   panel and the menu.
+   enforced by the server) and report (stored with minimal context, details
+   deleted after 90 days; reporting also blocks) from the panel and the menu.
+   The owner lists reports with a server command until the admin page
+   arrives with sign-in (M12).
 4. A private story log records meaningful events written by the server
    (first shift, exam result, new friend).
 5. Tests: other players never receive relationship data; blocks enforced on
@@ -327,17 +331,21 @@ interaction systems, used unchanged.
 
 ### M12 — Sign-in, deployment and operations
 
-Depends on: the sign-in method (Q5), hosting and budget decisions. Comes
-before any test with people outside the project (D-035).
+Depends on: the sign-in method (Q5, answered: D-042), a Google OAuth client
+and an email-sending service (owned by the product owner), hosting and
+budget decisions. Comes before any test with people outside the project
+(D-035).
 
-1. A real sign-in method upgrades a guest profile without losing its
-   characters; account deletion removes all its data.
+1. Sign in with Google and with email and password (D-042) upgrades a guest
+   profile without losing its characters; account deletion removes all its
+   data.
    Before the first public test the owner is also asked again about
    authored character models (Q6; kept procedural for now, D-041).
 2. Hosted behind HTTPS/WSS with managed PostgreSQL and backups that have
    been restored at least once.
 3. Logs and basic monitoring; a load test with the room's player limit.
-4. Moderation of reports (from M9) has a working process.
+4. Moderation of reports (from M9): the owner's admin page, report details
+   deleted after 90 days, decisions kept while the account exists (D-042).
 
 ### Technical work that waits for a trigger
 
@@ -358,10 +366,10 @@ before any test with people outside the project (D-035).
 | M7b day and night | Done (2026-10-26) |
 | M7c indoor rooms | Done (2026-10-26) |
 | M8 university | Done (2026-10-27) |
-| M9 social | M3 greet, M4 profiles (done); the sign-in method (Q5) and the report process (Q13) |
+| M9 social | M3 greet, M4 profiles (done); Q5 and Q13 answered (D-042) |
 | M10 home | M7 income (done); areas and doors (M7c) |
 | M11 NPCs | M7 and M8 places |
-| M12 operations | Q5 and hosting decisions |
+| M12 operations | Q5 answered (D-042); a Google OAuth client, an email-sending service, hosting decisions |
 
 ## Decisions for the product owner
 
@@ -375,7 +383,7 @@ marked **waiting**.
 | Q2 | Arrival view (the shops' wall filled the right of the first view on a computer) | Approved: fade buildings very close to the camera | Implemented 2026-10-20: buildings within 3.5 m of the camera fade, and a faded building lets taps through |
 | Q3 | Three lives per guest profile (D-031) | Kept for now | — |
 | Q4 | Time scale and offline cap (D-021, D-022) | Answered 2026-10-26: keep the current clock (D-038) | M8 timetables use it |
-| Q5 | A real sign-in method and account deletion | Approved: decide before M9 and before any public test | Options presented before M9 |
+| Q5 | A real sign-in method and account deletion | Answered 2026-10-27: **B and C**, sign in with Google and with email and password; guests stay and can upgrade without losing characters (D-042) | Built in M12; needs a Google OAuth client and an email-sending service then |
 | Q6 | Authored character models (commission or license, or keep procedural; glTF or VRM) | Answered 2026-10-27: **A**, keep the procedural characters for now and improve them in small steps (D-041) | Asked again before the first public test (M12) |
 | Q7 | A comfort need | Approved: add it in M10 with furniture of different comfort | M10 |
 | Q8 | The daily allowance once jobs exist | Approved: halve it (€15 → €7.50 per game day) in M7 | Done in M7 |
@@ -383,7 +391,7 @@ marked **waiting**.
 | Q10 | How to build interiors (homes, lecture rooms) | Approved: a written comparison first. 2026-10-26: lectures indoors, and every building gets at least one indoor room, workplaces and homes included (D-038) | Comparison written; option C approved as Q14 and built in M7c (ARCHITECTURE.md "Indoor rooms") |
 | Q11 | Later districts: fictional or real streets | Approved: fictional composites until verified references exist | — |
 | Q12 | Day and night lighting | Approved: right after M7 | Done in M7b (D-037) |
-| Q13 | Who reviews player reports, and how long reports are kept | **Waiting**: to be explained more simply | Raised again before M9 |
+| Q13 | Who reviews player reports, and how long reports are kept | Answered 2026-10-27: **A, 90 days**, the owner reviews reports on an admin page; report details deleted after 90 days (D-042) | Reports collected in M9; the admin page comes with sign-in in M12 |
 | Q14 | How to build indoor rooms, and when | Answered 2026-10-26: option C (areas inside the one server room, doors); each building gets its rooms when it has a use, one room per use (D-039) | Built in M7c |
 
 ## Current state (handoff, 2026-10-27)
@@ -449,13 +457,12 @@ saved in the creator and device settings live only in that browser. The world cl
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
 | 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–43) | Planned | Product owner |
 | 4 | Play-test the M5, M7 and M8 balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit, the lecture timetable and exam sittings, the grade targets) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
-| 5 | Remaining decisions in "Decisions for the product owner": Q5 and Q13 (before M9) | Waiting | Product owner, with explanations from Claude |
+| 5 | Decisions for the product owner | None waiting (Q5, Q6 and Q13 answered on 2026-10-27); new questions come with their milestones | — |
 
-**Recommended next task:** the product owner tries M8 (Q6 was answered on
-2026-10-27: keep the procedural characters, D-041). M9 (relationships,
-public profiles and safety) depends on Q5 (a real sign-in method) and Q13
-(who reviews reports), so Claude presents those two next, in plain
-language, before M9 starts. In parallel the product owner looks at the district by day and at night, the title screen,
+**Recommended next task:** **M9, relationships, public profiles and
+safety**, now unblocked (Q5 and Q13 answered on 2026-10-27, D-042; Q6 on the
+same day, D-041), when the product owner says go; meanwhile the owner tries
+M8. In parallel the product owner looks at the district by day and at night, the title screen,
 the creation flow and the characters on Windows and a phone (item 1; the
 world lab, `/world-lab.html?time=23:00`, shows every corner at any hour).
 Follow-ups not covered by "Technical work that waits for a trigger":

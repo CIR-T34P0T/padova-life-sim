@@ -180,7 +180,8 @@ drag to orbit, wheel to zoom, links for each viewpoint
   While you're away, needs change slowly for at most 8 game hours.
 - Your **browser** keeps only a temporary guest key. Clearing the site's data,
   using another browser or device, or deleting `.data/` starts over. There is
-  no sign-in, recovery or account deletion yet (docs/DECISIONS.md D-017).
+  no sign-in, recovery or account deletion yet (docs/DECISIONS.md D-017);
+  sign-in with Google and with email and password is planned for M12 (D-042).
 - To reset the development database: stop the server and delete the `.data`
   folder.
 - To use a real PostgreSQL server instead, set `DATABASE_URL`, for example
