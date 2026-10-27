@@ -63,6 +63,9 @@ export interface StoryDetails {
   grade?: number;
   /** The other character's name, for "became friends". */
   name?: string;
+  /** Rooms (M10): the room moved into, and the one left. */
+  roomType?: string;
+  fromRoomType?: string;
 }
 
 /** One event of a character's private story log. */

@@ -9,3 +9,4 @@ export * from "./effects.ts";
 export * from "./work.ts";
 export * from "./university.ts";
 export * from "./relationships.ts";
+export * from "./housing.ts";

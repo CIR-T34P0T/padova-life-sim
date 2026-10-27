@@ -55,7 +55,7 @@ export type MoneyChangeResult =
   | { status: "insufficient_funds"; balanceCents: number }
   | { status: "not_owner" };
 
-interface TransactionRow {
+export interface TransactionRow {
   id: string;
   direction: TransactionDirection;
   category: TransactionCategory;
@@ -67,7 +67,7 @@ interface TransactionRow {
   created_at: Date;
 }
 
-const toView = (row: TransactionRow): TransactionView => ({
+export const toView = (row: TransactionRow): TransactionView => ({
   id: row.id,
   direction: row.direction,
   category: row.category,
@@ -79,7 +79,7 @@ const toView = (row: TransactionRow): TransactionView => ({
   createdAt: new Date(row.created_at).toISOString(),
 });
 
-const TRANSACTION_COLUMNS = "id, direction, category, amount_cents, balance_after_cents, description, item_id, game_minute, created_at";
+export const TRANSACTION_COLUMNS = "id, direction, category, amount_cents, balance_after_cents, description, item_id, game_minute, created_at";
 
 /** Writes a new character's starting life data. Runs inside the character-creation transaction. */
 export async function insertInitialLife(
@@ -91,8 +91,8 @@ export async function insertInitialLife(
 ): Promise<void> {
   const n = NEEDS_CONFIG.initial;
   await tx.query(
-    `INSERT INTO character_needs (character_id, hunger, energy, hygiene, social, fun) VALUES ($1, $2, $3, $4, $5, $6)`,
-    [characterId, n.hunger, n.energy, n.hygiene, n.social, n.fun],
+    `INSERT INTO character_needs (character_id, hunger, energy, hygiene, social, fun, comfort) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [characterId, n.hunger, n.energy, n.hygiene, n.social, n.fun, n.comfort],
   );
   for (const trait of traits) {
     await tx.query(`INSERT INTO character_traits (character_id, trait) VALUES ($1, $2)`, [characterId, trait]);
@@ -120,7 +120,7 @@ export async function loadLife(db: Queryable, owner: Owner, recentLimit: number)
   const [traits, needs, skills, mood, wallet, recent] = await Promise.all([
     db.query<{ trait: string }>(`SELECT trait FROM character_traits WHERE character_id = $1 ORDER BY trait`, [id]),
     db.query<Record<keyof Needs, number> & { updated_at: Date }>(
-      `SELECT hunger, energy, hygiene, social, fun, updated_at FROM character_needs WHERE character_id = $1`,
+      `SELECT hunger, energy, hygiene, social, fun, comfort, updated_at FROM character_needs WHERE character_id = $1`,
       [id],
     ),
     db.query<{ skill: string; xp: number }>(`SELECT skill, xp FROM character_skills WHERE character_id = $1`, [id]),
@@ -138,7 +138,7 @@ export async function loadLife(db: Queryable, owner: Owner, recentLimit: number)
   return {
     traits: traits.rows.map((row) => row.trait),
     needs: needsRow
-      ? { hunger: needsRow.hunger, energy: needsRow.energy, hygiene: needsRow.hygiene, social: needsRow.social, fun: needsRow.fun }
+      ? { hunger: needsRow.hunger, energy: needsRow.energy, hygiene: needsRow.hygiene, social: needsRow.social, fun: needsRow.fun, comfort: needsRow.comfort }
       : null,
     needsSavedAt: needsRow ? new Date(needsRow.updated_at) : null,
     skills: Object.fromEntries(skills.rows.map((row) => [row.skill, Number(row.xp)])),
@@ -155,13 +155,13 @@ export async function loadLife(db: Queryable, owner: Owner, recentLimit: number)
 export async function saveLife(tx: Queryable, owner: Owner, life: LifeSnapshot): Promise<boolean> {
   const { needs } = life;
   const { rows } = await tx.query(
-    `INSERT INTO character_needs (character_id, hunger, energy, hygiene, social, fun, updated_at)
-       SELECT c.id, $3, $4, $5, $6, $7, now() FROM characters c WHERE c.id = $1 AND c.account_id = $2
+    `INSERT INTO character_needs (character_id, hunger, energy, hygiene, social, fun, comfort, updated_at)
+       SELECT c.id, $3, $4, $5, $6, $7, $8, now() FROM characters c WHERE c.id = $1 AND c.account_id = $2
      ON CONFLICT (character_id) DO UPDATE
        SET hunger = EXCLUDED.hunger, energy = EXCLUDED.energy, hygiene = EXCLUDED.hygiene,
-           social = EXCLUDED.social, fun = EXCLUDED.fun, updated_at = now()
+           social = EXCLUDED.social, fun = EXCLUDED.fun, comfort = EXCLUDED.comfort, updated_at = now()
      RETURNING character_id`,
-    [owner.characterId, owner.accountId, needs.hunger, needs.energy, needs.hygiene, needs.social, needs.fun],
+    [owner.characterId, owner.accountId, needs.hunger, needs.energy, needs.hygiene, needs.social, needs.fun, needs.comfort],
   );
   if (rows.length === 0) return false;
   for (const [skill, xp] of Object.entries(life.skills)) {
@@ -201,9 +201,10 @@ export async function applyMoneyChange(db: Database, owner: Owner, change: Money
 
 /**
  * The body of applyMoneyChange, for use inside a larger transaction that must
- * succeed or fail together with the money change (a wage and its shift).
+ * succeed or fail together with the money change (a wage and its shift, rent
+ * and its home, a piece of furniture and its purchase).
  */
-async function applyMoneyChangeIn(tx: Queryable, owner: Owner, change: MoneyChange): Promise<MoneyChangeResult> {
+export async function applyMoneyChangeIn(tx: Queryable, owner: Owner, change: MoneyChange): Promise<MoneyChangeResult> {
   if (!Number.isInteger(change.amountCents) || change.amountCents <= 0) {
     throw new Error(`Money changes must be a positive whole number of cents (got ${change.amountCents})`);
   }
@@ -247,7 +248,7 @@ async function applyMoneyChangeIn(tx: Queryable, owner: Owner, change: MoneyChan
   return { status: "applied", transaction: toView(inserted.rows[0]!), balanceCents: next } as const;
 }
 
-const isUniqueViolation = (error: unknown) => (error as { code?: string }).code === "23505";
+export const isUniqueViolation = (error: unknown) => (error as { code?: string }).code === "23505";
 
 // ── Work (M7) ─────────────────────────────────────────────────────────────
 

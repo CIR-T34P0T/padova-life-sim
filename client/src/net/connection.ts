@@ -21,6 +21,9 @@ import {
   type ReportReason,
   type SafetyPayload,
   type SocialResultPayload,
+  type FurnishResultPayload,
+  type FurnitureId,
+  type HousingPayload,
   type StoryPayload,
   type MoveToPayload,
   type NewCharacterInput,
@@ -71,6 +74,9 @@ export interface ConnectionEvents {
   onStory(payload: StoryPayload): void;
   onRelationship(payload: RelationshipPayload): void;
   onSocialResult(payload: SocialResultPayload): void;
+  /** Your home, rent and furniture, and the answers to furnishing (M10); private to this player. */
+  onHousing(payload: HousingPayload): void;
+  onFurnishResult(payload: FurnishResultPayload): void;
 }
 
 /** The appearance of a replicated player. Never throws: unreadable looks become the default look. */
@@ -130,6 +136,8 @@ export class GameConnection {
     room.onMessage(ServerMessage.Story, (payload: StoryPayload) => this.events.onStory(payload));
     room.onMessage(ServerMessage.Relationship, (payload: RelationshipPayload) => this.events.onRelationship(payload));
     room.onMessage(ServerMessage.SocialResult, (payload: SocialResultPayload) => this.events.onSocialResult(payload));
+    room.onMessage(ServerMessage.Housing, (payload: HousingPayload) => this.events.onHousing(payload));
+    room.onMessage(ServerMessage.FurnishResult, (payload: FurnishResultPayload) => this.events.onFurnishResult(payload));
 
     // The SDK's callback proxy is loosely typed for schema() classes.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -208,6 +216,19 @@ export class GameConnection {
 
   report(targetId: string, reason: ReportReason, note: string): void {
     this.room?.send(ClientMessage.Report, note.trim() ? { targetId, reason, note } : { targetId, reason });
+  }
+
+  /** Buys a piece of furniture into a spot of your home (M10); the price is the server's. */
+  furnish(slot: string, itemId: FurnitureId, requestId: string): void {
+    this.room?.send(ClientMessage.Furnish, { slot, itemId, requestId });
+  }
+
+  place(slot: string, furnitureId: string): void {
+    this.room?.send(ClientMessage.Place, { slot, furnitureId });
+  }
+
+  putAway(furnitureId: string): void {
+    this.room?.send(ClientMessage.PutAway, { furnitureId });
   }
 
   get joined(): boolean {

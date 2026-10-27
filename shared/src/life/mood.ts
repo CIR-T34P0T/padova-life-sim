@@ -29,6 +29,7 @@ const LOW_LABELS: Record<NeedId, string> = {
   hygiene: "Feeling grubby",
   social: "Lonely",
   fun: "Bored",
+  comfort: "Uncomfortable",
 };
 
 const HIGH_LABELS: Record<NeedId, string> = {
@@ -37,6 +38,7 @@ const HIGH_LABELS: Record<NeedId, string> = {
   hygiene: "Fresh",
   social: "Connected",
   fun: "Having fun",
+  comfort: "Comfortable",
 };
 
 /** Smallest contribution worth listing as a reason. */

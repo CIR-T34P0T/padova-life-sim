@@ -48,6 +48,10 @@ const REASON_TEXT: Record<string, string> = {
   record_failed: "That couldn't be recorded because of a server problem, so it didn't count.",
   // Relationships and safety (M9): said the same way whoever blocked whom
   not_reachable: "They can't be reached right now.",
+  // A place to live (M10)
+  no_home: "You don't have a room yet. Rent one at the student housing's door (south side of the square).",
+  same_room: "That's already your room.",
+  rent_failed: "That didn't go through because of a server problem. Nothing changed; try again in a moment.",
 };
 
 export function reasonText(reason: string | undefined): string {

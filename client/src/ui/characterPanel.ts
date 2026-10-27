@@ -1,6 +1,6 @@
 // Character panel (M5): the player's own needs, mood (with reasons), skills,
-// work (M7), university (M8), money, current action, and (M9) the story log
-// and the players they blocked. Opened by clicking/tapping your own character
+// work (M7), university (M8), home (M10), money, current action, and (M9) the
+// story log and the players they blocked. Opened by clicking/tapping your own character
 // (→ "Character") or the HUD chip. Desktop: a narrow panel on the right.
 // Touch: a bottom sheet capped below half the screen height. Everything shown
 // comes from the server's `life` message; nothing here is calculated as truth.
@@ -29,8 +29,11 @@ import {
   type SkillId,
   type TraitId,
   type BlockedView,
+  type FurnitureView,
+  type HomeView,
   type StoryEntry,
 } from "@padova/shared";
+import { cheapestRentCents, cosinessLine, rentLine, roomLabel } from "./housing.ts";
 import { dayLabel, storyText } from "./story.ts";
 import { examLine, examTimetable, expectedGrade, lectureLine, lectureTimetable } from "./university.ts";
 
@@ -40,6 +43,7 @@ const NEED_LABELS: Record<NeedId, string> = {
   hygiene: "Hygiene",
   social: "Social",
   fun: "Fun",
+  comfort: "Comfort",
 };
 
 const SKILL_LABELS: Record<SkillId, string> = {
@@ -64,6 +68,8 @@ export interface CharacterPanelActions {
   onQuitJob(): void;
   /** Lift one of your blocks (M9). */
   onUnblock(blockId: string): void;
+  /** Open the furnishing panel (M10; only offered at home). */
+  onFurnish(): void;
 }
 
 export class CharacterPanel {
@@ -81,6 +87,12 @@ export class CharacterPanel {
   private readonly unblockButtons = new Map<string, HTMLButtonElement>();
   private currentAction: string | null = null;
   private openState = false;
+  private home: HomeView | null = null;
+  private storage: FurnitureView[] = [];
+  /** True while your character is in your own home (furnishing works only there). */
+  private atHome = false;
+  /** Kept across redraws so a tap on it is never lost. */
+  private readonly furnishButton: HTMLButtonElement;
 
   constructor(
     root: HTMLElement,
@@ -138,6 +150,12 @@ export class CharacterPanel {
     this.quitButton.textContent = "Quit job";
     this.quitButton.title = "A shift in progress ends unpaid. You can ask about work again any time.";
     this.quitButton.addEventListener("click", () => actions.onQuitJob());
+    this.furnishButton = document.createElement("button");
+    this.furnishButton.type = "button";
+    this.furnishButton.className = "cp-action";
+    this.furnishButton.dataset.action = "furnish";
+    this.furnishButton.textContent = "Furnish your room";
+    this.furnishButton.addEventListener("click", () => actions.onFurnish());
     this.element.append(header, this.body, footer);
     // Taps inside the panel never reach the game view.
     this.element.addEventListener("pointerdown", (event) => event.stopPropagation());
@@ -197,6 +215,20 @@ export class CharacterPanel {
     if (this.openState) this.render();
   }
 
+  /** Your home and storage (M10). */
+  setHousing(home: HomeView | null, storage: FurnitureView[]): void {
+    this.home = home;
+    this.storage = storage;
+    if (this.openState) this.render();
+  }
+
+  /** Whether you are in your own home now. */
+  setAtHome(atHome: boolean): void {
+    if (atHome === this.atHome) return;
+    this.atHome = atHome;
+    if (this.openState) this.render();
+  }
+
   setCurrentAction(text: string | null): void {
     if (text === this.currentAction) return;
     this.currentAction = text;
@@ -225,6 +257,7 @@ export class CharacterPanel {
       this.skillsSection(life),
       this.workSection(life),
       this.universitySection(life),
+      this.homeSection(life),
       this.moneySection(life),
       this.storySection(),
       this.blockedSection(),
@@ -381,6 +414,26 @@ export class CharacterPanel {
     return section;
   }
 
+  private homeSection(life: LifePayload): HTMLElement {
+    const section = sectionWithTitleAndId("Home", "home");
+    const home = this.home;
+    if (!home) {
+      section.append(text("p", "cp-muted", `No room yet. Rent one at the student housing's door on the south side of the square (from ${formatEuros(cheapestRentCents())} a week).`));
+    } else {
+      section.append(text("p", "cp-job", `${roomLabel(home.roomType)} · ${formatEuros(home.rentCents)} a week`));
+      const rent = rentLine(home, life.gameMinute);
+      const line = text("p", rent.warning ? "cp-warning" : "cp-muted", rent.text);
+      line.dataset.testid = "rent";
+      section.append(line, text("p", "cp-muted", cosinessLine(home.cosiness)));
+      this.furnishButton.disabled = !this.atHome;
+      this.furnishButton.title = this.atHome ? "" : "Go home to furnish your room";
+      section.append(this.furnishButton);
+      if (!this.atHome) section.append(text("p", "cp-muted", "Go home (the student housing's door) to furnish it."));
+    }
+    if (this.storage.length > 0) section.append(text("p", "cp-muted", `In storage: ${this.storage.length} piece${this.storage.length === 1 ? "" : "s"} of furniture.`));
+    return section;
+  }
+
   private moneySection(life: LifePayload): HTMLElement {
     const section = sectionWithTitle("Money");
     const balance = text("p", "cp-balance", formatEuros(life.money.balanceCents));
@@ -400,6 +453,12 @@ export class CharacterPanel {
     section.append(list);
     return section;
   }
+}
+
+function sectionWithTitleAndId(title: string, testId: string): HTMLElement {
+  const section = sectionWithTitle(title);
+  section.dataset.testid = testId;
+  return section;
 }
 
 function sectionWithTitle(title: string): HTMLElement {

@@ -26,6 +26,8 @@ import {
   type WorkState,
 } from "@padova/shared";
 import type { Database } from "../db/database.ts";
+import { loadHousing } from "../housing/housingRepository.ts";
+import { housingFromStored, type LoadedHousing } from "../housing/HousingSystem.ts";
 import { saveState, type Owner, type SavedState } from "../profiles/profileRepository.ts";
 import {
   applyMoneyChange,
@@ -63,6 +65,8 @@ export interface LoadedLife {
   work: WorkState;
   /** The course, attendance and results (M8), or null when not enrolled. */
   course: CourseState | null;
+  /** Home and furniture (M10). */
+  housing: LoadedHousing;
   /** Game hours of offline time that were applied (after the cap is applied by the rules). */
   offlineGameHours: number;
 }
@@ -86,12 +90,13 @@ export class LifeService {
   /** Loads life data and applies the capped offline catch-up (D-022). Null if not the owner's. */
   async load(owner: Owner, gameMinute: number): Promise<LoadedLife | null> {
     const day = gameDayOf(gameMinute);
-    const [stored, storedWork, storedCourses] = await Promise.all([
+    const [stored, storedWork, storedCourses, storedHousing] = await Promise.all([
       loadLife(this.db, owner, ECONOMY_CONFIG.recentTransactions),
       loadWork(this.db, owner, day),
       loadCourses(this.db, owner),
+      loadHousing(this.db, owner),
     ]);
-    if (!stored || !storedWork || !storedCourses) return null;
+    if (!stored || !storedWork || !storedCourses || !storedHousing) return null;
     const traits = sanitizeStoredTraits(stored.traits);
     const savedNeeds = sanitizeNeeds(stored.needs);
     const offlineMs = stored.needsSavedAt ? Math.max(0, this.now() - stored.needsSavedAt.getTime()) : 0;
@@ -107,6 +112,7 @@ export class LifeService {
       work: { jobId: isJobId(storedWork.jobId) ? storedWork.jobId : null, shiftsDay: day, shiftsToday: storedWork.shiftsToday },
       // Likewise a course id this server doesn't know is ignored (and left alone in the database).
       course: toCourseState(storedCourses.find((c) => isCourseId(c.courseId))),
+      housing: housingFromStored(storedHousing),
       offlineGameHours,
     };
   }

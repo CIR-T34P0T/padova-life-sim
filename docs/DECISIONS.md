@@ -718,3 +718,44 @@ it; each is a default the product owner can change.
   retried): job, first shift, enrolment, exam results, new friends.
 - **Not built in M9:** text chat, groups, reputation, romance, rivalry,
   hiding blocked players, moderation decisions.
+
+## D-044 — A place to live: implementation choices (2026-10-27)
+
+M10 was built as planned in ROADMAP.md "M10 — A place to live", on the
+owner's answers Q7 (a comfort need with furniture of different comfort),
+Q9 (rent that can't be paid: a notice and a mood event, then a move to a
+cheaper room, never debt) and Q14 (rooms are areas with doors). Choices made
+while building it; each is a default the product owner can change.
+
+- **One room per character, in the student housing, in three sizes** (box
+  room €25, single room €45, studio €80 a week; fictional). Each tenancy is
+  its own private area (`home/<id>`) that only its tenant can enter;
+  shared flats, roommates and visitors need their own design.
+- **Rent weeks run Monday to Sunday and only the current week is ever
+  charged.** The first week is paid when renting; then rent is taken each
+  Monday. Weeks spent away from the game are not charged afterwards: an
+  absence never piles up rent (D-022: absence never creates a crisis).
+- **Unpaid rent (Q9):** a notice, *Worried about rent* (−6) and **12 game
+  hours (72 real minutes) of grace**, during which the rent is taken as
+  soon as the money arrives; then a move to the dearest cheaper room whose
+  first week can be paid now, with *Had to move out* (−10) and a story
+  entry, or out if none is affordable. Furniture goes into storage. Never
+  debt (D-023).
+- **Changing room** pays the new room's first week at once and keeps no
+  credit for the old room's week; **moving out** returns nothing. Both keep
+  the furniture in storage.
+- **Placement is controlled, not free:** each room type has fixed spots (a
+  bed, one or two seats, one to three decorations), each taking one piece
+  of its category; the room's own bed stands in the bed spot until you
+  place yours. A small catalogue (8 pieces, €12–€140) bought through the
+  ledger, once per request; up to 30 pieces per character. Free dragging
+  and rotating, selling and an inventory for other items are later steps.
+- **Comfort** (Q7) is the sixth need: −3 a game hour, restored by sitting
+  (+4 on benches and desk chairs, +8 to +22 on your own seats) and sleeping.
+  **Sleep** is a 3-minute server-timed action in your bed (+50 energy with
+  the room's bed, up to +80 with the best); offline rest still works as
+  before. Pieces add **cosiness**; at 3 a home is *cosy* and coming home or
+  waking up there lifts the mood.
+- **Nobody else learns anything about a home:** the `housing` message goes
+  only to its tenant, home seats never enter the replicated seat map, and
+  others only see the tenant leave the square.

@@ -2,7 +2,7 @@
 // completed action; the server applies them gradually (by elapsed fraction),
 // so stopping halfway gives half the effect.
 
-import { ACTION_EFFECTS, GREETING_EFFECTS, type MoodEventId, type Needs, type SkillId, type TimedEffect } from "./config.ts";
+import { ACTION_EFFECTS, FURNITURE, FURNITURE_IDS, GREETING_EFFECTS, type FurnitureId, type MoodEventId, type Needs, type SkillId, type TimedEffect } from "./config.ts";
 import { findMenuItem } from "./economy.ts";
 import { isGrubby } from "./needs.ts";
 
@@ -14,8 +14,16 @@ export interface ResolvedEffect extends TimedEffect {
   itemId?: string;
 }
 
-/** The timed effect of an action, or null for untimed actions (sit, stand, greet). */
+/**
+ * The timed effect of an action, or null for untimed actions (sit, stand,
+ * greet). `itemId` is the café item for "buy" and the bed for "sleep" (M10).
+ */
 export function timedEffectFor(action: string, itemId?: string): ResolvedEffect | null {
+  if (action === "sleep") {
+    const bed = itemId && (FURNITURE_IDS as readonly string[]).includes(itemId) ? FURNITURE[itemId as FurnitureId].sleep : undefined;
+    const base = { ...ACTION_EFFECTS.sleep, key: "sleep" as const };
+    return bed ? { ...base, needs: { energy: bed.energy, comfort: bed.comfort }, itemId } : base;
+  }
   if (action === "buy") {
     const item = itemId ? findMenuItem(itemId) : null;
     if (!item) return null;

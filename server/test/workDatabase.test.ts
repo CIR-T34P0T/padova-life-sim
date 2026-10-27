@@ -50,19 +50,19 @@ for (const backend of testBackends) {
 
     it("rolls migration 0005 back and forward when there are no jobs or wages, and the ledger accepts wages only while it is applied", async () => {
       expect(await appliedVersions(db)).toContain(5);
-      expect(await rollback(db, 3)).toEqual([7, 6, 5]); // 0007 and 0006 (empty) first
+      expect(await rollback(db, 4)).toEqual([8, 7, 6, 5]); // 0008, 0007 and 0006 (empty) first
       const wage = { direction: "income" as const, category: "wage" as const, amountCents: 600, description: "Wage", requestKey: "wage:x", gameMinute: 600 };
       await expect(applyMoneyChange(db, owner, wage)).rejects.toThrow();
       const tables = (await db.query<{ table_name: string }>(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`)).rows.map((r) => r.table_name);
       expect(tables).not.toContain("character_employment");
       expect(tables).not.toContain("work_shifts");
-      expect(await migrate(db)).toEqual([5, 6, 7]);
+      expect(await migrate(db)).toEqual([5, 6, 7, 8]);
       expect(await applyMoneyChange(db, owner, wage)).toMatchObject({ status: "applied", balanceCents: 1_600 });
     });
 
     it("refuses to roll back, changing nothing, while a character has a job or was ever paid a wage", async () => {
       expect(await hireCharacter(db, owner, "cafe", 600)).toBe("hired");
-      expect(await rollback(db, 2)).toEqual([7, 6]); // nothing in 0007's or 0006's tables
+      expect(await rollback(db, 3)).toEqual([8, 7, 6]); // nothing in 0008's, 0007's or 0006's tables
       await expect(rollback(db)).rejects.toThrow();
       expect(await appliedVersions(db)).toContain(5);
       expect((await loadWork(db, owner, DAY))?.jobId).toBe("cafe");

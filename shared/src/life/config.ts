@@ -2,7 +2,8 @@
 // balancing never means hunting through systems. Meanings and reasoning:
 // docs/GAME_DESIGN.md ("Time model", "Life simulation").
 
-export const NEED_IDS = ["hunger", "energy", "hygiene", "social", "fun"] as const;
+/** Comfort was added in M10 (Q7): restored by sitting and sleeping, more on better furniture. */
+export const NEED_IDS = ["hunger", "energy", "hygiene", "social", "fun", "comfort"] as const;
 export type NeedId = (typeof NEED_IDS)[number];
 export type Needs = Record<NeedId, number>;
 
@@ -26,14 +27,19 @@ export const TIME_CONFIG = {
 
 export const NEEDS_CONFIG = {
   /** Values for a brand-new character. */
-  initial: { hunger: 80, energy: 80, hygiene: 80, social: 70, fun: 70 } satisfies Needs,
+  initial: { hunger: 80, energy: 80, hygiene: 80, social: 70, fun: 70, comfort: 70 } satisfies Needs,
   /** Change per game hour while standing around (negative = falls). */
-  perGameHour: { hunger: -6, energy: -4, hygiene: -3, social: -4, fun: -5 } satisfies Needs,
+  perGameHour: { hunger: -6, energy: -4, hygiene: -3, social: -4, fun: -5, comfort: -3 } satisfies Needs,
   /** Energy per game hour while walking (replaces the standing rate). */
   walkingEnergyPerGameHour: -5,
   /** While sitting idle on a bench or at a desk: resting. */
   sittingEnergyPerGameHour: 20,
   sittingFunPerGameHour: -2,
+  /**
+   * Comfort per game hour while sitting on a seat without its own comfort
+   * (benches, desk chairs). Furniture at home has its own (FURNITURE seatComfort).
+   */
+  sittingComfortPerGameHour: 4,
   /** Offline catch-up (D-022). */
   offline: {
     capGameHours: 8,
@@ -89,6 +95,12 @@ export const MOOD_EVENTS = {
   nice_chat: { label: "Nice chat", value: 8, durationGameMinutes: 120 },
   someone_chatted: { label: "Someone chatted with you", value: 6, durationGameMinutes: 90 },
   new_friend: { label: "New friend", value: 12, durationGameMinutes: 360 },
+  // A place to live (M10)
+  new_home: { label: "New home", value: 10, durationGameMinutes: 360 },
+  cosy_home: { label: "Cosy home", value: 6, durationGameMinutes: 180 },
+  well_rested: { label: "Slept well", value: 6, durationGameMinutes: 240 },
+  rent_worry: { label: "Worried about rent", value: -6, durationGameMinutes: 720 },
+  had_to_move: { label: "Had to move out", value: -10, durationGameMinutes: 480 },
 } as const;
 export type MoodEventId = keyof typeof MOOD_EVENTS;
 
@@ -163,6 +175,19 @@ export const ACTION_EFFECTS = {
     skillsOnCompletion: { academic: 20 },
     focus: true,
   },
+  /**
+   * Sleeping in your bed at home (M10): 3 real minutes = 30 game minutes.
+   * These are the room's own bed; a bought bed gives more (FURNITURE sleep).
+   * Waking up early gives the share slept.
+   */
+  sleep: {
+    durationMs: 180_000,
+    activity: "sleeping",
+    needs: { energy: 50, comfort: 15 },
+    skills: {},
+    moodEvent: "well_rested",
+    focus: false,
+  },
 } as const satisfies Record<string, TimedEffect>;
 
 export interface TimedEffect {
@@ -224,7 +249,7 @@ export const RELATIONSHIP_CONFIG = {
 export type RelationshipLevelId = (typeof RELATIONSHIP_CONFIG.levels)[number]["id"];
 
 /** Meaningful events in a character's private story log (M9), written by the server. */
-export const STORY_KINDS = ["hired", "first_shift", "enrolled", "exam_passed", "exam_failed", "new_friend"] as const;
+export const STORY_KINDS = ["hired", "first_shift", "enrolled", "exam_passed", "exam_failed", "new_friend", "moved_in", "moved_out", "rent_trouble"] as const;
 export type StoryKind = (typeof STORY_KINDS)[number];
 
 export const STORY_CONFIG = {
@@ -239,6 +264,80 @@ export const ECONOMY_CONFIG = {
   dailyAllowanceCents: 750,
   /** Ledger entries kept in memory and shown in the character panel. */
   recentTransactions: 5,
+} as const;
+
+// ── A place to live (M10) ──────────────────────────────────────────────────
+
+export const ROOM_TYPE_IDS = ["box-room", "single-room", "studio"] as const;
+export type RoomTypeId = (typeof ROOM_TYPE_IDS)[number];
+
+export interface RoomTypeDefinition {
+  label: string;
+  /** Charged once per game week (Monday to Sunday) through the ledger. */
+  rentCents: number;
+  description: string;
+}
+
+/**
+ * Rooms in the student housing on the square, cheapest first. Rent can't go
+ * into debt (D-023): unpaid rent gives a notice and a grace period, then a
+ * move to a cheaper room, or out (Q9). A game week lasts 16.8 real hours;
+ * the daily allowance alone brings €52.50 a game week. Fictional rooms and
+ * prices. Layouts: shared/src/homes.ts. Design: docs/GAME_DESIGN.md "A place to live (M10)".
+ */
+export const ROOM_TYPES: Record<RoomTypeId, RoomTypeDefinition> = {
+  "box-room": { label: "Box room", rentCents: 2_500, description: "Small and cheap: the room's bed and desk, space for a seat and one decoration." },
+  "single-room": { label: "Single room", rentCents: 4_500, description: "More space: the room's bed and desk, a seat and two decorations." },
+  studio: { label: "Studio", rentCents: 8_000, description: "The biggest room: the room's bed and desk, two seats and three decorations." },
+};
+
+export const FURNITURE_CATEGORIES = ["bed", "seat", "decor"] as const;
+export type FurnitureCategory = (typeof FURNITURE_CATEGORIES)[number];
+
+export const FURNITURE_IDS = ["room-bed", "sprung-bed", "foam-bed", "wooden-chair", "beanbag", "armchair", "potted-plant", "floor-lamp", "bookshelf"] as const;
+export type FurnitureId = (typeof FURNITURE_IDS)[number];
+
+export interface FurnitureDefinition {
+  label: string;
+  category: FurnitureCategory;
+  /** Catalogue price; null for the room's own furniture (comes with the room, not for sale). */
+  priceCents: number | null;
+  /** How the renderer draws it (an obstacle kind, shared/src/world.ts). */
+  kind: "bed" | "chair" | "beanbag" | "armchair" | "plant" | "floor-lamp" | "shelf";
+  /** Footprint in metres: width across its front, depth from front to back; and height. */
+  width: number;
+  depth: number;
+  height: number;
+  /** Added to the home's cosiness (HOUSING_CONFIG.cosyAt makes a home cosy). */
+  cosiness: number;
+  /** Seats: comfort per game hour while sitting on it. */
+  seatComfort?: number;
+  /** Beds: what one full sleep gives (instead of ACTION_EFFECTS.sleep's needs). */
+  sleep?: { energy: number; comfort: number };
+  /** One line for the catalogue. */
+  blurb: string;
+}
+
+/** The furniture catalogue (M10). Prices are set here, never by clients. */
+export const FURNITURE: Record<FurnitureId, FurnitureDefinition> = {
+  "room-bed": { label: "The room's bed", category: "bed", priceCents: null, kind: "bed", width: 2.0, depth: 0.95, height: 0.55, cosiness: 0, sleep: { energy: 50, comfort: 15 }, blurb: "Comes with the room." },
+  "sprung-bed": { label: "Sprung bed", category: "bed", priceCents: 6_000, kind: "bed", width: 2.0, depth: 1.0, height: 0.6, cosiness: 1, sleep: { energy: 65, comfort: 25 }, blurb: "Better sleep: more energy and comfort." },
+  "foam-bed": { label: "Memory-foam bed", category: "bed", priceCents: 14_000, kind: "bed", width: 2.05, depth: 1.1, height: 0.62, cosiness: 2, sleep: { energy: 80, comfort: 35 }, blurb: "The best sleep: much more energy and comfort." },
+  "wooden-chair": { label: "Wooden chair", category: "seat", priceCents: 1_500, kind: "chair", width: 0.5, depth: 0.5, height: 0.9, cosiness: 0, seatComfort: 8, blurb: "A seat: a little comfort while sitting." },
+  beanbag: { label: "Beanbag", category: "seat", priceCents: 3_500, kind: "beanbag", width: 0.9, depth: 0.9, height: 0.6, cosiness: 1, seatComfort: 14, blurb: "Comfier, and a bit cosier." },
+  armchair: { label: "Armchair", category: "seat", priceCents: 5_500, kind: "armchair", width: 0.9, depth: 0.85, height: 0.95, cosiness: 1, seatComfort: 22, blurb: "The comfiest seat." },
+  "potted-plant": { label: "Potted plant", category: "decor", priceCents: 1_200, kind: "plant", width: 0.45, depth: 0.45, height: 1.05, cosiness: 1, blurb: "Decoration: adds cosiness." },
+  "floor-lamp": { label: "Floor lamp", category: "decor", priceCents: 2_000, kind: "floor-lamp", width: 0.4, depth: 0.4, height: 1.6, cosiness: 1, blurb: "Decoration: adds cosiness." },
+  bookshelf: { label: "Bookshelf", category: "decor", priceCents: 3_500, kind: "shelf", width: 0.8, depth: 0.35, height: 1.5, cosiness: 2, blurb: "Decoration: adds more cosiness." },
+};
+
+export const HOUSING_CONFIG = {
+  /** After rent first can't be paid: game minutes to find the money before moving (12 game hours = 72 real minutes). */
+  graceGameMinutes: 12 * 60,
+  /** A home with at least this much cosiness is cosy: going home or waking up there lifts the mood. */
+  cosyAt: 3,
+  /** Furniture one character can own (placed and stored). */
+  maxFurniture: 30,
 } as const;
 
 export interface MenuItem {

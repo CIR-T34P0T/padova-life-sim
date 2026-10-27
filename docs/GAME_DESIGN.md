@@ -206,10 +206,10 @@ desktop layout.
 | Large touch targets | — | Menu items ≥ 44 px; action-sheet buttons 56 px | Implemented; tested in emulation |
 | Essential controls within thumb reach | — | Sheet and joystick at the bottom; status chips at the top | Implemented; not yet checked on a real phone |
 | Portrait and landscape | — | Both; landscape preferred for the 3D view | Implemented for the title screens, creator and world; tested in emulation |
-| Your own character: info panel and actions | Click yourself → Character | Tap yourself | Implemented for needs, mood, skills, money and current action (M5) and work (M7); inventory and relationships don't exist yet |
+| Your own character: info panel and actions | Click yourself → Character | Tap yourself | Implemented for needs, mood, skills, money and current action (M5), work (M7), university (M8), story and blocks (M9) and home (M10); at home your own menu also offers *Furnish your room* |
 | Another character: public information and social actions | Click → menu | Tap → menu | **Partial:** name and activity tag, *Greet* only. A public info panel and more social actions are **proposed** (M9) |
 | Private information stays private | — | — | Implemented (D-024): life data goes only to its owner |
-| Drag or place objects | — | — | **Not built:** comes with housing (proposed M10) |
+| Place objects | Home panel: pick a piece for a spot | Same panel as a bottom sheet | **Controlled placement (M10):** each room has fixed spots (bed, seats, decorations); you choose what goes in each from a list. Free dragging and rotating are not built |
 | Quality settings for slower devices | Settings → Graphics | *Automatic* picks Performance on touch | Implemented (M6b, M6c) |
 | Accessibility: readable text, contrast, reduced motion | — | — | **Partial:** contrast-checked colours (D-032) and a reduced-motion setting; no screen-reader or colour-blindness review yet |
 | Verified on real devices (Windows, Android, iPhone/iPad) | — | — | **Not yet:** automated tests use Chromium on Linux and phone emulation; manual checklist in TESTING.md |
@@ -278,9 +278,10 @@ is the only authority.
 | --- | --- | --- | --- | --- |
 | Hunger | starving | −6 | ~1 h 40 min | café food |
 | Energy | exhausted | −4 standing, −5 walking, +20 sitting | ~2 h 30 min | resting on a bench, espresso, being offline |
-| Hygiene | grubby | −3 | ~3 h 20 min | washing up at the fountain (placeholder until homes have showers) |
+| Hygiene | grubby | −3 | ~3 h 20 min | washing up at the fountain (homes have no showers yet) |
 | Social | lonely | −4 | ~2 h 30 min | greeting someone, being greeted |
 | Fun | bored | −5 (−2 while sitting on a bench) | ~2 h | sketching, café treats, greetings |
+| Comfort (M10) | uncomfortable | −3 (+4 sitting on a bench or desk chair; +8 to +22 on a seat at home) | ~3 h 20 min | sitting, sleeping in a bed (+15 to +35 a full sleep); starts at 70 |
 
 **Consequences of low needs** (deliberately gentle; nothing kills, injures or
 removes a character, and there is no "game over"):
@@ -301,7 +302,9 @@ and the character panel shows the reasons.
   *Learned something* +8 (2 h), *Creative flow* +8 (2 h), *Freshened up* +5
   (1.5 h), *Friendly hello* +10 (2 h), *Someone said hello* +6 (1.5 h),
   *Couldn't afford it* −5 (1 h), *Good day's work* +6 (2 h, after a completed
-  shift, M7).
+  shift, M7); the university's and relationships' events (M8, M9, below);
+  *New home* +10 (6 h), *Cosy home* +6 (3 h), *Slept well* +6 (4 h),
+  *Worried about rent* −6 (12 h), *Had to move out* −10 (8 h) (M10).
 - Score −100…100 → **Miserable** (≤ −40), **Low** (≤ −15), **Okay**, **Good**
   (≥ 15), **Great** (≥ 40).
 - Skill gain multiplier: Miserable ×0.5, Low ×0.75, Okay ×1, Good ×1.1, Great ×1.25.
@@ -372,12 +375,12 @@ injures a character, there is no game over, absence never creates a crisis
 
 | System | Today (implemented) | Proposed next | Milestone (proposed) |
 | --- | --- | --- | --- |
-| Needs | Hunger, energy, hygiene, social, fun | **Comfort**, which the owner's brief lists (*approved*: added in M10 with furniture of different comfort, not now while every seat is a bench or chair); **sleep** in a bed as the main energy source; showers at home for hygiene (the fountain stays a quick wash) | M10 |
+| Needs | Hunger, energy, hygiene, social, fun; comfort and sleep in a bed (M10) | Showers at home for hygiene (the fountain stays a quick wash) | Later |
 | Mood | Score from needs plus recent events, with reasons; *Good day's work* after a shift (M7); *Interesting lecture*, *Passed an exam*, *Failed an exam* (M8); *Nice chat*, *Someone chatted with you*, *New friend* (M9) | New events from new systems (rent paid); mood visible on the character (poses first; faces need expressions the procedural model lacks) | M10 |
 | Skills | Five skills, levels 0–10; communication level 2 unlocks the barista wage (M7); academic level counts in the exam grade (M8) | Cooking unlocks home recipes (M10); fitness unlocks running (needs a movement design: speed, energy cost, server limits) | M10 |
 | Personality | Four traits, chosen at creation, fixed | Keep four until a new trait has a distinct, testable effect; traits stay fixed after creation | — |
 | Money in | €100 start, €7.50 per game day played, wages per completed café shift (M7) | More jobs or grades as new places open (e.g. the university in M8) | Later |
-| Money out | Café food and drinks | Rent and bills with housing, charged on a game-week schedule from the ledger; furniture and groceries into an inventory. With no debt (D-023), rent that can't be paid gives a notice and a mood event, then a move to a cheaper room (*approved*) | M10 |
+| Money out | Café food and drinks; weekly rent and furniture (M10) | Bills and groceries; more furniture | Later |
 | Money between players | None | Not planned: gifts or trades would need anti-exploit design (duplication, laundering through alt characters) before they exist | — |
 
 ## Work (M7)
@@ -625,8 +628,76 @@ server, newest first, in the character panel (**Your story**): getting a
 job, a first shift, enrolling, passing or failing an exam (with the grade),
 becoming friends with someone (their name as it was then). Each event is
 written once. The panel shows the last ten; all are saved. It starts with
-M9: jobs, enrolments and exams from before aren't added afterwards. The
-story is a foundation: later milestones add moving house, new jobs and more.
+M9: jobs, enrolments and exams from before aren't added afterwards. M10
+adds moving into a room, moving out and having to move because the rent
+couldn't be paid; later milestones add more.
+
+## A place to live (M10)
+
+Choices behind these rules: D-044. Tuning: `shared/src/life/config.ts`
+(`ROOM_TYPES`, `FURNITURE`, `HOUSING_CONFIG`); layouts:
+`shared/src/homes.ts`; rules: `shared/src/life/housing.ts`. Rooms, prices
+and furniture are fictional.
+
+**Renting.** Tap the **Student housing** door on the south side of the
+square. Without a room it offers **Rent a room…**: a dialog lists the three
+rooms with their weekly rent (box room €25, single room €45, studio €80;
+bigger rooms have more spots for furniture). The first week is paid at
+once, through the ledger, and your character goes straight in. With a room,
+the door offers **Go home**, **Change room…** (moving: the new room's first
+week is paid now and your furniture goes into storage) and **Move out…**
+(asks first; this week's rent isn't paid back; furniture into storage). One
+room at a time.
+
+**Your home is private.** It is a room of its own that only you can enter:
+others see you go in through the door and leave the square, and nobody
+else ever sees inside or what is in it. If you leave the game at home, you
+come back at home.
+
+**Rent.** Rent weeks run Monday to Sunday (Day 1 is a Monday). Each Monday
+the week's rent is taken from your money. It is only ever charged for the
+week you are in: weeks you spend away from the game aren't charged
+afterwards. If the money isn't there (there is never debt, D-023):
+1. a notice and a *Worried about rent* mood (−6 for 12 game hours); the
+   character panel shows the deadline;
+2. the rent is taken as soon as you have it (a wage, the allowance);
+3. after **12 game hours** (72 real minutes) still unpaid, you move to the
+   dearest cheaper room whose first week you can pay now (Q9), with a *Had
+   to move out* mood (−10) and a story entry; furniture goes into storage.
+   If no cheaper room is affordable, you have to leave and have no home
+   until you rent again. If you were at home, you find yourself in the new
+   room, or in front of the housing.
+
+**Sleeping.** Tap the bed → **Sleep**: 3 real minutes (30 game minutes),
+lying in bed. The room's own bed gives +50 energy and +15 comfort; a
+sprung bed +65/+25, a memory-foam bed +80/+35. Waking early (moving,
+Escape) keeps what you slept. A full sleep gives *Slept well* (+6).
+Being offline still restores energy as before (D-022).
+
+**Comfort** (the approved Q7) falls slowly (−3 a game hour) and rises while
+sitting: +4 on benches and desk chairs, more on your own seats at home
+(wooden chair +8, beanbag +14, armchair +22), and with sleep. Low comfort
+lowers mood like any need ("Uncomfortable").
+
+**Furnishing.** At home, your own menu (tap yourself) and the character
+panel offer **Furnish your room**. Every room has fixed spots: a bed, one
+or two seats, one to three decorations. For each spot the panel lists what
+you can do: buy a piece from the catalogue (the price is the server's,
+charged through the ledger, once per request), place one from your
+storage, or put yours away. Each spot takes one piece of its kind; the
+room's own bed stands in the bed spot until you place yours. Catalogue:
+sprung bed €60, memory-foam bed €140, wooden chair €15, beanbag €35,
+armchair €55, potted plant €12, floor lamp €20 (glows at night), bookshelf
+€35. A character can own up to 30 pieces. Furniture is drawn in the room
+as soon as the server confirms; you can sit on seats you place.
+
+**Cosiness.** Pieces add cosiness (decorations and comfy seats 1–2 each).
+A home with cosiness 3 or more is **cosy**: coming home and waking up
+there give *Cosy home* (+6).
+
+**Not built in M10:** shared flats and roommates, visitors, free placement
+and rotation, kitchens and cooking, showers, bills, selling furniture,
+other buildings' flats (the residences).
 
 ## Indoor rooms (M7c)
 
@@ -645,8 +716,8 @@ so you always see the room.
 | University hall | Lecture room | Rows of desks facing a blackboard and lectern: study and sit; the course's lectures and exam (M8) | **Built (M7c, lectures M8)** |
 | Library | Reading room | Shelves and two long reading tables: study and sit | **Built (M7c)** |
 | Shops | A shop interior | A second workplace | Proposed (later milestone) |
-| Residences and bookshop | Bookshop; flats | Books (later); homes (M10) | Proposed |
-| Student housing, portico houses | Flats | Homes (M10): rent, sleep, furniture, private | Proposed |
+| Residences and bookshop | Bookshop; flats | Books (later); more homes (later) | Proposed |
+| Student housing | Your own room (one private room per tenant, three sizes) | Homes (M10): rent, sleep, comfort, furniture, private | **Built (M10)** |
 
 ## Open design questions
 

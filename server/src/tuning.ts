@@ -26,6 +26,8 @@ export interface ActionDurations {
   exam: number;
   /** A chat with another player (M9). */
   chat: number;
+  /** One sleep in your bed (M10). */
+  sleep: number;
 }
 
 export interface RoomTuning {
@@ -61,6 +63,7 @@ export const DEFAULT_TUNING: RoomTuning = {
     attend: ACTION_EFFECTS.attend.durationMs,
     exam: ACTION_EFFECTS.exam.durationMs,
     chat: ACTION_EFFECTS.chat.durationMs,
+    sleep: ACTION_EFFECTS.sleep.durationMs,
   },
   consumeDurationFactor: 1,
   guestCreationsPerIpPerHour: PROFILE_CONFIG.guestCreationsPerIpPerHour,

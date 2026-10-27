@@ -24,6 +24,8 @@ type PartName = "head" | "torso" | "armL" | "armR" | "thighL" | "thighR" | "shin
 
 /** Seated activities with both hands on the desk (no per-frame allocation in the pose code). */
 const DESK_BUSY: ReadonlySet<string> = new Set(["studying", "sketching", "attending", "exam"]);
+/** Height of a sleeping character's back above the floor: the top of a bed's mattress (M10). */
+const LYING_HEIGHT = 0.7;
 const PARTS: readonly PartName[] = ["head", "torso", "armL", "armR", "thighL", "thighR", "shinL", "shinR"];
 
 export interface PoseInput {
@@ -291,8 +293,12 @@ export class CharacterModel {
   pose(input: PoseInput): void {
     const m = this.metricsValue!;
     const stride = this.outfit?.stride ?? 1;
-    if (input.seated !== this.seated) {
-      this.seated = input.seated;
+    // Asleep in a bed (M10): lying on the back along the bed, legs straight
+    // (so skirts and coats keep their standing shape).
+    const lying = input.seated && input.activity === "sleeping";
+    const seatedShape = input.seated && !lying;
+    if (seatedShape !== this.seated) {
+      this.seated = seatedShape;
       this.applyPoseVisibility();
       this.stats = { ...this.stats, ...this.countStats() };
     }
@@ -309,8 +315,17 @@ export class CharacterModel {
     let figureY = 0;
     let figureZ = 0;
     let breathe = 1 + Math.sin(t * 1.6) * 0.004;
+    let figureTilt = 0;
 
-    if (input.seated) {
+    if (lying) {
+      // The root stands at the foot of the bed facing from head to feet: tip
+      // the figure back so the head points along the bed, face up, on the mattress.
+      figureTilt = -Math.PI / 2;
+      figureY = LYING_HEIGHT;
+      armLZ = rest * 0.35;
+      armRZ = -rest * 0.35;
+      breathe = 1 + Math.sin(t * 0.9) * 0.012;
+    } else if (input.seated) {
       const seatTop = 0.5;
       const hipHeight = seatTop + m.thighRadius * 0.85;
       figureY = hipHeight - m.hipY;
@@ -376,6 +391,7 @@ export class CharacterModel {
       }
     }
     this.figure.position.set(0, figureY, figureZ);
+    this.figure.rotation.set(figureTilt, 0, 0);
     this.torsoPivot.scale.set(1, breathe, 1);
     this.hips.L.rotation.set(thighL, 0, 0);
     this.hips.R.rotation.set(thighR, 0, 0);

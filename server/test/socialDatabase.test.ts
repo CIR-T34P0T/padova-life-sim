@@ -55,11 +55,12 @@ for (const backend of testBackends) {
 
     it("rolls migration 0007 back and forward when empty, and refuses (changing nothing) once there is social data", async () => {
       expect(await appliedVersions(db)).toContain(7);
-      expect(await rollback(db)).toEqual([7]);
+      expect(await rollback(db, 2)).toEqual([8, 7]); // 0008 (homes, empty) first
       const tables = (await db.query<{ table_name: string }>(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`)).rows.map((r) => r.table_name);
       for (const table of ["relationships", "relationship_events", "blocks", "reports", "story_events"]) expect(tables).not.toContain(table);
-      expect(await migrate(db)).toEqual([7]);
+      expect(await migrate(db)).toEqual([7, 8]);
       await addStoryEvent(db, ada, { key: "first_shift", kind: "first_shift", gameMinute: 600, details: {} });
+      expect(await rollback(db)).toEqual([8]);
       await expect(rollback(db)).rejects.toThrow();
       expect(await appliedVersions(db)).toContain(7);
       expect(await recentStory(db, ada, 10)).toHaveLength(1);

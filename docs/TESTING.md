@@ -304,6 +304,54 @@ days deleted, younger ones kept**; story events once per key, newest first,
 owner only, deleted with the character; relationships deleted with a
 character while the other side's account block stays.
 
+**Home rules (20 tests, `shared/test/homes.test.ts`, M10):** for each room
+type, every catalogue piece of a spot's kind fits inside that spot and the
+room; the room has a bed, a desk and a door, seats offer *Sit*, the bed
+*Sleep*, the door leads back to the housing; the room's own bed stands until
+you place yours, and what may go where; bigger rooms cost more and have
+more spots; home area ids never clash with fixed areas; the housing's door
+exists, can be reached from the square's spawn and offers renting without a
+home, going home, changing room and moving out with one; rent weeks from
+Monday; when rent is charged, overdue or moves you; the cheaper room chosen
+(or none); comfort while sitting (better seats faster); better beds sleep
+better; cosiness; the furnishing message parsers.
+
+**Homes through the real room and on a hand-moved clock (6 tests,
+`server/test/housing.test.ts`, M10)** — the housing system with the real
+repository on PGlite and a game clock the test moves: renting charges the
+first week, makes the home an area and tells only its tenant (a repeat
+changes nothing, the same room is refused); rent taken once each Monday;
+**unpaid rent gives a notice and a worry, and is paid as soon as the money
+arrives in the grace period**; **after the grace period a move to the
+dearest affordable cheaper room with the tenant and their furniture (into
+storage), a week later out, never into debt**; furnishing refused away from
+home, in the wrong spot or for the room's own bed. Through the real room
+and WebSocket clients: the housing door refuses *Go home* without a home and
+an unknown room; renting goes straight in and **the other player stops
+seeing you**; sleeping raises energy, gives *Slept well* and stands you up;
+home seats never reach the shared seat map; buying a beanbag is charged
+once per request (a repeat answers `duplicate`), a wrong spot is refused,
+and another player can't furnish; sitting on it, putting it away (stands
+you up) and placing it again; **a reload brings you back home with the same
+room and furniture**; going out (seen again) and moving out keep the
+furniture in storage.
+
+**Homes database (15 tests per backend, `server/test/housingDatabase.test.ts`,
+M10)** — migration 0008 down and up when empty, **rollback refused, changing
+nothing, once anyone has a home**; comfort 70 for every character; renting
+charges the first week once per request, **also when the same request
+arrives twice at once**; the room you have and a room you can't afford
+refused, changing nothing; changing room keeps the history and stores the
+furniture; another account can't read, rent for, furnish or move out
+someone's character; weekly rent once per home and week, the overdue start
+kept on repeats; never into debt; the move to a cheaper room (furniture into
+storage) only after the grace period, or out when nothing is affordable;
+nobody moved whose rent can be paid now or was paid meanwhile; furniture
+bought once per request into a free spot, a taken spot and a full storage
+refused; two purchases for one spot at once (one placed, the other neither
+placed nor charged); putting away and placing scoped to the owner and the
+current home.
+
 **Work database (9 tests, `server/test/workDatabase.test.ts`, M7)** —
 migration 0005 down and up again with no job data, the ledger accepting
 `wage` only while it is applied; **rollback refused, changing nothing,
@@ -562,6 +610,21 @@ takes a note, and blocks. Phone (Pixel 7 emulation): the player sheet's
 options at least 48 px tall, the card as a bottom sheet with Block and
 Report at least 44 px, the report dialog's choices at least 44 px.
 
+**End to end, a place to live (`e2e/home.spec.ts`, M10)** — desktop with two
+players: the student housing's door (camera turned round) offers *Rent a
+room…* "From €25.00 a week"; the dialog lists three rooms and needs a
+choice; renting takes Ada in ("Welcome home") and out of Ben's view; the
+character panel shows "Single room · €45.00 a week" and "This week is paid";
+the bed offers *Sleep* "+50 energy · 3 min", Ada lies down, and waking early
+keeps the energy gained; the furnishing panel buys a beanbag for the seat
+spot (drawn at once, sat on), then puts it away into storage; a reload comes
+back home with the room and storage; *Go out to the square* brings Ada back
+into Ben's view; the door then offers *Go home*, *Change room…* and *Move
+out…*; moving out asks first and keeps the beanbag. Phone (Pixel 7
+emulation): the rent dialog's choices at least 44 px, renting a box room,
+the furnishing panel as a bottom sheet with its spots and options at least
+44 px.
+
 **End to end, day and night (`e2e/daylight.spec.ts`, M7b)** — the world lab
 (no server) at 12:00, 19:40 and 23:00: the phase, lamps and stars follow the
 time; night costs at most 2 draw calls and under 2 000 triangles more than
@@ -719,6 +782,12 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-27 (M10) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server) |
+| 2026-10-27 (M10) | unit + integration | 573/573 pass (35 files) | In-memory PGlite. New: 20 home rules (`shared/test/homes.test.ts`), 6 housing tests (`server/test/housing.test.ts`: four on a hand-moved clock, two through the real room), 15 database tests (`server/test/housingDatabase.test.ts`), 4 housing words (`client/test/housing.test.ts`), and the room art checks repeated for every room type empty and with three furniture mixes (120). Existing tests updated for migration 0008 and the comfort need. While writing them, three real bugs were found and fixed: (1) the same rent or furniture request arriving twice at once could, on PostgreSQL, make the second wait for the wallet, see the first's payment and fail instead of answering "duplicate"; it now returns the home or piece that payment made; (2) repeating a furniture purchase (a lost reply) answered "spot taken" because the server's own check saw the piece it had just bought, so a retry could look like a failure; a taken spot now goes to the database, which recognises repeats first; (3) seats in deep furniture (beanbag, armchair) put the character on the front edge, beside the piece; they now sit in it |
+| 2026-10-27 (M10) | unit + integration on PostgreSQL 16.15 | 641/641 pass | `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: the 68 database tests repeated on PostgreSQL, including the 15 new housing ones (renting and buying the same request twice at once included); 632 s |
+| 2026-10-27 (M10) | e2e on PostgreSQL 16.15 + upgrade | 8/8 pass | `E2E_DATABASE_URL` on `padova_e2e` at migration 7 with 31 characters: the server applied 0008 on start; afterwards the earlier characters' balances, needs and positions, all 63 earlier ledger rows, the enrolments, shift, lecture, exam, relationship, block and report were unchanged (compared by fingerprint) and the earlier characters had comfort 70; new rows as expected (a single room ended by moving out, a current box room, a beanbag in storage, two rent payments of €45 and €25, three story events). Home, persistence and social specs |
+| 2026-10-27 (M10) | e2e | 32/32 pass (52.5 min) | The full suite with the two new home tests (about 3 min and 40 s). While writing the home spec: the room's name, shown on entering, replaced the "Welcome home" note a moment after renting; the room name is now a minor note that waits for other notes; the phone walk needed shorter hops; the panel remembers unfolded spots (the test now unfolds only a folded one) |
+| 2026-10-27 (M10) | visual check (Claude, screenshots) | Pass with known limitations | World lab: each room type empty and furnished, by day and at night (the floor lamp glows), a sleeper lying along the bed; the square's south side with the new housing door. From the e2e runs: the rent dialog, the furnishing panel (desktop side panel, phone sheet), sleeping, sitting in the beanbag (after the fix above). The room's south wall and door cover part of the room in the world lab's fixed view (the game cuts them away). Not yet seen by the product owner |
 | 2026-10-27 (M9) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server); no linter is configured |
 | 2026-10-27 (M9) | unit + integration | 393/393 pass | In-memory PGlite: 34 new tests (14 relationship and safety rules, 10 through the real room, 10 database); the exam's story event checked in the M8 test; existing tests updated for migration 0007, the greeting message's new `action` field and Chat in the player actions. While writing them: one test mistake (a blocker given the other account's id hit "same account" first), and it showed a real flaw, now fixed: the owner check counted matching characters, so two owners naming one character could pass; each (character, account) pair is now checked on its own. A block was checked after the chat cooldown, so a blocked player could get "too soon" instead of the neutral answer; the block now comes first |
 | 2026-10-27 (M9) | unit + integration on PostgreSQL 16.15 | 446/446 pass | `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15: the 53 database tests repeated on PostgreSQL, including the 10 social ones. The run now takes about 10 minutes on this machine (578 s); a first attempt under a 590-second limit was cut off and was run again without it |
@@ -923,6 +992,15 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   story write is logged, not retried. The story starts with M9: events from
   before (an earlier job, enrolment or exam) aren't filled in. The numbers (gains, caps, levels) are
   not play-tested.
+- **A place to live (M10):** one room per character in the student
+  housing; no shared flats, roommates or visitors, no free placement or
+  rotation, no selling furniture, no kitchen, shower or bills. Rent is
+  charged only for the week you are in (weeks away aren't charged). The
+  rents, prices, grace period and comfort rates are not play-tested. Rent
+  falls due only while the character is in the world (it is checked on
+  entering, then every tick). The room's south wall and door hide part of
+  the room until the camera cuts them away; on a phone in portrait the room
+  is small on screen.
 - **World art pass limitations:**
   - The district is Stage-1 procedural art (D-033): only the hall and the
     library doors lead inside (M7c); no interiors behind the other doors
@@ -1133,3 +1211,17 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     and blocks them. Stop the game and run `npm run reports`: the report is
     listed. Your story (character panel) lists your job, first shift,
     enrolment, exams and new friends.
+45. **A place to live (M10):** walk to the south side of the square, turn
+    the camera round (drag), tap the **Student housing** door → *Rent a
+    room…* → choose a room → *Rent*: you are inside your room and €25, €45
+    or €80 is gone (character panel → Home and Money). Tap the bed →
+    *Sleep* (3 minutes; tap Escape to wake early): energy rises. Tap
+    yourself → *Furnish your room* → open a spot → *Buy* a piece: it
+    appears at once; sit on a seat you bought. Reload: you are back in your
+    room with the same furniture.
+46. **Rent and moving (M10):** a second player outside doesn't see you
+    while you are at home, and sees you again when you tap the room's door →
+    *Go out to the square*. At the housing door, *Change room…* and *Move
+    out…* ask first; your furniture is kept in storage. To see rent fall
+    due, restart the game on a Monday: `npm run clock -- mon 08:00` prints
+    the PowerShell line.

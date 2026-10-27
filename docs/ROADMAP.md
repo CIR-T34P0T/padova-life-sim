@@ -248,11 +248,27 @@ choices in D-042 and D-043. Test counts and results: TESTING.md.
 Not yet **verified** by the product owner: the balance (gains, caps,
 levels), the card and dialog wording, on Windows and on a phone.
 
+## M10 a place to live: acceptance criteria
+
+Planned below ("M10 — A place to live"); design in GAME_DESIGN.md "A place
+to live (M10)"; choices in D-044. Test counts and results: TESTING.md.
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| 1. Rent a room in the student housing; rent is charged on a game-week schedule through the ledger; rent that can't be paid gives a notice and a mood event, then a move to a cheaper room (Q9), never debt | Persistence verified (PGlite and PostgreSQL 16) | Rules in `shared/test/homes.test.ts`; renting idempotent by request (also two at once), weekly rent once per home and week, the grace period, the move to a cheaper room or out and never below zero in `server/test/housingDatabase.test.ts`; the whole sequence over two game weeks on a hand-moved clock (notice, worry, money arriving in time, the move with the tenant and their furniture, moving out) in `server/test/housing.test.ts`; renting through the door dialog in `e2e/home.spec.ts` |
+| 2. Entering and leaving the home works for everyone (others see you leave the square), including after a reload or a drop | Multiplayer functional | `server/test/housing.test.ts` and `e2e/home.spec.ts`: renting takes you in, the other player stops seeing you and sees you again when you come out; a reload brings you back home; the `housing` message is re-sent after a reconnection (`PlazaRoom.onReconnect`) |
+| 3. Sleep in a bed restores energy (server-timed; offline rules still hold); comfort comes from furniture | Tested | Sleep through the room in `server/test/housing.test.ts` (energy and comfort up, *Slept well*, standing up afterwards); better beds and seats in `shared/test/homes.test.ts`; waking early keeps what was slept in `e2e/home.spec.ts`; offline rules unchanged (`shared/test/life.test.ts`) |
+| 4. Buy furniture from a small catalogue (ledger) and place it in allowed spots, validated by the server and saved | Persistence verified (PGlite and PostgreSQL 16) | Spot rules in `shared/test/homes.test.ts`; purchase once per request, a taken spot, a full storage, two purchases for one spot at once, placing and putting away scoped to the owner in `housingDatabase.test.ts`; through the room (wrong spot, not at home, a repeat answered `duplicate` and charged once) in `housing.test.ts`; the panel, the piece drawn at once and sat on in `e2e/home.spec.ts`; every room type's art checked empty and furnished in `client/test/interiors.test.ts` |
+| 5. Tests: area transfer, placement validation, rent idempotency, persistence | Tested | As above; migration 0008 rolls back only while empty, and upgrading an M9-era PostgreSQL database keeps every existing row (TESTING.md) |
+
+Not yet **verified** by the product owner: the rents, prices and grace
+period, the room sizes and the furniture's look, on Windows and on a phone.
+
 ## Planned milestones (order approved; details proposed)
 
 **The order is approved (D-035); the details below are proposals.** Each
 milestone is reviewed with the product owner and refined before it starts.
-M7, M7b, M7c, M8 and M9 are built (criteria and evidence in their
+M7, M7b, M7c, M8, M9 and M10 are built (criteria and evidence in their
 acceptance sections above); the others have not started. Data sketches: DATA_MODEL.md "Proposed"; system design:
 GAME_DESIGN.md "Life simulation: proposed next steps". Every milestone also
 keeps the standing criteria: server-authoritative changes, owner-scoped
@@ -320,6 +336,9 @@ days, D-042).
    the server; reports stored and owner-scoped.
 
 ### M10 — A place to live: home, sleep and comfort
+
+**Built** (2026-10-27): see "M10 a place to live: acceptance criteria"
+above and D-044.
 
 Depends on: M7 (income for rent); an interiors architecture (Q10: compared in
 writing first; entering a door moves the character to another area, and
@@ -421,7 +440,8 @@ Read this first when starting a new session.
 **Code:** `main` in the private GitHub repo `CIR-T34P0T/padova-life-sim`.
 M0–M6, M6b (title screen and creation flow), M6c (the first district), M7
 (a first job at the café), M7b (day and night), M7c (indoor rooms), M8
-(university basics) and M9 (relationships and safety) implemented and
+(university basics), M9 (relationships and safety) and M10 (a place to
+live) implemented and
 covered by
 automated tests (see `docs/TESTING.md` for the
 counts and latest results). An integration audit on 2026-10-20 checked every
@@ -457,19 +477,23 @@ lectures in the lecture room (on the hour on weekdays) and sit the exam
 a fail; chat with other players, open their card and see your friendship
 grow from greetings, chats, studying at the same table and lectures
 together; block or report someone (reports are kept 90 days); read your own
-story (job, first shift, enrolment, exams, new friends); see the square change from dawn to night with everyone
+story (job, first shift, enrolment, exams, new friends, moving); rent a
+private room in the student housing (three sizes, rent every Monday, a
+grace period and a move to a cheaper room if it can't be paid), sleep in its
+bed, keep comfortable, buy furniture for its spots and make it cosy; see the square change from dawn to night with everyone
 else (lit windows, lamps, stars); watch needs, mood (with reasons), skills,
 work, university and money in the character panel; come back later, even
 after a server restart, to the same character with the same look, needs,
-skills, money, job, course and results, and purchase and wage history.
+skills, money, job, course and results, home and furniture, and purchase, wage and rent history.
 
 **Genuinely persistent:** account (guest), its characters (up to three),
 each character's profile, appearance config, traits, last position, needs,
 skills, mood events, wallet, every money transaction, the job, every
 completed shift, the area (room) the character is in, the enrolment and
 study count, every completed lecture and every exam result, relationships
-and their recent moments, blocks, reports (deleted after 90 days) and the
-story log. **Temporary:**
+and their recent moments, blocks, reports (deleted after 90 days), the
+story log, the home (with its rent state and the history of earlier rooms)
+and every piece of furniture, placed or stored. **Temporary:**
 activity, seats, pending actions (including a meal, a shift, a lecture or an
 exam in progress), cooldowns,
 online status; the guest identity itself lives only in one browser; looks
@@ -481,13 +505,13 @@ saved in the creator and device settings live only in that browser. The world cl
 | --- | --- | --- | --- |
 | 1 | Look at the district (by day and at night), the title screen, the creation flow and the characters on the Windows PC (`git pull`, `npm ci`, `npm run dev`) and a phone; say what to change in the art direction (world, light, menus, characters) and whether the frame rate feels smooth | Planned | Product owner |
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
-| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–44) | Planned | Product owner |
-| 4 | Play-test the M5, M7 and M8 balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit, the lecture timetable and exam sittings, the grade targets, relationship gains and daily caps) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
+| 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–46) | Planned | Product owner |
+| 4 | Play-test the balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit, the lecture timetable and exam sittings, the grade targets, relationship gains and daily caps, rents, the grace period, furniture prices, comfort and sleep) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
 | 5 | Decisions for the product owner | None waiting (Q5, Q6 and Q13 answered on 2026-10-27); new questions come with their milestones | — |
 
-**Recommended next task:** **M10, a place to live** (a rented room, sleep,
-comfort, a small furniture catalogue; Q7 and Q9 already answered), when the
-product owner says go; meanwhile the owner tries M8 and M9. In parallel the product owner looks at the district by day and at night, the title screen,
+**Recommended next task:** **M11, NPCs with routines** (see "Planned
+milestones"), when the product owner says go; meanwhile the owner tries M9
+and M10. In parallel the product owner looks at the district by day and at night, the title screen,
 the creation flow and the characters on Windows and a phone (item 1; the
 world lab, `/world-lab.html?time=23:00`, shows every corner at any hour).
 Follow-ups not covered by "Technical work that waits for a trigger":

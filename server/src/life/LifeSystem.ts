@@ -106,6 +106,8 @@ export interface LifeDeps {
   now: () => number;
   /** Writes a meaningful event in the character's story log (M9). */
   story?: (sessionId: string, event: StoryInput) => void;
+  /** Comfort per game hour of the seat this character sits on, when it has its own (home furniture, M10). */
+  seatComfort?: (sessionId: string) => number | undefined;
 }
 
 /** Owner updates are sent at most this often, unless something important happened. */
@@ -175,7 +177,8 @@ export class LifeSystem {
       const runtime = this.deps.runtimes.get(sessionId);
       if (!player || !runtime) continue;
 
-      life.needs = stepNeeds(life.needs, gameHours, { activity: player.activity, moving: player.moving, traits: life.traits });
+      const seatComfort = player.seatId ? this.deps.seatComfort?.(sessionId) : undefined;
+      life.needs = stepNeeds(life.needs, gameHours, { activity: player.activity, moving: player.moving, traits: life.traits, ...(seatComfort !== undefined ? { seatComfort } : {}) });
 
       // Fitness from walking: distance actually travelled this tick.
       const step = Math.hypot(runtime.character.x - life.lastX, runtime.character.z - life.lastZ);
@@ -559,6 +562,11 @@ export class LifeSystem {
     this.sendUpdate(targetId, true);
   }
 
+  /** The balance the room last saw from the ledger, or null without life data. */
+  balanceOf(sessionId: string): number | null {
+    return this.lives.get(sessionId)?.balanceCents ?? null;
+  }
+
   /** Gives a character a mood event from another system (e.g. a new friend, M9). */
   addMood(sessionId: string, id: MoodEventId): void {
     const life = this.lives.get(sessionId);
@@ -606,7 +614,8 @@ export class LifeSystem {
     life.moodEvents = addMoodEvent(life.moodEvents, id, this.deps.clock.minute());
   }
 
-  private recordMoney(sessionId: string, balanceCents: number, transaction?: TransactionView): void {
+  /** A money change from the ledger landed (here, or in another system: rent and furniture, M10). */
+  recordMoney(sessionId: string, balanceCents: number, transaction?: TransactionView): void {
     const life = this.lives.get(sessionId);
     if (!life) return;
     life.balanceCents = balanceCents;

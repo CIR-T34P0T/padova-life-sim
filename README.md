@@ -5,11 +5,12 @@ Inspired by the depth of life-simulation games; original code, art and design.
 
 > Fan-made project. Not affiliated with, or endorsed by, the University of Padua.
 
-## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms, university basics, relationships and safety (M0–M9)
+## Current status: walking skeleton, interactions, saved characters, life simulation, characters, title screen, first district, first job, day and night, indoor rooms, university basics, relationships and safety, a place to live (M0–M10)
 
 What exists today is an early, end-to-end slice: one district with two
 indoor rooms, the first life-simulation loop, character creation, a first
-job, one university course, and friendships with blocking and reporting. It proves the
+job, one university course, friendships with blocking and reporting, and a
+rented room of your own. It proves the
 architecture; it is **not** the full game yet. Planned work and its order are
 in `docs/ROADMAP.md`.
 
@@ -34,7 +35,7 @@ in `docs/ROADMAP.md`.
 | Editing a look later (in the world or from the title screen) with a review step; never changes needs, money or skills | Multiplayer functional, persistence verified |
 | Device settings: graphics, camera speed, interface animation, controls reminder | Locally functional, tested |
 | Procedural anime-inspired characters (every option is real geometry), walk / sit / wave poses | Multiplayer functional, persistence verified; **Stage-1 procedural art, not final artist-made models** (D-027) |
-| Needs (hunger, energy, hygiene, social, fun), mood with reasons, five skills, personality traits | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16) |
+| Needs (hunger, energy, hygiene, social, fun, comfort), mood with reasons, five skills, personality traits | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16) |
 | Money: balance, server-validated purchases, allowances and wages, transaction history, no debt | Multiplayer functional, persistence verified |
 | First job at the café kiosk: ask about work, 90-second shifts behind the counter (two staff spots), wage paid once per completed shift, two grades by communication level, opening hours 06:00–23:00 game time, 4 shifts per game day, quit from the character panel | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16; desktop and phone emulation); numbers not yet play-tested |
 | Shared world clock (10 game minutes per real minute) and capped offline progression | Multiplayer functional, tested |
@@ -43,8 +44,9 @@ in `docs/ROADMAP.md`.
 | Relationships: a 10-second *Chat* action; friendships (Acquaintance to Close friend) grown from greetings, chats, studying at the same table and attending the same lecture, with daily caps; another player's card (portrait, activity, your relationship and recent moments; never their needs, money or skills); a private story log (job, first shift, enrolment, exams, new friends) | Multiplayer functional, persistence verified (tested on PGlite and PostgreSQL 16; desktop and phone emulation); numbers not yet play-tested (D-043) |
 | Safety: block a player's account (both ways, they aren't told; unblock in the character panel); report with a reason and a note (also blocks; one a day per player, five an hour); reports deleted after 90 days and read by the owner with `npm run reports` | Multiplayer functional, persistence verified; warnings, mutes, bans and an admin page come with sign-in (M12, D-042) |
 | Day and night: sun and moon, sky, haze, stars, lit windows, lanterns and pools of lamplight follow the shared game clock; every player sees the same time of day; characters stay easy to see at night | Multiplayer functional, tested (world lab at chosen times, the game at night on desktop and phone emulation); **Stage-1 procedural art** (D-037) |
-| Character panel (your needs, mood, skills, work, university, money, story, blocked players, current action) and top-right weekday/time/money chip | Locally functional, tested (desktop and phone emulation) |
-| Sleep/beds, cooking, inventory, more jobs, more courses and graduation | Not started (see docs/ROADMAP.md) |
+| Character panel (your needs, mood, skills, work, university, home, money, story, blocked players, current action) and top-right weekday/time/money chip | Locally functional, tested (desktop and phone emulation) |
+| A place to live: rent a private room in the student housing (box room, single room or studio; first week paid at once, then rent every Monday through the ledger; if it can't be paid, a notice, 12 game hours of grace, then a move to a cheaper room or out, never debt); others see you leave the square; sleep in your bed (energy, comfort); furnish fixed spots from a small catalogue (bought once per request, drawn at once, sit on your seats), storage, cosiness; change room or move out; you come back home after a reload | Multiplayer functional, persistence verified (PGlite and PostgreSQL 16); balance not play-tested |
+| Cooking, showers and bills, shared flats, free furniture placement, inventory for other items, more jobs, more courses and graduation, NPCs | Not started (see docs/ROADMAP.md) |
 
 "Tested" means covered by the automated tests in `docs/TESTING.md`. Mobile is
 tested in Chromium mobile emulation only; a real phone has not been tested yet.
@@ -171,13 +173,16 @@ preset and option side by side with its triangle count and build time
 <http://localhost:5173/world-lab.html> shows the district without a server:
 drag to orbit, wheel to zoom, links for each viewpoint
 (`?view=overview|game|hall|porch|library|portico|cafe|market|fountain|street|south|skyline`),
-`?collision` to see every collision box, `?quality=low` for phone detail and
-`?people` for a few characters for scale. Neither page is linked from the game.
+`?collision` to see every collision box, `?quality=low` for phone detail,
+`?people` for a few characters for scale, `?area=hall/lecture-room` (or
+`library/reading-room`) for a room, and `?area=home&room=box-room|single-room|studio&furnished=0..3`
+for a rented room, empty or furnished. Neither page is linked from the game.
 
 ### Your saved data
 
 - Your character (name, look, personality, last position, needs, skills,
-  mood events, money and transactions) is saved on the **server**, in
+  mood events, money and transactions, job, course, relationships, story,
+  home and furniture) is saved on the **server**, in
   `.data/pglite` by default. It survives page reloads and server restarts.
   While you're away, needs change slowly for at most 8 game hours.
 - Your **browser** keeps only a temporary guest key. Clearing the site's data,

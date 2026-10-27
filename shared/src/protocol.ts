@@ -4,7 +4,8 @@
 
 import { GAME_CONFIG, SAFETY_CONFIG, type ReportReason } from "./config.ts";
 import { ACTION_IDS, type ActionId, type CancelReason, type InteractionFailure, type TargetKind } from "./interactions.ts";
-import type { JobId, MoodEventId, MoodLevel, NeedId, SkillId, TraitId } from "./life/config.ts";
+import type { FurnitureId, JobId, MoodEventId, MoodLevel, NeedId, RoomTypeId, SkillId, TraitId } from "./life/config.ts";
+import { isFurnitureId } from "./life/housing.ts";
 import { isValidRequestId, type TransactionView } from "./life/economy.ts";
 import type { MoodReason } from "./life/mood.ts";
 import type { CourseState } from "./life/university.ts";
@@ -47,6 +48,12 @@ export const ClientMessage = {
   Unblock: "unblock",
   /** Report another player (M9); also blocks them. Payload: ReportPayload. */
   Report: "report",
+  /** Buy a piece of furniture and place it in a spot of your home (M10). Payload: FurnishPayload. */
+  Furnish: "furnish",
+  /** Place a piece of furniture from your storage in a spot of your home (M10). Payload: PlacePayload. */
+  Place: "place",
+  /** Put a placed piece of furniture back into storage (M10). Payload: PutAwayPayload. */
+  PutAway: "putAway",
 } as const;
 
 export const ServerMessage = {
@@ -74,6 +81,10 @@ export const ServerMessage = {
   Relationship: "relationship",
   /** The answer to a block, unblock or report (M9). Payload: SocialResultPayload. */
   SocialResult: "socialResult",
+  /** The receiving character's home, rent and furniture (M10). Payload: HousingPayload. */
+  Housing: "housing",
+  /** The answer to furnish, place or put away (M10). Payload: FurnishResultPayload. */
+  FurnishResult: "furnishResult",
 } as const;
 
 /** Close code used when the same account joins from another window or device. */
@@ -155,7 +166,7 @@ export interface InteractPayload {
   targetKind: TargetKind;
   targetId: string;
   action: ActionId;
-  /** Menu item for "buy" (e.g. "panino"). The price comes from the server's catalogue. */
+  /** Menu item for "buy" (e.g. "panino"), or room type for "rent" (M10). Prices come from the server's catalogue. */
   itemId?: string;
   /**
    * Client-chosen id that makes a purchase safe to repeat: the server charges
@@ -290,6 +301,83 @@ export interface SocialResultPayload {
   name?: string;
 }
 
+/** A piece of furniture the character owns (M10). */
+export interface FurnitureView {
+  furnitureId: string;
+  itemId: FurnitureId;
+}
+
+export interface PlacedFurnitureView extends FurnitureView {
+  /** The spot in the home (shared/src/homes.ts HOME_TEMPLATES). */
+  slot: string;
+}
+
+/** The character's current home (M10), private to its tenant. */
+export interface HomeView {
+  /** The home's area ("home/<id>"); a client builds its room with homeArea(). */
+  areaId: string;
+  roomType: RoomTypeId;
+  /** Weekly rent agreed when the room was rented. */
+  rentCents: number;
+  /** Last rent week paid (rentWeekOf). */
+  paidWeek: number;
+  /** This week's rent couldn't be paid yet: it is retried when money arrives, until the deadline. */
+  overdue: { sinceGameMinute: number; deadlineGameMinute: number } | null;
+  placements: PlacedFurnitureView[];
+  cosiness: number;
+}
+
+/** Something about rent the player should be told (a toast), sent with the housing update it caused. */
+export type HousingNotice =
+  | { kind: "rent_paid"; rentCents: number }
+  | { kind: "rent_overdue"; rentCents: number; deadlineGameMinute: number }
+  | { kind: "moved_cheaper"; fromRoomType: RoomTypeId; roomType: RoomTypeId; rentCents: number }
+  | { kind: "moved_out_unpaid"; fromRoomType: RoomTypeId };
+
+export interface HousingPayload {
+  home: HomeView | null;
+  /** Furniture not placed in a home. */
+  storage: FurnitureView[];
+  notice?: HousingNotice;
+}
+
+export interface FurnishPayload {
+  slot: string;
+  itemId: FurnitureId;
+  /** Makes the purchase safe to repeat: charged once per (character, requestId). */
+  requestId: string;
+}
+
+export interface PlacePayload {
+  slot: string;
+  furnitureId: string;
+}
+
+export interface PutAwayPayload {
+  furnitureId: string;
+}
+
+export type FurnishStatus =
+  | "ok"
+  | "duplicate"
+  | "not_home"
+  | "unknown_item"
+  | "not_for_sale"
+  | "unknown_slot"
+  | "wrong_slot"
+  | "slot_taken"
+  | "insufficient_funds"
+  | "storage_full"
+  | "not_found"
+  | "busy"
+  | "failed";
+
+export interface FurnishResultPayload {
+  action: "furnish" | "place" | "putAway";
+  status: FurnishStatus;
+  itemId?: FurnitureId;
+}
+
 export interface MoveToPayload {
   x: number;
   z: number;
@@ -366,6 +454,29 @@ export function parseUnblock(payload: unknown): UnblockPayload | null {
   if (!isRecord(payload)) return null;
   const blockId = parseCharacterId(payload.blockId);
   return blockId ? { blockId } : null;
+}
+
+const SLOT_PATTERN = /^[a-z0-9-]{1,32}$/;
+
+export function parseFurnish(payload: unknown): FurnishPayload | null {
+  if (!isRecord(payload)) return null;
+  const { slot, itemId, requestId } = payload;
+  if (typeof slot !== "string" || !SLOT_PATTERN.test(slot) || !isFurnitureId(itemId) || !isValidRequestId(requestId)) return null;
+  return { slot, itemId, requestId };
+}
+
+export function parsePlace(payload: unknown): PlacePayload | null {
+  if (!isRecord(payload)) return null;
+  const { slot } = payload;
+  const furnitureId = parseCharacterId(payload.furnitureId);
+  if (typeof slot !== "string" || !SLOT_PATTERN.test(slot) || !furnitureId) return null;
+  return { slot, furnitureId };
+}
+
+export function parsePutAway(payload: unknown): PutAwayPayload | null {
+  if (!isRecord(payload)) return null;
+  const furnitureId = parseCharacterId(payload.furnitureId);
+  return furnitureId ? { furnitureId } : null;
 }
 
 const REPORT_REASONS: readonly string[] = SAFETY_CONFIG.reportReasons.map((r) => r.id);

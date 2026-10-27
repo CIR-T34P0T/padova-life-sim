@@ -10,7 +10,9 @@ import {
   CAFE_MENU,
   COURSES,
   COURSE_IDS,
+  HOME_LINK,
   JOBS,
+  ROOM_TYPES,
   formatGrade,
   findInteractable,
   findMenuItem,
@@ -30,6 +32,7 @@ import {
   type ActionUpdatePayload,
   type ActorView,
   type GreetedPayload,
+  type HomeView,
   type Interactable,
   type LifePayload,
   type TargetKind,
@@ -43,6 +46,7 @@ import type { Hud } from "../ui/hud.ts";
 import { reasonText } from "../ui/reasons.ts";
 import { ACTIVITY_SUBTITLE } from "../ui/activity.ts";
 import { examLine, lectureLine, lectureTimetable, whenLabel } from "../ui/university.ts";
+import { cheapestRentCents, roomLabel } from "../ui/housing.ts";
 
 export interface EntityAccess {
   selfId(): string | null;
@@ -118,6 +122,15 @@ export class InteractionController {
         confirmBlock(playerId: string): void;
         unblockPlayer(playerId: string): void;
         openReport(playerId: string): void;
+      };
+      /** Your home (M10): what the housing's door offers, the dialogs, the furnishing panel. */
+      housing: {
+        home: HomeView | null;
+        /** True while you are in your own home. */
+        atHome(): boolean;
+        openRent(doorId: string): void;
+        confirmMoveOut(doorId: string): void;
+        openPanel(): void;
       };
     },
   ) {}
@@ -210,6 +223,9 @@ export class InteractionController {
         if (update.action === "enrol") hud.toast(this.enrolledText(), 6000);
         if (update.action === "attend") hud.toast(this.lectureDoneText(), 4500);
         if (update.action === "exam") hud.toast(this.examDoneText(), 7000);
+        if (update.action === "sleep") hud.toast("You slept and feel rested.");
+        if (update.action === "rent") hud.toast(this.rentedText(), 6000);
+        if (update.action === "move_out") hud.toast("You moved out. Your furniture is in storage for your next room.", 5000);
         return;
       case "failed":
         this.currentAction = null;
@@ -282,7 +298,11 @@ export class InteractionController {
     this.setSelection(null);
     if (choice === "edit-appearance") return this.deps.onEditAppearance();
     if (choice === "character") return this.deps.onOpenCharacter();
+    if (choice === "furnish") return this.deps.housing.openPanel();
     if (selection.kind === "self") return;
+    // Renting and moving out ask first, in a dialog (M10).
+    if (selection.kind === "object" && choice === "rent") return this.deps.housing.openRent(selection.id);
+    if (selection.kind === "object" && choice === "move_out") return this.deps.housing.confirmMoveOut(selection.id);
     if (selection.kind === "player") {
       // Card, block and report are requests of their own, not timed actions (M9).
       if (choice === "profile") return this.deps.social.openCard(selection.id);
@@ -314,10 +334,11 @@ export class InteractionController {
       const self = this.deps.entities.get(selection.id)?.latest;
       return {
         title: self ? self.name : "You",
-        subtitle: "You",
+        subtitle: this.deps.housing.atHome() ? "At home" : "You",
         options: [
           { id: "character", label: "Character" },
           { id: "edit-appearance", label: "Edit look" },
+          ...(this.deps.housing.atHome() ? [{ id: "furnish", label: "Furnish your room" }] : []),
         ],
       };
     }
@@ -326,7 +347,7 @@ export class InteractionController {
       if (!item) return null;
       const options = objectActions(item, actor, this.deps.connection.seats).flatMap((id) =>
         // Doors say where they lead ("Go in", "Go out to the square"), M7c.
-        id === "enter" && item.door ? [{ id, label: item.door.actionLabel }] : this.optionsFor(id, item),
+        id === "enter" && item.door ? [this.doorOption(item)] : this.optionsFor(id, item),
       );
       // Seated here: clicking yourself lands on this menu, so it also offers your character panel.
       if (item.seats.some((seat) => seat.id === actor.seatId)) options.push({ id: "character", label: "Character" });
@@ -350,9 +371,26 @@ export class InteractionController {
     return { title: target.name, subtitle, options };
   }
 
+  /** A door's option: where it leads; the student housing's says which room is yours (M10). */
+  private doorOption(item: Interactable): MenuOption {
+    const home = this.deps.housing.home;
+    if (item.door?.to === HOME_LINK && home) return { id: "enter", label: item.door.actionLabel, detail: `Your ${roomLabel(home.roomType).toLowerCase()}` };
+    return { id: "enter", label: item.door!.actionLabel };
+  }
+
   /** Menu entries for one action. The café expands into its menu, with prices; the server re-checks everything. */
   private optionsFor(action: ActionId, item?: Interactable): MenuOption[] {
     const life = this.deps.life();
+    const home = this.deps.housing.home;
+    if (action === "rent") {
+      return [home ? { id: action, label: "Change room…", detail: `${roomLabel(home.roomType)} now` } : { id: action, label: ACTION_LABELS.rent, detail: `From ${formatEuros(cheapestRentCents())} a week` }];
+    }
+    if (action === "move_out") return [{ id: action, label: ACTION_LABELS.move_out }];
+    if (action === "sleep") {
+      const sleep = timedEffectFor("sleep", item?.furniture);
+      const minutes = Math.round((sleep?.durationMs ?? 0) / 60_000);
+      return [{ id: action, label: ACTION_LABELS.sleep, detail: `+${sleep?.needs.energy ?? 0} energy · ${minutes} min` }];
+    }
     if (action === "ask_work") {
       const wage = life ? gradeFor(JOBS.cafe, skillLevels(life)).wageCents : JOBS.cafe.grades[0]!.wageCents;
       return [{ id: action, label: ACTION_LABELS[action], detail: `${formatEuros(wage)} a shift` }];
@@ -435,6 +473,12 @@ export class InteractionController {
     return `Not passed this time: ${formatGrade(result.grade)}. Attend lectures and study, then try again.${retake}`;
   }
 
+  private rentedText(): string {
+    const home = this.deps.housing.home;
+    if (!home) return "You rented a room.";
+    return `Welcome home: your ${roomLabel(home.roomType).toLowerCase()}, ${formatEuros(ROOM_TYPES[home.roomType].rentCents)} a week, taken every Monday. Furnish it from your own menu.`;
+  }
+
   private hiredText(): string {
     const life = this.deps.life();
     const grade = gradeFor(JOBS.cafe, life ? skillLevels(life) : {});
@@ -453,7 +497,12 @@ export class InteractionController {
       return life.job ? `You have ${formatEuros(life.money.balanceCents)} · you work here` : `You have ${formatEuros(life.money.balanceCents)}`;
     }
     if (item.kind === "fountain") return "Freshen up";
+    if (item.kind === "door" && item.door?.to === HOME_LINK) {
+      const home = this.deps.housing.home;
+      return home ? `You live here · ${roomLabel(home.roomType).toLowerCase()}` : "Rooms to rent";
+    }
     if (item.kind === "door") return item.door?.to === "plaza" ? "To the square" : "Door";
+    if (item.kind === "bed") return item.seats.some((seat) => seat.id === actor.seatId) ? "You're in bed" : "Your bed";
     if (item.kind === "noticeboard") {
       const course = this.deps.life()?.course;
       if (!course) return "Courses: enrol here";
@@ -556,6 +605,7 @@ export class InteractionController {
       activity: self.activity,
       job: life?.job?.jobId ?? null,
       course: life?.course ? { courseId: life.course.courseId, status: life.course.status } : null,
+      home: this.deps.housing.home ? { roomType: this.deps.housing.home.roomType } : null,
     };
   }
 
@@ -624,6 +674,11 @@ function queuedText(update: ActionUpdatePayload, targetName: string): string {
       return "Going to the lecture…";
     case "exam":
       return "Going to sit the exam…";
+    case "sleep":
+      return "Going to bed…";
+    case "rent":
+    case "move_out":
+      return "Going to the student housing…";
     default:
       return `Going to ${ACTION_LABELS[update.action].toLowerCase()}…`;
   }
@@ -658,6 +713,12 @@ function activeText(update: ActionUpdatePayload, targetName: string): string {
     }
     case "sit":
       return "Sitting down";
+    case "sleep":
+      return "Sleeping";
+    case "rent":
+      return "Signing for the room";
+    case "move_out":
+      return "Moving out";
     default:
       return ACTION_LABELS[update.action];
   }

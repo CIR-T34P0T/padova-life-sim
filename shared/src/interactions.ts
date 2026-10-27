@@ -5,12 +5,31 @@
 
 import { isPositionWalkable, type Vec2 } from "./collision.ts";
 import { GAME_CONFIG, INTERACTION_CONFIG } from "./config.ts";
-import { JOBS, type CourseId, type JobId } from "./life/config.ts";
+import { JOBS, type CourseId, type JobId, type RoomTypeId } from "./life/config.ts";
 import type { CourseStatus } from "./life/university.ts";
 import { findMenuItem } from "./life/economy.ts";
-import type { Interactable, Seat, WorldLayout } from "./world.ts";
+import { isRoomTypeId } from "./life/housing.ts";
+import { HOME_LINK, type Interactable, type Seat, type WorldLayout } from "./world.ts";
 
-export const ACTION_IDS = ["sit", "stand", "study", "greet", "sketch", "buy", "wash", "ask_work", "work", "enter", "enrol", "attend", "exam", "chat"] as const;
+export const ACTION_IDS = [
+  "sit",
+  "stand",
+  "study",
+  "greet",
+  "sketch",
+  "buy",
+  "wash",
+  "ask_work",
+  "work",
+  "enter",
+  "enrol",
+  "attend",
+  "exam",
+  "chat",
+  "sleep",
+  "rent",
+  "move_out",
+] as const;
 export type ActionId = (typeof ACTION_IDS)[number];
 
 export type TargetKind = "object" | "player";
@@ -29,7 +48,8 @@ export type Activity =
   | "working"
   | "attending"
   | "exam"
-  | "chatting";
+  | "chatting"
+  | "sleeping";
 
 export const ACTION_LABELS: Record<ActionId, string> = {
   sit: "Sit",
@@ -49,6 +69,10 @@ export const ACTION_LABELS: Record<ActionId, string> = {
   exam: "Sit the exam",
   // Relationships (M9)
   chat: "Chat",
+  // A place to live (M10). "rent" is "Change room…" once you have a home.
+  sleep: "Sleep",
+  rent: "Rent a room…",
+  move_out: "Move out…",
 };
 
 /** Reasons an interaction can be refused or fail. Shown to players as friendly text. */
@@ -90,7 +114,11 @@ export type InteractionFailure =
   | "enrol_failed"
   | "record_failed"
   // Relationships and safety (M9): one of the two players blocked the other (said neutrally)
-  | "not_reachable";
+  | "not_reachable"
+  // A place to live (M10)
+  | "no_home"
+  | "same_room"
+  | "rent_failed";
 
 /** Why an action ended before completing. */
 export type CancelReason = "cancelled" | "interrupted" | "replaced" | "disconnected";
@@ -107,6 +135,8 @@ export interface ActorView {
   job?: JobId | null;
   /** The actor's course (private, like the job). */
   course?: { courseId: CourseId; status: CourseStatus } | null;
+  /** The actor's home (private, like the job; M10). */
+  home?: { roomType: RoomTypeId } | null;
 }
 
 /** seatId → id of the player occupying or walking to it. */
@@ -161,8 +191,13 @@ export function objectActions(interactable: Interactable, actor: ActorView, occu
   const hasFreeSeat = hasFreeFor(interactable, "sit", occupancy, actor.id);
   switch (interactable.kind) {
     case "bench":
+    case "seat":
       if (seatedHere) return actor.activity === "sketching" ? ["stand"] : ["sketch", "stand"];
       return hasFreeSeat ? ["sit", "sketch"] : [];
+    case "bed":
+      // Lying here means sleeping (you get up when it ends).
+      if (seatedHere) return ["stand"];
+      return hasFreeSeat ? ["sleep"] : [];
     case "desk": {
       // Lecture desks also offer the lecture and the exam to enrolled students (M8);
       // whether one is on now is the timetable's call (shown in menus, checked by the server).
@@ -179,7 +214,10 @@ export function objectActions(interactable: Interactable, actor: ActorView, occu
     case "fountain":
       return hasFreeSeat ? ["wash"] : [];
     case "door":
-      return hasFreeSeat && interactable.door ? ["enter"] : [];
+      if (!hasFreeSeat || !interactable.door) return [];
+      // The student housing (M10): your room, or renting one.
+      if (interactable.door.to === HOME_LINK) return actor.home ? ["enter", "rent", "move_out"] : ["rent"];
+      return ["enter"];
     case "noticeboard":
       // Offered even when enrolled: menus show it disabled with the course's status.
       return hasFreeSeat ? ["enrol"] : [];
@@ -201,14 +239,16 @@ const PLAYER_ACTION_COOLDOWN_MS: Partial<Record<ActionId, number>> = {
   chat: INTERACTION_CONFIG.chatCooldownMs,
 };
 
-const SEAT_ACTIONS: readonly ActionId[] = ["sit", "study", "sketch", "attend", "exam"];
-const STANDING_SPOT_ACTIONS: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter", "enrol"];
+const SEAT_ACTIONS: readonly ActionId[] = ["sit", "study", "sketch", "attend", "exam", "sleep"];
+const STANDING_SPOT_ACTIONS: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter", "enrol", "rent", "move_out"];
 const OBJECT_ACTIONS: Record<Interactable["kind"], readonly ActionId[]> = {
   bench: ["sit", "stand", "sketch"],
+  seat: ["sit", "stand", "sketch"],
+  bed: ["sleep", "stand"],
   desk: ["sit", "stand", "study", "attend", "exam"],
   cafe: ["buy", "ask_work", "work"],
   fountain: ["wash"],
-  door: ["enter"],
+  door: ["enter", "rent", "move_out"],
   noticeboard: ["enrol"],
 };
 
@@ -231,6 +271,13 @@ export function validateObjectAction(
     if (!interactable.lecture) return fail("action_not_available");
     if (!actor.course) return fail("not_enrolled");
     if (actor.course.status === "passed") return fail("course_passed");
+  }
+  if (interactable.kind === "door") {
+    const home = interactable.door?.to === HOME_LINK;
+    if ((action === "rent" || action === "move_out") && !home) return fail("action_not_available");
+    if (action === "rent" && !isRoomTypeId(itemId)) return fail("unknown_item");
+    if (action === "rent" && actor.home?.roomType === itemId) return fail("same_room");
+    if ((action === "move_out" || (action === "enter" && home)) && !actor.home) return fail("no_home");
   }
   const centre = interactableCentre(world, interactable);
   if (Math.hypot(centre.x - actor.x, centre.z - actor.z) > maxDistance) return fail("too_far");

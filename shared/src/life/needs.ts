@@ -9,6 +9,11 @@ export interface NeedContext {
   activity: string;
   moving: boolean;
   traits: readonly TraitId[];
+  /**
+   * Comfort per game hour of the seat being sat on (M10), when it has its
+   * own (home furniture); otherwise NEEDS_CONFIG.sittingComfortPerGameHour.
+   */
+  seatComfort?: number;
 }
 
 export const clampNeed = (value: number): number => Math.min(100, Math.max(0, value));
@@ -35,6 +40,7 @@ export function needRates(context: NeedContext): Needs {
   if (context.activity === "sitting") {
     rates.energy = NEEDS_CONFIG.sittingEnergyPerGameHour;
     rates.fun = NEEDS_CONFIG.sittingFunPerGameHour;
+    rates.comfort = context.seatComfort ?? NEEDS_CONFIG.sittingComfortPerGameHour;
   }
   for (const need of NEED_IDS) {
     if (rates[need] < 0) rates[need] *= fallRateMultiplier(need, context.traits);

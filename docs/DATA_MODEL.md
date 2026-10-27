@@ -98,6 +98,7 @@ character_traits        personality, chosen at creation (0–2 rows)
 character_needs         one row per character
   character_id  uuid PK → characters (cascade delete)
   hunger, energy, hygiene, social, fun   real, CHECK 0–100 (100 = fully satisfied)
+  comfort       real, CHECK 0–100, default 70 (M10)
   updated_at    when they were last saved: the start of offline time (D-022)
 
 character_skills        experience per skill; a missing row means 0 XP
@@ -120,7 +121,7 @@ wallet_transactions     append-only ledger; every money change is one row
   id                   uuid PK
   character_id         uuid → characters (cascade delete)
   direction            'income' | 'expense'
-  category             'allowance' | 'purchase' | 'refund' | 'wage' (wage since M7)
+  category             'allowance' | 'purchase' | 'refund' | 'wage' (since M7) | 'rent' (since M10); furniture is a 'purchase'
   amount_cents         integer > 0 (the sign comes from direction)
   balance_after_cents  integer ≥ 0
   item_id              café item for purchases and refunds, else null
@@ -218,9 +219,29 @@ story_events            a character's private story log (M9); never updated
                         ('hired:cafe:<minute>', 'first_shift', 'enrolled:<course>',
                         'exam:<course>:<sitting>', 'friend:<other character id>')
   kind                  'hired' | 'first_shift' | 'enrolled' | 'exam_passed' | 'exam_failed' | 'new_friend'
+                        | 'moved_in' | 'moved_out' | 'rent_trouble' (M10; keys 'home:<id>', 'moved-out:<id>', 'rent-trouble:<id>')
   game_minute
-  details               small JSON object (≤ 512 bytes): job, course, grade, the other's name
+  details               small JSON object (≤ 512 bytes): job, course, grade, the other's name, rooms (M10)
   created_at
+
+homes                   one row per tenancy in the student housing (M10); ended rows are kept as history
+  id                    uuid PK; the home's area id is 'home/<id>'
+  character_id          uuid → characters (cascade delete); at most one current (ended_at IS NULL) per character
+  room_type             'box-room' | 'single-room' | 'studio' (validated in code: ROOM_TYPES)
+  rent_cents            integer ≥ 0: the weekly rent agreed when rented
+  paid_week             last rent week paid (weeks start on Monday; week 0 is Days 1–7)
+  overdue_since         game minute this week's rent first couldn't be paid; null when up to date
+  lease_transaction_id  → wallet_transactions (set null on delete), UNIQUE: the first week's rent
+  started_game_minute, started_at
+  ended_at, end_reason  'moved' | 'moved_out' | 'unpaid'; both null while current
+
+furniture               a piece a character owns (M10)
+  id                    uuid PK
+  character_id          uuid → characters (cascade delete)
+  item_id               catalogue id (validated in code: FURNITURE)
+  home_id, slot         the current home and spot it stands in; both null = in storage; UNIQUE (home_id, slot)
+  transaction_id        → wallet_transactions (set null on delete), UNIQUE: its purchase
+  bought_at
 ```
 
 **Money changes** (`applyMoneyChange`): one database transaction that locks
@@ -273,6 +294,24 @@ than 90 days (the server runs it on start and hourly; `npm run reports` runs
 it before listing). Story events (`addStoryEvent`) are written once per
 event key.
 
+**Homes and furniture** (M10, SQL in `server/src/housing/housingRepository.ts`):
+every call is scoped by the owner the server resolved; each locks the
+character's current home row first, then the wallet. Renting
+(`rentRoom`) charges the first week through the ledger (key
+`lease:<request id>`), ends a current home (its furniture into storage)
+and starts the new one, in one transaction; the same request again returns
+the same home (`duplicate`), also when two arrive at once. Weekly rent
+(`chargeRent`) is paid once per home and week (key `rent:<home>:w<week>`)
+and only when the balance covers it. `markOverdue` records when the grace
+period started (kept on repeats). `moveCheaper` re-checks everything under
+the lock (the week is due, the grace period is over, the money still isn't
+there), ends the home as 'unpaid' and starts the dearest cheaper room whose
+first week the balance pays (key `rent-move:<home>:w<week>`), or none.
+Furniture is bought into a free spot of the current home (`buyFurniture`,
+key `furniture:<request id>`; refused when the spot is taken or the
+character owns 30 pieces), placed from storage (`placeFurniture`) and put
+away (`putAwayFurniture`). Prices come from `FURNITURE`, never from a client.
+
 **Migration 0002 for existing characters:** M4-era characters get starting
 needs (80/80/80/70/70), a €100 wallet with a "Starting allowance" ledger row,
 no traits and no skills. Its `down` section drops all six tables (destroys
@@ -304,10 +343,17 @@ fails, and changes nothing, while any wage was ever paid or any character
 has a job (remove that data deliberately first; nothing is deleted
 automatically).
 
+**Migrations 0006–0008** (M8 university, M9 relationships and safety, M10
+homes) create their tables; existing characters start without an enrolment,
+relationships, a home or furniture, and 0008 gives every character comfort
+70. Each `down` section fails, and changes nothing, while its tables hold
+data (0008: any home or furniture, a rent payment, or a M10 story event);
+0008's also drops the comfort column.
+
 **Deleting a character** (`deleteCharacter`, title screen only, after the
 player typed its name): one `DELETE FROM characters` scoped by the owning
 account; appearance, position, traits, needs, skills, mood events, wallet,
-every ledger row, the job and the shift history cascade. The account, its credential and its other
+every ledger row, the job and the shift history, homes and furniture cascade. The account, its credential and its other
 characters stay. Deleting the whole guest account is not offered yet.
 
 **The title screen list** (`listCharactersByAccount`): the account's
@@ -377,8 +423,7 @@ character is saved at the spot it stands up to.
 **Not persisted (yet):** activity, seats, pending actions (including a meal
 being eaten: the price is already paid, the rest of the meal is lost if the
 player disconnects mid-meal), a shift in progress (it ends unpaid), greeting
-cooldowns, online status. Inventory, relationships and housing do not exist
-yet; each will get its own tables.
+cooldowns, online status, which seat you use at home.
 
 ## Replicated (`server/src/schema.ts`)
 
@@ -472,6 +517,14 @@ money changes or refusals. Other players see only the public activity
   university rules (the timetable in absolute game minutes, why a lecture
   or the exam can't start, the exam grade); `life/clock.ts` gives each game
   day a weekday (Day 1 is a Monday).
+- M10: `life/config.ts` holds the rooms (`ROOM_TYPES`: label, weekly rent),
+  the furniture catalogue (`FURNITURE`: category, price, size, cosiness, a
+  seat's comfort, a bed's sleep) and `HOUSING_CONFIG` (grace period, cosy
+  threshold, 30 pieces); `homes.ts` the room templates (floor, the room's
+  desk, fixed spots with their category) and builds a home's layout from its
+  room type and placements; `life/housing.ts` the rent and cosiness rules.
+  The student housing's door links to `home` (`HOME_LINK`), which the server
+  resolves to the player's own home.
 - M9: `life/config.ts` holds the relationship tuning (`RELATIONSHIP_CONFIG`:
   gains, daily caps, levels, history length), the chat's effects
   (`ACTION_EFFECTS.chat`, `CHAT_EFFECTS`) and the story kinds;
@@ -502,14 +555,13 @@ money changes or refusals. Other players see only the public activity
 would fit the rules above, so their milestones can be estimated; each is
 designed properly, and may change, when its milestone is planned (ROADMAP.md
 "Planned milestones"). None of these tables exists. (M7's job tables, M8's
-university tables and M9's relationship, safety and story tables were built
-as described above; M7c needed none: `character_state.area` stores the
-room.)
+university tables, M9's relationship, safety and story tables and M10's
+homes and furniture were built as described above; M7c needed none:
+`character_state.area` stores the room, also a home's.)
 
 | Milestone (proposed) | Data | Notes |
 | --- | --- | --- |
 | M12 sign-in | `account_identities` (account, provider `google` or `password`, the provider's user id or the email address, verified or not); `password_credentials` (account, `scrypt` hash with its salt and parameters); guests keep their token until they upgrade | Owner-scoped like everything else; email addresses are personal data and are deleted with the account (D-042) |
-| M10 home, sleep and comfort | `residences` (character, home); `inventory_items` (character, item, quantity); `placed_objects` (home, object, position, rotation) | Purchases of furniture and groceries use the ledger; placement validated against the home's layout like the square's collision boxes |
 
 Every row above would follow "Rules to keep": a server-side owner, a
 migration with a `down` section, owner-scoped SQL in a repository module,

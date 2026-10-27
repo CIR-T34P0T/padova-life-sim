@@ -614,6 +614,87 @@ function noticeboard(o: Obstacle, ctx: PropCtx): void {
   sinkSign(ctx.sink, batchFor(o, ctx), f, "notices", 0.25, length - 0.25, 1.86, 1.95, mid + 0.045);
 }
 
+// ── Home furniture (M10) ───────────────────────────────────────────────────────
+// Bought pieces stand in the fixed spots of a rented room (shared/src/homes.ts);
+// the chair and the bookshelf reuse the chair and shelf builders above.
+
+/** The front faces `facing`; the head is at the north or west end (shared/src/homes.ts bedSpot). */
+function bed(o: Obstacle, ctx: PropCtx): void {
+  const side = o.facing ?? "east";
+  const { f, length, depth } = frameOf(o, side);
+  // u runs from the south (or east) end to the north (or west) end for east and north fronts.
+  const headAtEnd = side === "east" || side === "north";
+  const head = (a: number, b: number): [number, number] => (headAtEnd ? [length - b, length - a] : [a, b]);
+  const label = o.label ?? "";
+  const best = label.includes("foam");
+  const better = best || label.includes("Sprung");
+  const blanket = best ? P.burgundy : better ? P.lapisLight : P.olive;
+  const top = o.height;
+  const g: THREE.BufferGeometry[] = [];
+  for (const u of [0.03, length - 0.09]) for (const w of [-0.09, -depth + 0.03]) g.push(f.box(u, u + 0.06, 0, 0.14, w, w + 0.06, P.woodDark));
+  g.push(f.box(0.02, length - 0.02, 0.14, 0.3, -depth + 0.02, -0.02, better ? P.wood : P.oak)); // base
+  g.push(f.box(0.05, length - 0.05, 0.3, top - 0.06, -depth + 0.05, -0.05, P.cream)); // mattress
+  // The blanket over the lower two-thirds, folded back at the top.
+  const [b0, b1] = headAtEnd ? [0.04, length * 0.68] : [length * 0.32, length - 0.04];
+  g.push(f.box(b0, b1, top - 0.08, top, -depth + 0.03, -0.03, blanket));
+  const [f0, f1] = headAtEnd ? [length * 0.62, length * 0.68] : [length * 0.32, length * 0.38];
+  g.push(f.box(f0, f1, top - 0.02, top + 0.02, -depth + 0.04, -0.04, P.cream)); // turned-down sheet
+  const [p0, p1] = head(0.12, 0.46);
+  g.push(f.box(p0, p1, top - 0.06, top + 0.07, -depth + 0.14, -0.14, P.cream)); // pillow
+  const [h0, h1] = head(0, 0.06);
+  g.push(f.box(h0, h1, 0.14, best ? 1.05 : 0.9, -depth + 0.02, -0.02, better ? P.woodDark : P.wood)); // headboard
+  ctx.sink.add(batchFor(o, ctx), o.id, g);
+}
+
+/** An upholstered armchair: arms, a high back, a cushion. The sitter faces `facing`. */
+function armchair(o: Obstacle, ctx: PropCtx): void {
+  const { f, length, depth } = frameOf(o, o.facing ?? "west");
+  const cloth = [P.terracotta, P.shutter, P.lapisLight][hash(o.id) % 3]!;
+  const g: THREE.BufferGeometry[] = [];
+  for (const u of [0.04, length - 0.1]) for (const w of [-0.1, -depth + 0.04]) g.push(f.box(u, u + 0.06, 0, 0.1, w, w + 0.06, P.woodDark));
+  g.push(f.box(0.02, length - 0.02, 0.1, 0.4, -depth + 0.02, -0.02, cloth)); // base
+  g.push(f.box(0.16, length - 0.16, 0.4, 0.5, -depth + 0.2, -0.03, P.cream)); // cushion
+  for (const [u0, u1] of [[0, 0.16], [length - 0.16, length]] as const) g.push(f.box(u0, u1, 0.1, 0.66, -depth, -0.01, cloth)); // arms
+  g.push(f.box(0.02, length - 0.02, 0.4, o.height, -depth, -depth + 0.2, cloth)); // back
+  ctx.sink.add(batchFor(o, ctx), o.id, g);
+}
+
+/** A soft, lumpy beanbag. */
+function beanbag(o: Obstacle, ctx: PropCtx): void {
+  const c = centre(o);
+  const rx = ((o.maxX - o.minX) / 2) * 0.94;
+  const rz = ((o.maxZ - o.minZ) / 2) * 0.94;
+  const colour = [P.gold, P.terracotta, P.olive][hash(o.id) % 3]!;
+  const g = [blob(c.x, o.height * 0.42, c.z, rx, o.height * 0.42, rz, colour, { detail: ctx.detail === "high" ? 2 : 1, lumpiness: 0.05, seed: hash(o.id) % 7 })];
+  ctx.sink.add(batchFor(o, ctx), o.id, g);
+}
+
+/** A potted plant: a terracotta pot and a leafy crown. */
+function pottedPlant(o: Obstacle, ctx: PropCtx): void {
+  const c = centre(o);
+  const r = Math.min(o.maxX - o.minX, o.maxZ - o.minZ) / 2;
+  const g: THREE.BufferGeometry[] = [cylinder(c.x, 0, c.z, r * 0.62, r * 0.8, 0.38, P.terracotta, 12), cylinder(c.x, 0.36, c.z, r * 0.68, r * 0.68, 0.03, P.soil, 12)];
+  const crowns = ctx.detail === "high" ? 3 : 1;
+  for (let k = 0; k < crowns; k++) {
+    const y = 0.62 + k * 0.17;
+    const size = r * (0.94 - k * 0.2);
+    g.push(blob(c.x, y, c.z, size, 0.22, size, P.leaf[(hash(o.id) + k) % P.leaf.length]!, { detail: 1, lumpiness: 0.14, seed: k }));
+  }
+  ctx.sink.add(batchFor(o, ctx), o.id, g);
+}
+
+/** A floor lamp: a round base, a pole and a fabric shade that glows at night. */
+function floorLamp(o: Obstacle, ctx: PropCtx): void {
+  const c = centre(o);
+  const r = Math.min(o.maxX - o.minX, o.maxZ - o.minZ) / 2;
+  const g: THREE.BufferGeometry[] = [
+    cylinder(c.x, 0, c.z, r * 0.92, r * 0.8, 0.05, P.iron, 14),
+    cylinder(c.x, 0.05, c.z, 0.02, 0.02, o.height - 0.35, P.iron, 6),
+    glowing(cylinder(c.x, o.height - 0.38, c.z, r * 0.95, r * 0.6, 0.36, P.glassWarm, 14), 0.9),
+  ];
+  ctx.sink.add(batchFor(o, ctx), o.id, g);
+}
+
 /** Builds every prop of the layout (everything except buildings and portico columns). */
 export function buildProps(sink: Sink, layout: WorldLayout, detail: Detail): void {
   const ctx: PropCtx = { sink, detail, layout, interactables: new Set(layout.interactables.map((i) => i.id)) };
@@ -672,6 +753,21 @@ export function buildProps(sink: Sink, layout: WorldLayout, detail: Detail): voi
         break;
       case "shelf":
         shelf(o, ctx);
+        break;
+      case "bed":
+        bed(o, ctx);
+        break;
+      case "armchair":
+        armchair(o, ctx);
+        break;
+      case "beanbag":
+        beanbag(o, ctx);
+        break;
+      case "plant":
+        pottedPlant(o, ctx);
+        break;
+      case "floor-lamp":
+        floorLamp(o, ctx);
         break;
       case "building":
       case "arcade":

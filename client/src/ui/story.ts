@@ -1,7 +1,7 @@
 // Words for relationships and the story log (M9), shared by the player card
 // and the character panel. Display only.
 
-import { COURSES, JOBS, WEEKDAY_SHORT, formatGrade, isCourseId, isJobId, readClock, weekdayOf, type SharedMomentKind, type StoryEntry } from "@padova/shared";
+import { COURSES, JOBS, ROOM_TYPES, WEEKDAY_SHORT, formatGrade, isCourseId, isJobId, isRoomTypeId, readClock, weekdayOf, type SharedMomentKind, type StoryEntry } from "@padova/shared";
 
 /** "Mon · Day 12" for a game minute. */
 export function dayLabel(gameMinute: number): string {
@@ -22,6 +22,7 @@ export function momentLabel(kind: SharedMomentKind): string {
 
 const jobLabel = (id: string | undefined) => (id && isJobId(id) ? JOBS[id].label : "a job");
 const courseLabel = (id: string | undefined) => (id && isCourseId(id) ? COURSES[id].label : "a course");
+const roomName = (id: string | undefined) => (id && isRoomTypeId(id) ? `a ${ROOM_TYPES[id].label.toLowerCase()}` : "a room");
 
 /** One story event as a sentence. */
 export function storyText(entry: StoryEntry): string {
@@ -39,5 +40,11 @@ export function storyText(entry: StoryEntry): string {
       return `Didn't pass the ${courseLabel(d.courseId)} exam${d.grade !== undefined ? ` (${formatGrade(d.grade)})` : ""}`;
     case "new_friend":
       return d.name ? `Became friends with ${d.name}` : "Made a new friend";
+    case "moved_in":
+      return `Moved into ${roomName(d.roomType)} in the student housing`;
+    case "moved_out":
+      return `Moved out of ${roomName(d.fromRoomType)}`;
+    case "rent_trouble":
+      return d.roomType ? `Couldn't pay the rent: moved from ${roomName(d.fromRoomType)} to ${roomName(d.roomType)}` : `Couldn't pay the rent and had to leave ${roomName(d.fromRoomType)}`;
   }
 }

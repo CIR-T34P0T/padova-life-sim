@@ -9,10 +9,25 @@
 //   ?people         a few characters for scale (on a bench, at a café table, walking)
 //   ?time=HH:MM     time of day for the light (default 10:10); e.g. 06:30, 19:40, 23:00 (M7b)
 //   ?area=ID        an indoor room instead of the square (M7c): hall/lecture-room, library/reading-room
+//   ?area=home      a rented room (M10); &room=box-room|single-room|studio, &furnished=0 (empty)…3
+//                   (every spot filled from the catalogue, a different mix each)
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { AREAS, APPEARANCE_PRESETS, PLAZA_AREA, findArea, findSeat } from "@padova/shared";
+import {
+  AREAS,
+  APPEARANCE_PRESETS,
+  FURNITURE,
+  FURNITURE_IDS,
+  HOME_TEMPLATES,
+  PLAZA_AREA,
+  findArea,
+  findSeat,
+  homeArea,
+  isRoomTypeId,
+  type AreaDefinition,
+  type FurnitureId,
+} from "@padova/shared";
 import { CharacterModel } from "./render/avatar/index.ts";
 import { buildWorldScene } from "./render/worldScene.ts";
 
@@ -29,7 +44,21 @@ const canvas = document.getElementById("stage") as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: quality.antialias, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
 renderer.shadowMap.enabled = quality.shadows;
-const area = findArea(params.get("area") ?? PLAZA_AREA) ?? AREAS[PLAZA_AREA]!;
+/** A sample home (M10): the room type asked for, empty or with every spot filled from the catalogue. */
+function sampleHome(): AreaDefinition {
+  const room = params.get("room");
+  const roomType = isRoomTypeId(room) ? room : "single-room";
+  const n = Number(params.get("furnished") ?? "1");
+  const placements =
+    n > 0
+      ? HOME_TEMPLATES[roomType].slots.map((slot, k) => {
+          const options = FURNITURE_IDS.filter((id) => FURNITURE[id].category === slot.category && FURNITURE[id].priceCents !== null);
+          return { slot: slot.id, itemId: options[(n - 1 + k) % options.length] as FurnitureId };
+        })
+      : [];
+  return homeArea("home/lab", roomType, placements);
+}
+const area = params.get("area") === "home" ? sampleHome() : (findArea(params.get("area") ?? PLAZA_AREA) ?? AREAS[PLAZA_AREA]!);
 const layout = area.layout;
 const world = buildWorldScene(layout, quality, area.floor ? { interior: { floor: area.floor } } : {});
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
@@ -79,7 +108,13 @@ if (params.has("people")) {
     const found = findSeat(layout, id)!.seat;
     place(preset, found.x, found.z, found.rotation, true, activity);
   };
-  if (area.indoor) {
+  if (area.id === "home/lab") {
+    // Asleep in bed, and sitting on a seat if there is one.
+    const bed = layout.interactables.find((i) => i.kind === "bed");
+    if (bed) seat(bed.seats[0]!.id, 2, "sleeping");
+    const chair = layout.interactables.find((i) => i.kind === "seat");
+    if (chair) seat(chair.seats[0]!.id, 7);
+  } else if (area.indoor) {
     // A few people at the desks or tables, and one coming in.
     const seats = layout.interactables.filter((i) => i.kind === "desk").flatMap((i) => i.seats);
     for (const [k, s] of seats.slice(0, 5).entries()) seat(s.id, k * 3 + 1, k % 2 ? "studying" : "sitting");

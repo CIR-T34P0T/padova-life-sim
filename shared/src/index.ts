@@ -2,6 +2,7 @@ export * from "./config.ts";
 export * from "./world.ts";
 export * from "./interiors.ts";
 export * from "./areas.ts";
+export * from "./homes.ts";
 export * from "./collision.ts";
 export * from "./navigation.ts";
 export * from "./movement.ts";

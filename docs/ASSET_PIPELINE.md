@@ -236,7 +236,7 @@ sign is original and generated at runtime. It is **Stage-1 procedural art**
 | `render/world/palette.ts` | The one palette: plasters, Istrian stone, trachyte, terracotta, shutters, foliage, accents from the interface (D-032) |
 | `render/world/kit.ts` | Geometry helpers: boxes, cylinders, rods, rings, lumpy blobs (foliage), flat inlays, striped quads, hip and gable roofs, a façade frame (build in u along the wall, v up, w out of it), arch shapes, a fast quad batch for things that come in thousands, two-sided thin surfaces |
 | `render/world/buildings.ts` | The six buildings: windows (frames, sills, shutters, pediments, balconies, flower boxes), doors, shopfronts, awnings, rustication, cornices, roofs, chimneys, the hall's porch and clock tower, the library's pediment and dome, the portico's columns and arches |
-| `render/world/props.ts` | One builder per obstacle kind: benches, chairs, study desks, café tables with parasols, the café kiosk, market stalls (fruit and vegetables, flowers, books), the fountain, lemon-tree planters, street planters, plane trees, gardens, lamps, the bike rack, the notice board |
+| `render/world/props.ts` | One builder per obstacle kind: benches, chairs, study desks, café tables with parasols, the café kiosk, market stalls (fruit and vegetables, flowers, books), the fountain, lemon-tree planters, street planters, plane trees, gardens, lamps, the bike rack, the notice board; home furniture (M10): beds (frame, mattress, blanket, pillow, headboard; colours by bed), armchairs, beanbags, potted plants, floor lamps with a shade that glows at night (chairs and bookshelves reuse the chair and shelf builders) |
 | `render/world/ground.ts` | Canvas paving texture, sidewalks, cobbled streets, fountain rings, the café terrace |
 | `render/world/backdrop.ts` | City blocks around the square, the streets beyond the openings (each ending at a building), landmarks, sky dome (repainted with the time of day) and clouds, the night sky (stars and moon) |
 | `render/world/daylight.ts` | The light at any game minute: sun or moon direction, colours and strengths, sky, haze, cloud tint, lamp level, stars, the characters' night lift (pure, unit-tested) |
@@ -311,8 +311,10 @@ library|portico|cafe|market|fountain|street|south|skyline`), with
 `?collision` (every collision box as a wireframe, orange for clickable
 objects), `?quality=low` (phone detail), `?people` (a few characters for
 scale), `?time=HH:MM` (the light at that time of day, default 10:10;
-e.g. `06:30`, `19:40`, `23:00`) and `?area=hall/lecture-room` or
-`?area=library/reading-room` (an indoor room, M7c). It shows the time, build time, triangles and
+e.g. `06:30`, `19:40`, `23:00`), `?area=hall/lecture-room` or
+`?area=library/reading-room` (an indoor room, M7c) and
+`?area=home&room=box-room|single-room|studio&furnished=0..3` (a rented
+room, M10). It shows the time, build time, triangles and
 draw calls on screen.
 
 **Indoor rooms (M7c, D-039):** each room is a layout of its own with
@@ -326,6 +328,18 @@ and the library's entrance, drawn in their own batches so they can be
 highlighted. Measured in the world lab with five or six characters: about
 80–90 draw calls; the lecture room's own geometry is about 3 600 triangles,
 the reading room's about 23 000 (the book spines). No windows inside yet.
+
+**Homes (M10):** the rented rooms use the same walls, door, floor, light
+and cutaway; three sizes (5.2 × 4.4 m, 6.8 × 5.2 m, 8.4 × 6 m), the room's
+own desk with a chair, and fixed spots where furniture stands against a
+wall. Each piece is drawn inside its own box (checked for every room type,
+empty and furnished, by `client/test/interiors.test.ts`). Measured in the
+world lab with two characters: a furnished single room is about 2 100
+triangles of room geometry and 40 draw calls; a furnished studio about
+2 900 triangles and 44 draw calls. A sleeping character lies along the bed
+(pose only; no new geometry). All procedural, Stage-1 like the rest
+(D-033); `world-lab.html?area=home&room=studio&furnished=1&people` shows
+one.
 
 **Known visual limitations:** flat-shaded, faceted tree canopies; no
 interiors behind windows and doors; lit windows are a flat warm colour

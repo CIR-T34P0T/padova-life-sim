@@ -43,14 +43,16 @@ or auth model without the product owner's approval.
 - **Ownership comes from the session.** Profile reads/writes are scoped by the
   account id resolved in `onAuth`; never accept an account or character id from
   a client as proof of ownership. All SQL lives in repository modules:
-  `server/src/profiles/profileRepository.ts`, `server/src/life/lifeRepository.ts`
-  and `server/src/social/socialRepository.ts`.
+  `server/src/profiles/profileRepository.ts`, `server/src/life/lifeRepository.ts`,
+  `server/src/social/socialRepository.ts` and
+  `server/src/housing/housingRepository.ts`.
 - **Money is a ledger.** Every change goes through `applyMoneyChange`
   (row-locked, idempotent by request key, never below zero). Prices come from
   the server's catalogue, never from a client. No debt unless a design
   decision adds it.
 - **Life data is private.** Needs, mood, skills, traits, money, the job and
-  the course with its grades go only to their owner (`life` message), never
+  the course with its grades go only to their owner (`life` message), and the
+  home with its rent and furniture only to its tenant (`housing`), never
   into the shared Colyseus state. A relationship goes only to its two
   players; blocks and the story log only to their owner; reports never to
   players (M9).
@@ -99,6 +101,17 @@ or auth model without the product owner's approval.
   `client/test/world.test.ts` checks both. A new prop is an obstacle (stable
   id, kind, label) plus a builder; a new clickable object reuses an
   interactable kind. Look at changes in `client/world-lab.html`.
+- **Homes are private areas** (M10, D-044): one `home/<id>` area per
+  tenancy, built by `homeArea` (`shared/src/homes.ts`) from the room type
+  and the furniture in its fixed spots; the server adds it while its tenant
+  is in the world and only the tenant can enter (the housing door's
+  `HOME_LINK` resolves to their own home). Home seats stay out of the
+  replicated seat map (`server/src/seats.ts`). Rent is weekly through the
+  ledger, never debt; unpaid rent moves you to a cheaper room after a grace
+  period (`shared/src/life/housing.ts`). New furniture is catalogue data
+  (`FURNITURE`) plus a builder in `client/src/render/world/props.ts`;
+  `client/test/interiors.test.ts` checks every room type furnished. Look at
+  homes with `world-lab.html?area=home&room=<type>&furnished=1`.
 - **Indoor rooms are areas** (D-039): a room is a layout in
   `shared/src/interiors.ts`, listed in `shared/src/areas.ts`, with a pair of
   linked doors; ids stay unique across areas. The server keeps each

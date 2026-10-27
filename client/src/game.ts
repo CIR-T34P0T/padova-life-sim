@@ -9,7 +9,10 @@ import {
   PLAZA_AREA,
   PLAZA_LAYOUT,
   findArea,
+  isHomeArea,
   type AppearanceConfig,
+  type AreaDefinition,
+  type HomeView,
   type CharacterProfile,
   type IdentityPayload,
   type LifePayload,
@@ -32,6 +35,7 @@ import { createActionMenu } from "./ui/actionMenu.ts";
 import { ActionProgress } from "./ui/actionProgress.ts";
 import { CharacterPanel } from "./ui/characterPanel.ts";
 import { SocialController } from "./ui/socialController.ts";
+import { HousingController } from "./ui/housingController.ts";
 import { Hud } from "./ui/hud.ts";
 import { reasonText } from "./ui/reasons.ts";
 
@@ -76,6 +80,9 @@ export class Game {
   private readonly interactions: InteractionController;
   private readonly characterPanel: CharacterPanel;
   private readonly social: SocialController;
+  private readonly housing: HousingController;
+  /** Our character is in its home, but the home's data hasn't arrived yet (M10): switch once it has. */
+  private pendingArea: string | null = null;
   private life: LifePayload | null = null;
   private status: ConnectionStatus = "connecting";
   private moveInput = { forward: 0, right: 0 };
@@ -129,6 +136,8 @@ export class Game {
       onStory: (payload) => this.social.onStory(payload),
       onRelationship: (payload) => this.social.onRelationship(payload),
       onSocialResult: (payload) => this.social.onSocialResult(payload),
+      onHousing: (payload) => this.housing.onHousing(payload),
+      onFurnishResult: (payload) => this.housing.onFurnishResult(payload),
     });
 
     const overlay = document.body;
@@ -146,6 +155,7 @@ export class Game {
         this.connection.quitJob();
       },
       onUnblock: (blockId) => this.social.unblockById(blockId),
+      onFurnish: () => this.housing.openPanel(),
     });
     this.social = new SocialController(overlay, {
       connection: this.connection,
@@ -157,13 +167,28 @@ export class Game {
       },
       closeOthers: () => {
         this.characterPanel.close();
+        this.housing.panel.close();
         this.interactions.clearSelection();
       },
       onBlocksChanged: () => this.interactions.onWorldChanged(),
     });
+    this.housing = new HousingController(overlay, {
+      connection: this.connection,
+      hud,
+      characterPanel: this.characterPanel,
+      life: () => this.life,
+      gameMinute: () => this.lastGameMinute,
+      closeOthers: () => {
+        this.characterPanel.close();
+        this.social.card.close();
+        this.interactions.clearSelection();
+      },
+      onHomeChanged: (previous, next) => this.onHomeChanged(previous, next),
+    });
     hud.onMeChip(() => {
       this.interactions.clearSelection(); // never two sheets at once
       this.social.card.close();
+      this.housing.panel.close();
       this.characterPanel.toggle();
     });
     const menu = createActionMenu(overlay, () => this.interactions.clearSelection());
@@ -171,9 +196,10 @@ export class Game {
     this.areaFade.id = "area-fade";
     this.areaFade.setAttribute("aria-hidden", "true");
     overlay.append(this.areaFade);
+    const currentHome = () => this.housing.home;
     this.interactions = new InteractionController({
       world: () => this.world,
-      layout: () => (findArea(this.areaId) ?? AREAS[PLAZA_AREA]!).layout,
+      layout: () => this.areaDef(this.areaId)?.layout ?? PLAZA_LAYOUT,
       camera: () => this.rig.camera,
       canvas: this.renderer.domElement,
       entities: {
@@ -192,15 +218,26 @@ export class Game {
       onEditAppearance: () => this.profileHandlers.onEditAppearance(),
       onOpenCharacter: () => {
         this.social.card.close();
+        this.housing.panel.close();
         this.characterPanel.open();
       },
       onMenuOpen: () => {
         // On touch these are all bottom sheets: the menu takes over.
         if (this.characterPanel.mode === "sheet") this.characterPanel.close();
         if (this.social.card.mode === "sheet") this.social.card.close();
+        if (this.housing.panel.mode === "sheet") this.housing.panel.close();
       },
       life: () => this.life,
       social: this.social,
+      housing: {
+        get home() {
+          return currentHome();
+        },
+        atHome: () => this.atHome(),
+        openRent: (doorId) => this.housing.openRent(doorId),
+        confirmMoveOut: (doorId) => this.housing.confirmMoveOut(doorId),
+        openPanel: () => this.housing.openPanel(),
+      },
     });
 
     this.input = new InputController(container, joystick, {
@@ -213,6 +250,7 @@ export class Game {
       onCancel: () => {
         if (!this.playing) return;
         if (this.social.card.isOpen) this.social.card.close();
+        else if (this.housing.panel.isOpen) this.housing.panel.close();
         else if (this.characterPanel.isOpen) this.characterPanel.close();
         else this.interactions.handleCancel();
       },
@@ -251,10 +289,27 @@ export class Game {
     return this.sceneFor(this.areaId);
   }
 
+  /** An area's layout and floor: a fixed one (shared/src/areas.ts), or your home built from the server's data (M10). */
+  private areaDef(id: string): AreaDefinition | undefined {
+    return isHomeArea(id) ? this.housing.areaFor(id) : findArea(id);
+  }
+
+  /** True while our character is in its own home (M10). */
+  private atHome(): boolean {
+    return isHomeArea(this.areaId) && this.housing.home?.areaId === this.areaId;
+  }
+
+  /** The area to draw for a replicated area id; a home whose data hasn't arrived is drawn once it does. */
+  private resolveArea(id: string): string {
+    if (this.areaDef(id)) return id;
+    if (isHomeArea(id)) this.pendingArea = id;
+    return PLAZA_AREA;
+  }
+
   private sceneFor(id: string): WorldScene {
     let scene = this.scenes.get(id);
     if (!scene) {
-      const area = findArea(id) ?? AREAS[PLAZA_AREA]!;
+      const area = this.areaDef(id) ?? AREAS[PLAZA_AREA]!;
       scene = buildWorldScene(area.layout, this.quality, area.floor ? { interior: { floor: area.floor } } : {});
       this.scenes.set(id, scene);
     }
@@ -268,8 +323,16 @@ export class Game {
    */
   private switchArea(next: string): void {
     if (next === this.areaId) return;
+    if (!this.areaDef(next)) {
+      // Our home's data is on its way (M10): stay put until it arrives.
+      if (isHomeArea(next)) this.pendingArea = next;
+      return;
+    }
+    this.pendingArea = null;
     this.interactions.clearSelection();
+    this.housing.panel.close();
     this.world.targetMarker.visible = false;
+    const previous = this.areaId;
     this.areaId = next;
     const scene = this.world.scene;
     const selfId = this.connection.sessionId;
@@ -293,8 +356,50 @@ export class Game {
         this.areaFade.classList.remove("shown");
       }),
     );
-    const area = findArea(next);
-    this.hud.toast(area?.indoor ? area.label : "Back on the square", 2200);
+    // A home is drawn fresh each time it is entered (its furniture may change): free the one we left.
+    if (isHomeArea(previous)) this.dropScene(previous);
+    this.characterPanel.setAtHome(this.atHome());
+    const area = this.areaDef(next);
+    this.hud.note(area?.indoor ? area.label : "Back on the square", 2200);
+  }
+
+  /** Frees an area's scene that is not being drawn. */
+  private dropScene(id: string): void {
+    if (id === this.areaId) return;
+    this.scenes.get(id)?.dispose();
+    this.scenes.delete(id);
+  }
+
+  /**
+   * Our home changed (M10): rented, moved (also by unpaid rent), given up, or
+   * its furniture moved. A changed room we stand in is rebuilt around us; a
+   * home we are waiting to enter is entered now.
+   */
+  private onHomeChanged(previous: HomeView | null, next: HomeView | null): void {
+    const sameRoom = previous && next && previous.areaId === next.areaId;
+    const changed = sameRoom && JSON.stringify(previous.placements) !== JSON.stringify(next.placements);
+    if (previous && this.scenes.has(previous.areaId) && (changed || !sameRoom)) {
+      if (this.areaId === previous.areaId && sameRoom) this.rebuildCurrentScene();
+      else this.dropScene(previous.areaId);
+    }
+    if (this.pendingArea && this.areaDef(this.pendingArea)) {
+      const area = this.pendingArea;
+      this.pendingArea = null;
+      if (this.inWorld) this.switchArea(area);
+      else this.areaId = area;
+    }
+    this.characterPanel.setAtHome(this.atHome());
+    this.interactions.onWorldChanged();
+  }
+
+  /** Redraws the room we stand in (its furniture moved): avatars move to the new scene, the old one is freed. */
+  private rebuildCurrentScene(): void {
+    const old = this.scenes.get(this.areaId);
+    this.scenes.delete(this.areaId);
+    const scene = this.world.scene; // builds the new one
+    for (const entity of this.entities.values()) if (entity.view) scene.add(entity.view.root);
+    old?.dispose();
+    this.interactions.clearSelection();
   }
 
   /** In the world and not hidden behind a full-screen panel. */
@@ -342,7 +447,7 @@ export class Game {
     if (this.inWorld) return visible;
     // Saved inside a room: draw that room from the first frame.
     const self = this.connection.sessionId ? this.entities.get(this.connection.sessionId) : undefined;
-    if (self?.latest.area) this.areaId = findArea(self.latest.area) ? self.latest.area : PLAZA_AREA;
+    if (self?.latest.area) this.areaId = this.resolveArea(self.latest.area);
     this.inWorld = true;
     this.moveInput = { forward: 0, right: 0 };
     this.lastSentDirection = { dx: 0, dz: 0 };
@@ -368,6 +473,13 @@ export class Game {
       entity.view = null;
     }
     this.life = null;
+    this.housing.reset();
+    this.pendingArea = null;
+    if (isHomeArea(this.areaId)) {
+      const home = this.areaId;
+      this.areaId = PLAZA_AREA;
+      this.dropScene(home);
+    }
     document.body.classList.remove("in-world");
   }
 
@@ -387,6 +499,7 @@ export class Game {
     this.life = payload;
     this.hud.setLife(payload);
     this.characterPanel.update(payload);
+    this.housing.onLife(payload);
     this.interactions.onWorldChanged(); // e.g. what the player can afford changed
   }
 
@@ -516,7 +629,7 @@ export class Game {
     if (this.entities.has(id)) return;
     if (id === this.connection.sessionId && player.area !== this.areaId) {
       if (this.inWorld) this.switchArea(player.area);
-      else this.areaId = findArea(player.area) ? player.area : PLAZA_AREA;
+      else this.areaId = this.resolveArea(player.area);
     }
     const view = this.inWorld ? this.buildView(id, player) : null;
     const buffer = new SnapshotBuffer();
@@ -651,6 +764,10 @@ export class Game {
       /** Player card, blocks and story (M9). */
       social() {
         return game.social.debugState();
+      },
+      /** Your home, storage and the furnishing panel (M10). */
+      housing() {
+        return game.housing.debugState();
       },
       /** Replicated seat occupancy as [seatId, playerId] pairs. */
       seats() {

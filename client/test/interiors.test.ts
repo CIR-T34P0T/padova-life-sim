@@ -1,25 +1,36 @@
 // Indoor rooms' art agrees with their collision layouts (M7c, D-033, D-039):
 // the same checks as the square's district test, for every room at both
-// detail levels.
+// detail levels. Homes (M10) are checked for every room type, empty and with
+// every piece of furniture in the catalogue placed in its spots.
 
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { AREAS, AREA_IDS, type Obstacle } from "@padova/shared";
+import { AREAS, AREA_IDS, FURNITURE, FURNITURE_IDS, HOME_TEMPLATES, ROOM_TYPE_IDS, homeArea, type AreaDefinition, type FurnitureId, type Obstacle, type Placement, type RoomTypeId } from "@padova/shared";
 import { buildInterior, fadeVolumes } from "../src/render/world/district.ts";
 import type { Detail, Piece } from "../src/render/world/kit.ts";
 import { HEAD_HEIGHT } from "../src/render/world/props.ts";
 
 const TOLERANCE = 0.06;
 const FLAT = 0.03;
-const rooms = AREA_IDS.filter((id) => AREAS[id]!.indoor);
+/** Every spot filled with the n-th catalogue item of its category (wrapping round), so each item is drawn somewhere. */
+function furnished(roomType: RoomTypeId, n: number): Placement[] {
+  return HOME_TEMPLATES[roomType].slots.map((slot, k) => {
+    const options = FURNITURE_IDS.filter((id) => FURNITURE[id].category === slot.category && FURNITURE[id].priceCents !== null);
+    return { slot: slot.id, itemId: options[(n + k) % options.length] as FurnitureId };
+  });
+}
+const homes: [string, AreaDefinition][] = ROOM_TYPE_IDS.flatMap((roomType) => [
+  [`home ${roomType} (empty)`, homeArea("home/test", roomType, [])] as [string, AreaDefinition],
+  ...[0, 1, 2].map((n) => [`home ${roomType} (furnished ${n + 1})`, homeArea("home/test", roomType, furnished(roomType, n))] as [string, AreaDefinition]),
+]);
+const rooms: [string, AreaDefinition][] = [...AREA_IDS.filter((id) => AREAS[id]!.indoor).map((id) => [id, AREAS[id]!] as [string, AreaDefinition]), ...homes];
 const inside = (o: Obstacle, x: number, z: number, margin: number) => x >= o.minX - margin && x <= o.maxX + margin && z >= o.minZ - margin && z <= o.maxZ + margin;
 const vertices = (piece: Piece) => {
   const position = piece.geometry.getAttribute("position");
   return Array.from({ length: position.count }, (_, i) => new THREE.Vector3().fromBufferAttribute(position, i));
 };
 
-describe.each(rooms.flatMap((id) => (["high", "low"] as const).map((detail) => [id, detail] as [string, Detail])))("room %s (%s detail)", (id, detail) => {
-  const area = AREAS[id]!;
+describe.each(rooms.flatMap(([id, area]) => (["high", "low"] as const).map((detail) => [id, detail, area] as [string, Detail, AreaDefinition])))("room %s (%s detail)", (id, detail, area) => {
   const layout = area.layout;
   const pieces = buildInterior(layout, detail, area.floor!).pieces;
   const byId = new Map(layout.obstacles.map((o) => [o.id, o]));

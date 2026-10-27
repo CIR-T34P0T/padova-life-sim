@@ -28,7 +28,7 @@ const DOOR_HALF_WIDTH = 1.2;
  * Four walls around the floor, with a door in the middle of the south wall
  * (the side the camera looks from, so the room opens towards you).
  */
-function shell(prefix: string, floor: RoomFloor, doorId: string, doorLabel: string): Obstacle[] {
+export function shell(prefix: string, floor: RoomFloor, doorId: string, doorLabel: string): Obstacle[] {
   const { minX, maxX, minZ, maxZ } = floor;
   return [
     bounds(`${prefix}-wall-north`, "wall", minX - WALL, maxX + WALL, minZ - WALL, minZ, WALL_HEIGHT, "Wall", "south"),

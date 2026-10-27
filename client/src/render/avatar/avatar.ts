@@ -40,6 +40,7 @@ const ACTIVITY_LABEL: Record<string, string> = {
   attending: "in a lecture",
   exam: "in an exam",
   chatting: "chatting",
+  sleeping: "sleeping",
   greeting: "",
 };
 

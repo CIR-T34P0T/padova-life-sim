@@ -1,9 +1,10 @@
 // The areas this room simulates (M7c, D-039): the square and the indoor
 // rooms, each with its own layout and navigation grid. Every character is in
 // exactly one area (PlayerRuntime.area); movement, collision and interactions
-// use that area's layout.
+// use that area's layout. Homes (M10) are areas too, added while their tenant
+// is in the world and rebuilt when furniture moves.
 
-import { AREAS, GAME_CONFIG, NavGrid, PLAZA_AREA, findInteractable, type DoorLink, type WorldLayout } from "@padova/shared";
+import { AREAS, GAME_CONFIG, NavGrid, PLAZA_AREA, findInteractable, isHomeArea, type DoorLink, type WorldLayout } from "@padova/shared";
 
 export interface AreaWorld {
   id: string;
@@ -18,8 +19,19 @@ export class AreaWorlds {
   constructor(plaza: WorldLayout) {
     for (const area of Object.values(AREAS)) {
       const layout = area.id === PLAZA_AREA ? plaza : area.layout;
-      this.worlds.set(area.id, { id: area.id, layout, nav: new NavGrid(layout, GAME_CONFIG.navCellSize, GAME_CONFIG.playerRadius, GAME_CONFIG.maxPathExpansions) });
+      this.worlds.set(area.id, { id: area.id, layout, nav: navFor(layout) });
     }
+  }
+
+  /** Adds or rebuilds a home (M10): its tenant entered the world, or its furniture changed. */
+  setHome(id: string, layout: WorldLayout): void {
+    if (!isHomeArea(id)) throw new Error(`"${id}" is not a home area`);
+    this.worlds.set(id, { id, layout, nav: navFor(layout) });
+  }
+
+  /** Forgets a home (its tenant left, or the tenancy ended). */
+  removeHome(id: string): void {
+    if (isHomeArea(id)) this.worlds.delete(id);
   }
 
   get plaza(): AreaWorld {
@@ -44,3 +56,5 @@ export class AreaWorlds {
     return { area: target.id, x: spot.approach.x, z: spot.approach.z, rotation: spot.rotation + Math.PI };
   }
 }
+
+const navFor = (layout: WorldLayout) => new NavGrid(layout, GAME_CONFIG.navCellSize, GAME_CONFIG.playerRadius, GAME_CONFIG.maxPathExpansions);

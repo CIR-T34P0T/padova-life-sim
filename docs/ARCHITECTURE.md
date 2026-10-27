@@ -347,6 +347,67 @@ show (`ui/story.ts` words the story and the moments). The player menu
 offers *Greet*, *Chat*, *Profile*, *Block…*, *Report…*, or for someone you
 blocked *Profile* and *Unblock*.
 
+## A place to live (M10)
+
+Rules and numbers: `GAME_DESIGN.md` "A place to live (M10)"; choices in
+D-044.
+
+**Rules (`shared/`).** `life/housing.ts`: rent weeks (Monday to Sunday),
+what to do about rent now (`rentStep`: paid, charge, start the grace
+period, wait, move), the cheaper room to move to (`cheaperRoomFor`),
+cosiness. `homes.ts`: one template per room type (floor, the room's desk,
+fixed spots with a category and a facing) and `homeArea`, which builds a
+home's layout — walls, desk, the furniture in each spot as an obstacle with
+its bed spot or seat, the door back to the square — from its room type and
+placements; `placementRefusal` decides what may go where. Comfort is the
+sixth need (`needs.ts`: sitting restores it, at the seat's own rate if it
+has one). Sleeping is a timed effect whose amounts come from the bed
+(`timedEffectFor("sleep", bed)`). `interactions.ts`: the student housing's
+door (`HOME_LINK`) offers going home, renting/changing room and moving out;
+beds offer *Sleep*; home seats follow the bench rules.
+
+**Server.**
+- `housing/housingRepository.ts`: all SQL for homes and furniture, each
+  write in one transaction with its ledger row (`applyMoneyChangeIn`), the
+  home row locked before the wallet; idempotent by request key, also when
+  the same request arrives twice at once.
+- `housing/HousingSystem.ts`: each character's home and storage in memory;
+  registers the home as an area (`AreaWorlds.setHome`) before the character
+  is placed, so a character saved at home comes back there; runs rent each
+  tick from `rentStep` (one database write at a time per character, retried
+  after a failure); renting, changing room and moving out for the
+  interaction system (`HousingHooks`); furnishing, placing and putting away
+  for the `furnish`, `place` and `putAway` messages (only in your own home);
+  rebuilds the area when furniture moves (standing the tenant up first, and
+  putting them by the door if a new piece stands where they were); moves a
+  tenant who lost their home into the new one or out to the housing's door;
+  sends `housing` to its owner only.
+- `seats.ts` (`SeatBook`): seat reservations; ids under `home/` stay in a
+  server-only map, everything else in the replicated `state.seats`.
+- `InteractionSystem`: the housing door resolves `HOME_LINK` to the
+  player's own home (`homeLink`), `rent` and `move_out` wait for the
+  database like hiring; `sleep` is a seated timed action that stands you up
+  when it ends or is interrupted; `interrupt` stops an action and stands
+  the character up (housing calls it before changing the room).
+- `PlazaRoom` wires it: `prepare` before placing a loaded character (a saved
+  home area counts only if it is still the character's current home),
+  `attach`/`detach`, `resync` after a reconnection, `onArrivedHome` (the
+  cosy-home mood) after a door into your own home, the seat comfort for the
+  life system, and the three messages under the intent rate limit.
+
+**Client.** `ui/housingController.ts` keeps the home and storage the server
+sent, builds the home's room (`homeArea`, cached until it changes), shows
+rent notices, and runs the rent and move-out dialogs; `ui/homePanel.ts` is
+the furnishing panel (one fold-out per spot: put away, place from storage,
+buy; redrawn only when its contents change); `ui/housing.ts` words rent,
+cosiness and notices. `game.ts` resolves a home area through the
+controller, waits for the `housing` message if the player's area arrives
+first, rebuilds the room you stand in when its furniture changes
+(`WorldScene.dispose` frees the old one) and drops a home's scene when you
+leave it. Furniture art: `render/world/props.ts` (bed, armchair, beanbag,
+potted plant, floor lamp; the chair and bookshelf builders are reused); the
+sleeping pose lies the character along the bed (`render/avatar/character.ts`).
+
 ## From a player action to saved state (implemented)
 
 The same path for every action, shown with buying a panino. Which values
@@ -521,9 +582,11 @@ inside the 4.5–6 m deep shells, or one Colyseus room per interior).
   camera's side are cut away (they fade while the camera is outside the
   room on their side); the faded door stays tappable, because it is the
   way out. The interaction controller reads the current area's layout.
+- **Homes (M10)** are areas too (`home/<id>`), added and removed while
+  their tenant is in the world; see "A place to live (M10)".
 - **Not built yet:** rooms for the other buildings (each arrives with its
-  use, one room per use: D-039), homes (M10, one private copy per
-  household), windows inside rooms, and filtering the seat map.
+  use, one room per use: D-039), shared flats, windows inside rooms, and
+  filtering the seat map (home seats are kept out of it instead).
 
 ## Not yet decided or built
 

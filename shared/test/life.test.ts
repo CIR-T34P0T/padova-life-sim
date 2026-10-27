@@ -38,7 +38,7 @@ import {
   type Needs,
 } from "../src/index.ts";
 
-const all = (value: number): Needs => ({ hunger: value, energy: value, hygiene: value, social: value, fun: value });
+const all = (value: number): Needs => ({ hunger: value, energy: value, hygiene: value, social: value, fun: value, comfort: value });
 const idle = { activity: "idle", moving: false, traits: [] as const };
 
 describe("world clock", () => {
@@ -70,7 +70,7 @@ describe("world clock", () => {
 describe("needs", () => {
   it("fall at the documented rates per game hour and stay within 0–100", () => {
     const after = stepNeeds(all(50), 1, idle);
-    expect(after).toEqual({ hunger: 44, energy: 46, hygiene: 47, social: 46, fun: 45 });
+    expect(after).toEqual({ hunger: 44, energy: 46, hygiene: 47, social: 46, fun: 45, comfort: 47 });
     expect(stepNeeds(all(3), 2, idle).hunger).toBe(0);
     expect(stepNeeds(all(50), 0, idle)).toEqual(all(50));
   });
@@ -104,7 +104,7 @@ describe("needs", () => {
   });
 
   it("catch up offline gently: capped, half rate, floored, and energy recovers", () => {
-    const start: Needs = { hunger: 80, energy: 20, hygiene: 36, social: 30, fun: 70 };
+    const start: Needs = { hunger: 80, energy: 20, hygiene: 36, social: 30, fun: 70, comfort: 60 };
     const day = offlineCatchUp(start, 24, []);
     const cap = NEEDS_CONFIG.offline.capGameHours;
     expect(day).toEqual(offlineCatchUp(start, cap, [])); // anything beyond the cap counts as the cap
@@ -128,6 +128,7 @@ describe("needs", () => {
       hygiene: NEEDS_CONFIG.initial.hygiene,
       social: NEEDS_CONFIG.initial.social,
       fun: NEEDS_CONFIG.initial.fun,
+      comfort: NEEDS_CONFIG.initial.comfort,
     });
   });
 });

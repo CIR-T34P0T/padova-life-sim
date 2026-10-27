@@ -31,9 +31,24 @@ export type ObstacleKind =
   | "wall"
   | "lectern"
   | "board"
-  | "shelf";
+  | "shelf"
+  // Home furniture (M10); bookshelves reuse "shelf", wooden chairs "chair"
+  | "bed"
+  | "armchair"
+  | "beanbag"
+  | "plant"
+  | "floor-lamp";
 
-export type InteractableKind = "bench" | "desk" | "cafe" | "fountain" | "door" | "noticeboard";
+/** "seat" (M10) is a single seat of home furniture (a chair, beanbag or armchair): the bench rules. */
+export type InteractableKind = "bench" | "desk" | "cafe" | "fountain" | "door" | "noticeboard" | "bed" | "seat";
+
+/**
+ * DoorLink.to for the student housing's door (M10): it leads to the player's
+ * own home, which the server resolves for each player ("home/<id>").
+ */
+export const HOME_LINK = "home";
+/** The student housing's door on the square, where every home's door leads back to. */
+export const HOUSING_DOOR_ID = "housing-door";
 
 /**
  * Where a door leads (M7c): the area, and the door in that area you arrive at
@@ -42,7 +57,7 @@ export type InteractableKind = "bench" | "desk" | "cafe" | "fountain" | "door" |
 export interface DoorLink {
   /** Area id (shared/src/areas.ts), e.g. "hall/lecture-room" or "plaza". */
   to: string;
-  /** Id of the door interactable in that area. */
+  /** Id of the door interactable in that area. HOME_LINK: the player's own home, whatever its id. */
   door: string;
   /** The menu option, e.g. "Go in" or "Go out to the square". */
   actionLabel: string;
@@ -67,8 +82,10 @@ export interface Seat {
   rotation: number;
   /** Walkable point the character walks to first, and returns to when standing up. */
   approach: { x: number; z: number };
-  /** "sit" (default) or "stand". */
-  pose?: "sit" | "stand";
+  /** "sit" (default), "stand", or "lie" (a bed, M10: x/z is where the feet are, `rotation` points from head to feet). */
+  pose?: "sit" | "stand" | "lie";
+  /** Comfort per game hour while sitting here (home furniture, M10); default NEEDS_CONFIG.sittingComfortPerGameHour. */
+  comfort?: number;
   /**
    * Who uses it: "staff" spots (behind the café counter) are only for working
    * a shift and never for customers; untagged points are for everyone else.
@@ -92,6 +109,8 @@ export interface Interactable {
   door?: DoorLink;
   /** For desks: lectures and exams are held here (M8). */
   lecture?: boolean;
+  /** Home furniture (M10): the catalogue item it is (a bed's item decides what sleeping gives). */
+  furniture?: string;
 }
 
 export interface Obstacle {
@@ -355,6 +374,8 @@ const plazaObstacles: Obstacle[] = [
   // building's entrance, so it can be tapped and highlighted on its own.
   bounds("hall-door", "door", -14.23, -11.77, -19.6, -19.35, 3.9, "University hall", "south"),
   bounds("library-door", "door", 12.87, 15.13, -18, -17.75, 3.8, "Library", "south"),
+  // The student housing's entrance (M10), on its square side: leads to your own room.
+  bounds(HOUSING_DOOR_ID, "door", -9.13, -6.87, 17.75, 18, 3.6, "Student housing", "north"),
 ];
 
 const obstacle = (id: string): Obstacle => {
@@ -418,6 +439,14 @@ export const PLAZA_LAYOUT: WorldLayout = {
       label: "Library",
       seats: standingSpotsAlongEdge(obstacle("library-door"), 2, "south"),
       door: { to: "library/reading-room", door: "reading-room-door", actionLabel: "Go in" },
+    },
+    // Your own room (M10): renting, changing room and moving out happen here too.
+    {
+      id: HOUSING_DOOR_ID,
+      kind: "door",
+      label: "Student housing",
+      seats: standingSpotsAlongEdge(obstacle(HOUSING_DOOR_ID), 2, "north"),
+      door: { to: HOME_LINK, door: "home-door", actionLabel: "Go home" },
     },
     // Enrolment in the university's course (M8); lectures and the exam are in the hall's lecture room.
     { id: "noticeboard", kind: "noticeboard", label: "University notice board", seats: standingSpotsAlongEdge(obstacle("noticeboard"), 1, "south") },

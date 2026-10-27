@@ -57,7 +57,7 @@ for (const backend of testBackends) {
         [characterId],
       );
 
-      expect(await migrate(db)).toEqual([2, 3, 4, 5, 6, 7]);
+      expect(await migrate(db)).toEqual([2, 3, 4, 5, 6, 7, 8]);
       const life = await loadLife(db, { accountId, characterId }, 5);
       expect(life?.needs).toEqual(NEEDS_CONFIG.initial);
       expect(life?.traits).toEqual([]);
@@ -70,7 +70,7 @@ for (const backend of testBackends) {
     it("rolls back the life migration without touching profiles", async () => {
       await migrate(db);
       const { accountId } = await createGuestWithCharacter(db, input, PROFILE_VERSION, spawn, seed);
-      expect(await rollback(db, 6)).toEqual([7, 6, 5, 4, 3, 2]);
+      expect(await rollback(db, 7)).toEqual([8, 7, 6, 5, 4, 3, 2]);
       const tables = (await db.query<{ table_name: string }>(
         `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
       )).rows.map((r) => r.table_name);
@@ -99,7 +99,7 @@ for (const backend of testBackends) {
         const bruno = await createGuestWithCharacter(db, { ...input, displayName: "Bruno" }, PROFILE_VERSION, spawn, seed);
         const owner = { accountId: alice.accountId, characterId: alice.character.characterId };
         const snapshot = {
-          needs: { hunger: 12.5, energy: 99, hygiene: 0, social: 100, fun: 42.25 },
+          needs: { hunger: 12.5, energy: 99, hygiene: 0, social: 100, fun: 42.25, comfort: 33 },
           skills: { academic: 123.5, communication: 0, cooking: 0, fitness: 7, creativity: 0 },
           moodEvents: [{ id: "good_meal" as const, startedAt: 600, expiresAt: 780 }],
         };

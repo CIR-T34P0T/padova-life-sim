@@ -38,12 +38,12 @@ for (const backend of testBackends) {
 
     it("rolls migration 0006 back and forward without enrolments, and refuses (changing nothing) once someone is enrolled", async () => {
       expect(await appliedVersions(db)).toContain(6);
-      expect(await rollback(db, 2)).toEqual([7, 6]); // 0007 (relationships and safety, empty) first
+      expect(await rollback(db, 3)).toEqual([8, 7, 6]); // 0008 and 0007 (homes, relationships and safety, empty) first
       const tables = (await db.query<{ table_name: string }>(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`)).rows.map((r) => r.table_name);
       for (const table of ["enrolments", "lecture_attendance", "assessments"]) expect(tables).not.toContain(table);
-      expect(await migrate(db)).toEqual([6, 7]);
+      expect(await migrate(db)).toEqual([6, 7, 8]);
       expect(await enrolCharacter(db, owner, COURSE, 600)).toBe("enrolled");
-      expect(await rollback(db)).toEqual([7]);
+      expect(await rollback(db, 2)).toEqual([8, 7]);
       await expect(rollback(db)).rejects.toThrow();
       expect(await appliedVersions(db)).toContain(6);
       expect(await loadCourses(db, owner)).toHaveLength(1);

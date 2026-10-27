@@ -83,6 +83,8 @@ export interface WorldScene {
   isReady(): boolean;
   /** Resolves when the district art is built. */
   ready: Promise<void>;
+  /** Frees the scene's geometry and materials (a home rebuilt after its furniture moved, M10). Avatars must be moved out first. */
+  dispose(): void;
 }
 
 export interface WorldSceneOptions {
@@ -504,7 +506,16 @@ export function buildWorldScene(world: WorldLayout, quality: QualityProfile, opt
     indoor: indoor !== null,
   });
 
-  return { scene, ground, blockers, targetMarker, interactableMeshes, highlight, pickTargets, update, stats, ready, isReady: () => built };
+  const dispose = () => {
+    scene.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry.dispose();
+      for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
+    });
+    scene.clear();
+  };
+  return { scene, ground, blockers, targetMarker, interactableMeshes, highlight, pickTargets, update, stats, ready, isReady: () => built, dispose };
 }
 
 /** Warm discs on the ground (additive: black at the rim adds nothing), one per spot, as one geometry. */

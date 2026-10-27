@@ -906,6 +906,93 @@ p.cp-muted {
   padding: 0 16px;
 }
 
+/* ── Home (M10): rent warning, the furnishing panel's spots and options ──── */
+.cp-warning {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #e3b4ad;
+  background: #fbeeec;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cp-section > .cp-action[data-action="furnish"] {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.hp-spot {
+  margin: 6px 0;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.hp-spot > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.hp-spot > summary::-webkit-details-marker {
+  display: none;
+}
+
+.hp-spot > summary::after {
+  content: "▾";
+  color: var(--ink-soft);
+}
+
+.hp-spot[open] > summary::after {
+  content: "▴";
+}
+
+.hp-spot-label {
+  font-weight: 800;
+}
+
+.hp-options {
+  display: grid;
+  gap: 6px;
+  padding: 0 8px 8px;
+}
+
+.hp-option {
+  display: grid;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--intonaco);
+  color: var(--ink);
+  font: 700 14px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.hp-option:hover:not(:disabled) {
+  border-color: var(--gold-deep);
+}
+
+.hp-option:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.hp-option-detail {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
 /* ── Character panel actions (title screen milestone) ───────────────────── */
 .cp-footer {
   display: flex;

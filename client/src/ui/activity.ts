@@ -13,4 +13,5 @@ export const ACTIVITY_SUBTITLE: Record<string, string> = {
   attending: "In a lecture",
   exam: "Sitting an exam",
   chatting: "Chatting",
+  sleeping: "Asleep",
 };

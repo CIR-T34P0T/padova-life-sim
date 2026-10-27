@@ -8,6 +8,7 @@ import {
   AREAS,
   AREA_IDS,
   GAME_CONFIG,
+  HOME_LINK,
   INTERACTION_CONFIG,
   NavGrid,
   PLAZA_AREA,
@@ -22,7 +23,8 @@ import {
 const r = GAME_CONFIG.playerRadius;
 const eps = 1e-6;
 const rooms = AREA_IDS.filter((id) => AREAS[id]!.indoor);
-const doorsOf = (area: string) => AREAS[area]!.layout.interactables.filter((i) => i.kind === "door");
+// The student housing's door leads to each player's own home (M10, shared/test/homes.test.ts), not to a fixed area.
+const doorsOf = (area: string) => AREAS[area]!.layout.interactables.filter((i) => i.kind === "door" && i.door?.to !== HOME_LINK);
 
 describe("areas", () => {
   it("has the square and the first two rooms: the hall's lecture room and the library's reading room", () => {

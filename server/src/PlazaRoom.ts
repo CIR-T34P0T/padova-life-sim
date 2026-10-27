@@ -9,7 +9,9 @@ import {
   ServerMessage,
   confirmNameMatches,
   encodeLook,
+  findSeat,
   gameMinuteAt,
+  isHomeArea,
   isPositionWalkable,
   parseAppearance,
   parseCharacterId,
@@ -28,6 +30,7 @@ import {
   type RejectedPayload,
 } from "@padova/shared";
 import { AreaWorlds } from "./areas.ts";
+import { HousingSystem } from "./housing/HousingSystem.ts";
 import { InteractionSystem } from "./InteractionSystem.ts";
 import type { LifeService, LoadedLife } from "./life/LifeService.ts";
 import { LifeSystem, type GameClock } from "./life/LifeSystem.ts";
@@ -37,6 +40,7 @@ import type { Owner } from "./profiles/profileRepository.ts";
 import type { SessionRegistry } from "./profiles/sessionRegistry.ts";
 import type { PlayerRuntime } from "./runtime.ts";
 import { PlayerState, PlazaState } from "./schema.ts";
+import { SeatBook } from "./seats.ts";
 import { getServices } from "./services.ts";
 import { SocialSystem } from "./social/SocialSystem.ts";
 import { DEFAULT_TUNING, resolveTuning, type PlazaRoomOptions, type RoomTuning } from "./tuning.ts";
@@ -87,6 +91,8 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   private interactions!: InteractionSystem;
   private life!: LifeSystem;
   private social!: SocialSystem;
+  private housing!: HousingSystem;
+  private seats!: SeatBook;
   private lifeService!: LifeService;
   private gameClock!: GameClock;
   private profiles!: ProfileService;
@@ -105,6 +111,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     this.areas = new AreaWorlds(this.tuning.world);
     this.state = new PlazaState();
     this.state.gameMinute = Math.floor(this.gameClock.minute());
+    this.seats = new SeatBook(this.state);
     const send = (sessionId: string, type: string, payload: unknown) => this.clients.getById(sessionId)?.send(type, payload);
     this.life = new LifeSystem({
       state: this.state,
@@ -115,6 +122,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       requestSave: (sessionId) => void this.saveCharacter(sessionId),
       now: () => Date.now(),
       story: (sessionId, event) => this.social.addStory(sessionId, event),
+      seatComfort: (sessionId) => this.seatComfort(sessionId),
     });
     this.social = new SocialSystem({
       db: this.lifeService.db,
@@ -126,8 +134,22 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       cancelBetween: (a, b) => this.interactions.cancelBetween(a, b),
       moodEvent: (sessionId, id) => this.life.addMood(sessionId, id),
     });
+    this.housing = new HousingSystem({
+      db: this.lifeService.db,
+      areas: this.areas,
+      runtimes: this.runtimes,
+      ownerOf: (sessionId) => this.sessions.get(sessionId)?.owner ?? null,
+      clock: this.gameClock,
+      send,
+      life: this.life,
+      story: (sessionId, event) => this.social.addStory(sessionId, event),
+      interrupt: (sessionId) => this.interactions.interrupt(sessionId),
+      relocate: (sessionId, spot) => this.placeAt(sessionId, spot),
+      now: () => Date.now(),
+    });
     this.interactions = new InteractionSystem({
       state: this.state,
+      seats: this.seats,
       runtimes: this.runtimes,
       area: (sessionId) => this.areas.of(this.runtimes.get(sessionId)?.area ?? PLAZA_AREA),
       enterArea: (sessionId, link) => this.enterArea(sessionId, link),
@@ -136,6 +158,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
       now: () => Date.now(),
       hooks: this.life,
       social: this.social,
+      housing: this.housing,
     });
     this.setSimulationInterval((deltaMs) => this.tick(deltaMs), GAME_CONFIG.tickMs);
     this.clock.setInterval(() => void this.autosave(), this.tuning.autosaveIntervalMs);
@@ -168,6 +191,16 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     });
     this.onMessage(ClientMessage.Report, (client, payload) => {
       if (this.acceptIntent(client, ClientMessage.Report)) void this.social.report(client.sessionId, payload);
+    });
+    // Furnishing your home (M10): in the world only, under the same rate limit.
+    this.onMessage(ClientMessage.Furnish, (client, payload) => {
+      if (this.acceptIntent(client, ClientMessage.Furnish)) void this.housing.furnish(client.sessionId, payload);
+    });
+    this.onMessage(ClientMessage.Place, (client, payload) => {
+      if (this.acceptIntent(client, ClientMessage.Place)) void this.housing.place(client.sessionId, payload);
+    });
+    this.onMessage(ClientMessage.PutAway, (client, payload) => {
+      if (this.acceptIntent(client, ClientMessage.PutAway)) void this.housing.putAway(client.sessionId, payload);
     });
     this.onMessage("*", (client, type) => {
       // Unknown message types (including any attempt to send a position) are ignored.
@@ -239,6 +272,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     if (!client.view) client.view = new StateView();
     this.refreshViews();
     void this.social.resync(client.sessionId);
+    this.housing.resync(client.sessionId);
     log.info("plaza", `${client.sessionId} reconnected`);
   }
 
@@ -481,9 +515,15 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
   /** Places a loaded character in the world, at its saved position when that is still valid. */
   private spawn(client: Client, session: Session, loaded: LoadedCharacter, life: LoadedLife | null): void {
     const saved = loaded.state;
+    // A home is an area while its tenant is in the world (M10): registered
+    // first, so a character saved at home comes back there. A saved home that
+    // isn't the character's current one (moved meanwhile) doesn't count.
+    if (life) this.housing.prepare(life.housing);
+    const ownHome = life?.housing.home?.areaId;
+    const knownArea = saved && (isHomeArea(saved.area) ? saved.area === ownHome : this.areas.has(saved.area));
     // Back in the area and spot where the character was saved, if that area still
     // exists and the spot is still walkable; otherwise at the square's spawn points.
-    const savedArea = saved && this.areas.has(saved.area) ? this.areas.of(saved.area) : null;
+    const savedArea = saved && knownArea ? this.areas.of(saved.area) : null;
     const resume = saved && savedArea && isPositionWalkable(savedArea.layout, saved.x, saved.z, GAME_CONFIG.playerRadius);
     const area = resume ? savedArea.id : PLAZA_AREA;
     const position = resume ? { x: saved.x, z: saved.z, rotation: saved.rotation } : { ...this.nextSpawnPoint(), rotation: Math.PI };
@@ -511,8 +551,10 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     session.owner = loaded.owner;
     session.readOnly = loaded.readOnly;
     session.lastSaved = { x: position.x, z: position.z };
-    if (life) this.life.attach(client.sessionId, loaded.owner, life);
-    else log.error("plaza", `no life data for ${client.sessionId}; needs, skills and money are unavailable`);
+    if (life) {
+      this.life.attach(client.sessionId, loaded.owner, life);
+      this.housing.attach(client.sessionId, loaded.owner, life.housing);
+    } else log.error("plaza", `no life data for ${client.sessionId}; needs, skills and money are unavailable`);
     this.refreshViews();
     void this.social.attach(client.sessionId);
     log.info("plaza", `${loaded.profile.displayName} (${client.sessionId}) entered (${area}); ${this.state.players.size} in the world`);
@@ -543,10 +585,20 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
    * leads nowhere (nothing changes).
    */
   private enterArea(sessionId: string, link: DoorLink): boolean {
+    const arrival = this.areas.arrival(link);
+    if (!arrival || !this.placeAt(sessionId, arrival)) return false;
+    if (this.housing.isHomeOf(sessionId, arrival.area)) this.housing.onArrivedHome(sessionId);
+    return true;
+  }
+
+  /**
+   * Puts a standing character at a spot in an area (a door's arrival point,
+   * or where housing moves them, M10) and updates who sees whom.
+   */
+  private placeAt(sessionId: string, arrival: { area: string; x: number; z: number; rotation: number }): boolean {
     const runtime = this.runtimes.get(sessionId);
     const player = this.state.players.get(sessionId);
-    const arrival = this.areas.arrival(link);
-    if (!runtime || !player || !arrival) return false;
+    if (!runtime || !player || !this.areas.has(arrival.area)) return false;
     runtime.area = arrival.area;
     runtime.character.x = arrival.x;
     runtime.character.z = arrival.z;
@@ -576,6 +628,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     if (session) session.removal = save;
     this.interactions.onLeave(sessionId);
     this.social.detach(sessionId);
+    this.housing.detach(sessionId);
     this.life.detach(sessionId);
     this.state.players.delete(sessionId);
     this.runtimes.delete(sessionId);
@@ -610,6 +663,14 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     await Promise.all(inWorld.map(([sessionId]) => this.saveCharacter(sessionId)));
   }
 
+  /** Comfort per game hour of the seat a character sits on, when it has its own (home furniture, M10). */
+  private seatComfort(sessionId: string): number | undefined {
+    const seatId = this.state.players.get(sessionId)?.seatId;
+    const runtime = this.runtimes.get(sessionId);
+    if (!seatId || !runtime) return undefined;
+    return findSeat(this.areas.of(runtime.area).layout, seatId)?.seat.comfort;
+  }
+
   private sendProfile(client: Client, payload: ProfilePayload): void {
     client.send(ServerMessage.Profile, payload);
   }
@@ -637,6 +698,7 @@ export class PlazaRoom extends Room<{ state: PlazaState }> {
     }
     this.life.tick(dt * 1000);
     this.interactions.tick();
+    this.housing.tick();
     const minute = Math.floor(this.gameClock.minute());
     if (this.state.gameMinute !== minute) this.state.gameMinute = minute;
   }

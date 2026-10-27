@@ -12,6 +12,9 @@
 //                  or ask about work (hired once the database confirms),
 //                  or (staff spot) work a shift; fountain: wash; notice
 //                  board: enrol (once the database confirms); door: go through
+//                  (the student housing's door: to your own home, or rent a
+//                  room or move out once the database confirms, M10)
+//     bed:         lie down and sleep (M10); you get up when it ends
 //   → finish (timed actions end on a server timer) or keep state (sitting).
 // A finished shift is paid, and a finished lecture or exam recorded
 // ("paying"), before it counts as completed; one that ends early never counts.
@@ -25,6 +28,7 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  HOME_LINK,
   INTERACTION_CONFIG,
   ServerMessage,
   chooseSeat,
@@ -54,6 +58,8 @@ import {
   type Vec2,
 } from "@padova/shared";
 import type { AreaWorld } from "./areas.ts";
+import type { HousingHooks } from "./housing/HousingSystem.ts";
+import type { SeatBook } from "./seats.ts";
 import type { SocialHooks } from "./social/SocialSystem.ts";
 import { log } from "./log.ts";
 import type { PendingAction, PlayerRuntime } from "./runtime.ts";
@@ -114,6 +120,8 @@ const NO_HOOKS: InteractionHooks = {
 
 export interface InteractionDeps {
   state: PlazaState;
+  /** Seat and spot reservations (shared ones replicated, home ones private, M10). */
+  seats: SeatBook;
   runtimes: Map<string, PlayerRuntime>;
   /** The layout and navigation grid of the area this player is in (M7c). */
   area: (sessionId: string) => AreaWorld;
@@ -126,6 +134,8 @@ export interface InteractionDeps {
   hooks?: InteractionHooks;
   /** Blocks and shared moments (M9). Optional so the system works without it. */
   social?: SocialHooks;
+  /** Homes (M10). Optional so the system works without it. */
+  housing?: HousingHooks;
 }
 
 const PATH_FAILURE_TO_REASON: Record<PathFailure, InteractionFailure> = {
@@ -135,10 +145,10 @@ const PATH_FAILURE_TO_REASON: Record<PathFailure, InteractionFailure> = {
   search_limit: "unreachable",
 };
 
-/** Seated timed actions: begin at the seat, return to "sitting" afterwards. */
-const SEATED_TIMED: readonly ActionId[] = ["study", "sketch", "attend", "exam"];
+/** Seated timed actions: begin at the seat, return to "sitting" afterwards (sleeping: get up, M10). */
+const SEATED_TIMED: readonly ActionId[] = ["study", "sketch", "attend", "exam", "sleep"];
 /** Actions done at a standing spot, which is free again as soon as they end. */
-const STANDING: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter", "enrol"];
+const STANDING: readonly ActionId[] = ["buy", "wash", "ask_work", "work", "enter", "enrol", "rent", "move_out"];
 /** Timed actions whose result is recorded in the database before they count (M8). */
 const COURSE_ACTIONS: readonly ActionId[] = ["attend", "exam"];
 
@@ -174,12 +184,14 @@ export class InteractionSystem {
       world,
       item,
       this.actorView(sessionId),
-      this.deps.state.seats,
+      this.deps.seats,
       request.action,
       maxInteractionDistance,
       request.itemId,
     );
     if (!check.ok) return this.reject(sessionId, request, check.reason);
+    // What sleeping gives depends on the bed (M10): the server's own record of it, never the client's.
+    if (request.action === "sleep") request.itemId = item.furniture;
     const unable = this.hooks.checkStart(sessionId, request.action, request.itemId);
     if (unable) return this.reject(sessionId, request, unable);
 
@@ -203,12 +215,12 @@ export class InteractionSystem {
 
     // Sitting elsewhere? Stand up first, then walk over.
     if (player.seatId) this.standUp(sessionId);
-    const seat = chooseSeat(item, this.deps.state.seats, this.actorView(sessionId), request.action);
+    const seat = chooseSeat(item, this.deps.seats, this.actorView(sessionId), request.action);
     if (!seat) return this.reject(sessionId, request, seatIsStanding(item.seats[0]) ? "busy" : "no_free_seat");
     const path = this.deps.area(sessionId).nav.findPath(runtime.character, seat.approach);
     if (!path.ok) return this.reject(sessionId, request, PATH_FAILURE_TO_REASON[path.reason]);
 
-    this.deps.state.seats.set(seat.id, sessionId);
+    this.deps.seats.set(seat.id, sessionId);
     runtime.character.intent = { kind: "path", waypoints: path.waypoints };
     runtime.pending = this.newPending(request, seat.id, seat.approach);
     this.update(sessionId, { actionId: runtime.pending.id, status: "queued", ...target(runtime.pending) });
@@ -324,6 +336,12 @@ export class InteractionSystem {
     }
   }
 
+  /** Stops whatever the character is doing and stands them up (their room is about to change around them, M10). */
+  interrupt(sessionId: string): void {
+    this.cancel(sessionId, "interrupted");
+    this.standUp(sessionId);
+  }
+
   /** Stops a shift being walked to, worked or paid (quitting the job). Unpaid unless its wage was already being paid. */
   cancelWork(sessionId: string): void {
     if (this.deps.runtimes.get(sessionId)?.pending?.action === "work") this.cancel(sessionId, "cancelled");
@@ -365,6 +383,8 @@ export class InteractionSystem {
     if (pending.action === "buy") return this.pay(sessionId, pending);
     if (pending.action === "ask_work") return this.hire(sessionId, pending);
     if (pending.action === "enrol") return this.enrol(sessionId, pending);
+    if (pending.action === "rent") return this.rent(sessionId, pending);
+    if (pending.action === "move_out") return this.moveOut(sessionId, pending);
     if (pending.action === "work") {
       // Opening hours, the daily limit and tiredness are checked again now that the shift really starts.
       const refused = this.hooks.startShift(sessionId, pending);
@@ -373,12 +393,45 @@ export class InteractionSystem {
     this.beginTimed(sessionId, pending);
   }
 
-  /** At a door (M7c): the action completes, then the character is moved into the linked area. */
+  /**
+   * At a door (M7c): the action completes, then the character is moved into
+   * the linked area. The student housing's door leads to the character's own
+   * home (M10).
+   */
   private goThrough(sessionId: string, pending: PendingAction): void {
-    const link = findInteractable(this.deps.area(sessionId).layout, pending.targetId)?.door;
-    if (!link) return this.fail(sessionId, "action_not_available");
+    const door = findInteractable(this.deps.area(sessionId).layout, pending.targetId)?.door;
+    const link = door?.to === HOME_LINK ? this.deps.housing?.homeLink(sessionId) : door;
+    if (!door) return this.fail(sessionId, "action_not_available");
+    if (!link) return this.fail(sessionId, "no_home");
     this.complete(sessionId, pending);
     if (!this.deps.enterArea(sessionId, link)) log.error("interact", `door ${pending.targetId} leads nowhere (${link.to}/${link.door})`);
+  }
+
+  /** At the student housing's door (M10): rented once the database confirms, then straight in. */
+  private rent(sessionId: string, pending: PendingAction): void {
+    const housing = this.deps.housing;
+    if (!this.context(sessionId) || !housing) return this.fail(sessionId, "rent_failed");
+    pending.phase = "paying";
+    void housing.rent(sessionId, pending).then((result) => {
+      // Cancelled meanwhile: the room, if rented, shows in the character panel.
+      if (this.deps.runtimes.get(sessionId)?.pending !== pending) return;
+      if (result !== "ok") return this.fail(sessionId, result);
+      this.complete(sessionId, pending);
+      const link = housing.homeLink(sessionId);
+      if (link && !this.deps.enterArea(sessionId, link)) log.error("interact", `new home of ${sessionId} can't be entered (${link.to})`);
+    });
+  }
+
+  /** At the student housing's door (M10): moved out once the database confirms. */
+  private moveOut(sessionId: string, pending: PendingAction): void {
+    const housing = this.deps.housing;
+    if (!this.context(sessionId) || !housing) return this.fail(sessionId, "rent_failed");
+    pending.phase = "paying";
+    void housing.moveOut(sessionId, pending).then((result) => {
+      if (this.deps.runtimes.get(sessionId)?.pending !== pending) return;
+      if (result === "ok") this.complete(sessionId, pending);
+      else this.fail(sessionId, result);
+    });
   }
 
   /** At the seat: sitting completes at once; studying and sketching run on server timers. */
@@ -495,7 +548,8 @@ export class InteractionSystem {
       pending.action === "work" ||
       pending.action === "attend" ||
       pending.action === "exam" ||
-      pending.action === "chat"
+      pending.action === "chat" ||
+      pending.action === "sleep"
     ) {
       return actionDurationsMs[pending.action];
     }
@@ -577,6 +631,14 @@ export class InteractionSystem {
       this.deps.social?.shared(sessionId, pending.targetId, "chat");
     }
     if (pending.action === "study" || pending.action === "attend") this.sharedWithCompanions(sessionId, pending);
+    if (pending.action === "sleep") {
+      // Awake: out of bed (M10).
+      runtime.pending = null;
+      this.standUp(sessionId);
+      this.deps.housing?.onSlept(sessionId);
+      this.update(sessionId, { actionId: pending.id, status: "completed", ...target(pending) });
+      return;
+    }
     if (SEATED_TIMED.includes(pending.action)) player.activity = "sitting"; // stays seated
     if (pending.action === "greet" || pending.action === "chat") {
       player.activity = "idle";
@@ -627,9 +689,12 @@ export class InteractionSystem {
     runtime.pending = null;
     if (pending.phase === "approach") {
       runtime.character.intent = { kind: "idle" };
-      if (pending.seatId && player.seatId !== pending.seatId && this.deps.state.seats.get(pending.seatId) === sessionId) {
-        this.deps.state.seats.delete(pending.seatId);
+      if (pending.seatId && player.seatId !== pending.seatId && this.deps.seats.get(pending.seatId) === sessionId) {
+        this.deps.seats.delete(pending.seatId);
       }
+    } else if (pending.action === "sleep") {
+      // Woken early: you keep what you slept, and get up (M10).
+      this.standUp(sessionId);
     } else if (SEATED_TIMED.includes(pending.action)) {
       player.activity = "sitting";
     } else if (pending.action === "greet" || pending.action === "chat") {
@@ -647,7 +712,7 @@ export class InteractionSystem {
     if (!context || !context.player.seatId) return;
     const { player, runtime } = context;
     const seated = findSeat(this.deps.area(sessionId).layout, player.seatId);
-    if (this.deps.state.seats.get(player.seatId) === sessionId) this.deps.state.seats.delete(player.seatId);
+    if (this.deps.seats.get(player.seatId) === sessionId) this.deps.seats.delete(player.seatId);
     player.seatId = "";
     player.activity = "idle";
     runtime.character.intent = { kind: "idle" };
@@ -660,15 +725,11 @@ export class InteractionSystem {
   }
 
   private releaseStandingSpot(sessionId: string, pending: PendingAction): void {
-    if (pending.seatId && this.deps.state.seats.get(pending.seatId) === sessionId) this.deps.state.seats.delete(pending.seatId);
+    if (pending.seatId && this.deps.seats.get(pending.seatId) === sessionId) this.deps.seats.delete(pending.seatId);
   }
 
   private releaseSeatsOf(sessionId: string): void {
-    const owned: string[] = [];
-    this.deps.state.seats.forEach((owner, seatId) => {
-      if (owner === sessionId) owned.push(seatId);
-    });
-    for (const seatId of owned) this.deps.state.seats.delete(seatId);
+    for (const seatId of this.deps.seats.heldBy(sessionId)) this.deps.seats.delete(seatId);
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
@@ -709,6 +770,7 @@ export class InteractionSystem {
       activity: context.player.activity,
       job: this.hooks.jobOf(sessionId),
       course: this.hooks.courseOf(sessionId),
+      home: this.deps.housing?.homeOf(sessionId) ?? null,
     };
   }
 
@@ -738,6 +800,7 @@ const FALLBACK_ACTIVITY: Partial<Record<ActionId, string>> = {
   attend: "attending",
   exam: "exam",
   chat: "chatting",
+  sleep: "sleeping",
 };
 const activityFallback = (action: ActionId): string => FALLBACK_ACTIVITY[action] ?? "idle";
 

@@ -65,12 +65,21 @@ export class Hud {
 
   toast(message: string, durationMs = 2200): void {
     this.elements.toast.textContent = message;
+    this.toastUntil = performance.now() + durationMs;
     this.elements.toast.hidden = false;
     window.clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => {
       this.elements.toast.hidden = true;
     }, durationMs);
   }
+
+  /** A minor note (e.g. the room you walked into): shown only when no other toast is on screen, so it never hides news. */
+  note(message: string, durationMs = 2200): void {
+    if (performance.now() < this.toastUntil) return;
+    this.toast(message, durationMs);
+  }
+
+  private toastUntil = 0;
 
   private renderMeChip(): void {
     const chip = this.elements.meChip;
