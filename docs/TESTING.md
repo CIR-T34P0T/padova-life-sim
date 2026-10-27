@@ -920,7 +920,8 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   lists reports, and with the embedded development database the game must
   be stopped first. Blocks load a moment after a player enters the world;
   during that moment the server doesn't yet know their blocks. A failed
-  story write is logged, not retried. The numbers (gains, caps, levels) are
+  story write is logged, not retried. The story starts with M9: events from
+  before (an earlier job, enrolment or exam) aren't filled in. The numbers (gains, caps, levels) are
   not play-tested.
 - **World art pass limitations:**
   - The district is Stage-1 procedural art (D-033): only the hall and the

@@ -624,8 +624,9 @@ Each character keeps a private **story**: meaningful events written by the
 server, newest first, in the character panel (**Your story**): getting a
 job, a first shift, enrolling, passing or failing an exam (with the grade),
 becoming friends with someone (their name as it was then). Each event is
-written once. The panel shows the last ten; all are saved. The story is a
-foundation: later milestones add moving house, new jobs and more.
+written once. The panel shows the last ten; all are saved. It starts with
+M9: jobs, enrolments and exams from before aren't added afterwards. The
+story is a foundation: later milestones add moving house, new jobs and more.
 
 ## Indoor rooms (M7c)
 
