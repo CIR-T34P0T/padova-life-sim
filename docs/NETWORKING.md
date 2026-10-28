@@ -186,6 +186,19 @@ in the replicated seat map; the home's layout reaches only its tenant, in
 `housing`. A character saved at home comes back there only if it is still
 their current home.
 
+## Addresses in production (M12, D-047)
+
+In development the page comes from Vite (port 5173) and the client connects
+to the page's host on port 2567. A production build connects to **its own
+address** instead (`wss://` on an HTTPS page): the game server serves the
+built client (`CLIENT_DIST`), so the page, matchmaking (`/matchmake/…`), the
+WebSockets and the HTTP routes below share one origin behind Caddy, and no
+cross-origin requests are needed. `VITE_SERVER_URL` at build time overrides
+it. Colyseus reads the client's address from `X-Real-IP`, then
+`X-Forwarded-For`, then the socket; the guest limit counts by it. Caddy
+sets `X-Real-IP` to the real visitor and drops `X-Client-IP`; a game server
+reachable without the proxy (development) would accept forged headers.
+
 ## HTTP: health and status (M12, D-046)
 
 The game server also answers two HTTP requests on its port (the HTTP server

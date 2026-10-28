@@ -88,10 +88,16 @@ export function appearanceOf(player: ReplicatedPlayer): AppearanceConfig {
   return decodeLook(player.look ?? "").appearance;
 }
 
+/**
+ * The game server's address: VITE_SERVER_URL if set; in a production build
+ * the page's own address (the game server serves the built client, M12);
+ * in development the page's host on port 2567 (Vite serves the page).
+ */
 export function resolveServerUrl(): string {
   const configured = import.meta.env.VITE_SERVER_URL as string | undefined;
   if (configured) return configured;
   const protocol = location.protocol === "https:" ? "wss" : "ws";
+  if (import.meta.env.PROD) return `${protocol}://${location.host}`;
   return `${protocol}://${location.hostname}:2567`;
 }
 

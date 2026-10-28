@@ -1,0 +1,17 @@
+# Padova Life SIM: HTTPS in front of the game server (M12, D-047).
+# deploy/setup.sh copies this to /etc/caddy/Caddyfile with the real domain.
+# Caddy gets and renews the certificate by itself; ports 80 and 443 must be open.
+@DOMAIN@ {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:2567 {
+		# The game limits new guests per address and reads the address from
+		# X-Real-IP: set it to the real visitor, never to what a browser sent.
+		header_up X-Real-IP {remote_host}
+		header_up -X-Client-IP
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+}

@@ -1,0 +1,12 @@
+# Padova Life SIM nightly database backup (M12, D-047); started by
+# padova-life-backup.timer, or by hand: sudo systemctl start padova-life-backup
+[Unit]
+Description=Padova Life SIM database backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=padova
+Group=padova
+EnvironmentFile=/etc/padova-life/env
+ExecStart=@APP_DIR@/deploy/backup.sh

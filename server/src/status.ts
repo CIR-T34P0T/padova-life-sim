@@ -8,6 +8,7 @@
 
 import { NPC_CONFIG } from "@padova/shared";
 import type { Database } from "./db/database.ts";
+import type { StaticHandler } from "./staticFiles.ts";
 import type { TickSummary } from "./tickStats.ts";
 
 /** What a room reports about itself. */
@@ -24,6 +25,7 @@ export interface StatusSource {
 /** The part of an express app the routes need (express comes with Colyseus's transport). */
 export interface RouteApp {
   get(path: string, handler: (req: unknown, res: RouteResponse) => void): void;
+  use(handler: StaticHandler): void;
 }
 interface RouteResponse {
   status(code: number): RouteResponse;

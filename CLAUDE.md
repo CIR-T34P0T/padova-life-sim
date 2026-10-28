@@ -146,6 +146,11 @@ or auth model without the product owner's approval.
   characters is played; new tables that hold an account's data must
   cascade from `accounts` or `characters` (or say why not). `npm run
   loadtest` is for development and staging servers only.
+- **Deployment (D-047).** One Ubuntu VM: Caddy (HTTPS, sets `X-Real-IP`) →
+  the game server on 127.0.0.1, which serves `client/dist` (`CLIENT_DIST`)
+  → PostgreSQL. Scripts in `deploy/` (setup, update, backup, restore); secrets
+  only in `/etc/padova-life/env` on the server. Claude prepares and checks;
+  the product owner runs them on the server.
 - **Input is device-agnostic.** `client/src/input` turns mouse/touch/keyboard
   into gestures; gameplay code never checks the device type.
 - Placeholders must be labelled as placeholders in code and docs.

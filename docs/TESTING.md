@@ -644,7 +644,7 @@ gold name tag says "Barista"; her menu is "Giulia", "Barista · not a
 player", *Greet*; greeting her shows her answer. Phone (Pixel 7 emulation):
 her menu as a bottom sheet with a Greet button at least 48 px tall.
 
-**Operations through the real room (7 tests, `server/test/operations.test.ts`,
+**Operations through the real room (8 tests, `server/test/operations.test.ts`,
 M12)** — deleting a whole guest profile: a profile with two characters, a
 second window at the title screen, a wrong word refused
 (`confirm_mismatch`), "  Delete " accepted; both windows get
@@ -660,6 +660,8 @@ the database made unreachable) and `/status` (aggregate fields only, no
 names or ids). The log line formats. And a load-test finding: **a client at
 the title screen receives nothing about the player map** while others
 enter the world and move (before the fix it logged `"refId" not found`).
+Serving the built client from the game server (D-047): types, caching,
+nothing outside the folder or hidden, matchmaking beside it.
 
 **End to end, your data (`e2e/privacy.spec.ts`, M12)** — desktop, one
 browser profile with two windows: Settings has no *Your data* before a
@@ -846,6 +848,12 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-28 (deployment kit) | typecheck + unit + integration | 600/600 pass (38 files) | `npm run check` on PGlite; the browser suite wasn't rerun: development (which it uses) is unchanged, and the production path was checked in a browser below |
+| 2026-10-28 (deployment kit) | static serving | Pass | New server test: the page (`no-cache`), a hashed asset (`immutable`, `nosniff`), HEAD; 404 for a dotfile, a missing file, three ways of climbing out of the folder and POST; `/health` and matchmaking still work beside it |
+| 2026-10-28 (deployment kit) | production build in a browser | Pass | `npm run build`, then the server with `CLIENT_DIST=client/dist` and `HOST=127.0.0.1` on one port: Chromium loaded the page from the game server, its WebSocket went to the same address, a new character entered the square (screenshot), no page errors |
+| 2026-10-28 (deployment kit) | the service's command on an empty PostgreSQL | Pass | `tsx server/src/index.ts` from the repository with the settings `setup.sh` writes (`NODE_ENV=production`, `HOST`, `CLIENT_DIST`, `LOG_FORMAT=json`): migrations 1–8 applied, JSON log lines (database URL redacted), the page served, a climb-out path refused; then `npm run loadtest -- --bots 16 --seconds 30` against it: 16/16 joined, tick 0.8 ms worst average, 16/16 profiles deleted; SIGTERM shut it down cleanly |
+| 2026-10-28 (deployment kit) | backup and restore | Pass | On PostgreSQL 16.15 here: `deploy/backup.sh` wrote and checked a custom-format dump of the e2e database (43 characters, 24 tables); `deploy/restore.sh` (drill) restored it into a scratch database with every table's row count equal to the live one, and dropped the scratch database (also after a failure, checked once by accident). `--replace-live` on a scratch copy with story rows deleted: a wrong typed name cancelled it; the right one brought the rows back |
+| 2026-10-28 (deployment kit) | scripts and units | Checked, not run on a server | `shellcheck` clean for every script; `systemd-analyze verify` clean for the three units (it does report errors, tried with a broken unit). `setup.sh` and `update.sh` have not run (no server, and no systemd in this workspace); Caddy's configuration was not validated here (downloading Caddy wasn't allowed), `setup.sh` validates it on the server before using it. Docker images couldn't be pulled here, one more reason the kit uses packages and systemd |
 | 2026-10-28 (shader warm-up) | entry measurement | 2–3 shader programs compiled on entering instead of 10–11; slowest entry frame 36–91 ms instead of 71–182 ms | A script with a fresh browser per run (cold shader cache), a returning guest pressing *Continue* after 8 s at the title screen, against a dev server in the cloud workspace (software rendering, no parallel-compile extension); two or three runs per quality level, before and after. The warm-up itself took 0.12–0.15 s at the title screen. Time from *Continue* to playing: 1.2–1.4 s before and 1.0–1.5 s after on Performance, 2.2–2.7 s before and 2.1–3.3 s after on Quality: no measurable change here, as the first frames' compiling was a small part of it on this machine. The old "2.4 s first world frame" from M6b no longer applies (it was measured before later changes). Not measured on a real GPU or phone |
 | 2026-10-28 (shader warm-up) | typecheck + client tests | Pass, 178/178 | `npm run typecheck`; `client/test` (shared and server code unchanged since the M12 run: 599/599) |
 | 2026-10-28 (shader warm-up) | e2e | 35/35 pass (44.4 min) | The full suite with the warm-up running at every title screen; the title-flow spec now waits for it and checks that entering compiles at most 3 programs. No warm-up failures or extension warnings in the log |

@@ -646,8 +646,9 @@ aggregate numbers leave the server (NETWORKING.md "HTTP").
 
 **Logs (`server/src/log.ts`).** Readable lines by default; `LOG_FORMAT=json`
 writes one JSON object per line (`time`, `level`, `scope`, `message`) for a
-hosting provider's log collector. Log messages name sessions and character
-ids, never guest tokens.
+hosting provider's log collector. Log messages name sessions, character ids
+and display names, never guest tokens, passwords (database URLs are
+redacted) or addresses.
 
 **Deleting a guest profile.** `PlazaRoom.handleDeleteProfile` checks the
 session (title screen, the typed word, an account, no character in play)
@@ -661,11 +662,50 @@ players built on the Colyseus client SDK (a server dev dependency) join a
 running server as guests, play for a while, read `/status`, and delete
 their profiles at the end. Results in TESTING.md.
 
-## Deployment options for Q15 and Q16 (Proposed, for the product owner)
+## Deployment (M12 part 2, D-047)
 
-Nothing here is decided or built. It compares the ways to put the game
+**One Ubuntu VM** (Oracle Cloud Always Free, Arm; any small VPS works the
+same) runs everything:
+
+```
+browser ──HTTPS/WSS──► Caddy :443 ──► game server 127.0.0.1:2567 ──► PostgreSQL 16 (same VM)
+                       (certificates,  (Colyseus, /health, /status,
+                        X-Real-IP)      the built client from CLIENT_DIST)
+```
+
+- **One address.** With `CLIENT_DIST` set, the game server serves
+  `client/dist` (`server/src/staticFiles.ts`: GET and HEAD only, files
+  inside the folder only, no dotfiles; hashed assets cached for a year,
+  pages revalidated), and a production build connects to its own address
+  (`resolveServerUrl`). Matchmaking, WebSockets, `/health` and `/status`
+  share that address. `HOST=127.0.0.1` keeps the game server reachable only
+  through Caddy.
+- **The visitor's address.** Colyseus takes the client address from
+  `X-Real-IP`, then `X-Forwarded-For`, then the socket, and the guest limit
+  counts by it. Caddy overwrites `X-Real-IP` with the real visitor and drops
+  `X-Client-IP`, so a browser can't pick its own address. (Without the
+  proxy, as in development, the headers could be forged; development
+  doesn't need the limit.)
+- **`deploy/`**: `setup.sh` (packages, database and its password in
+  `/etc/padova-life/env`, build, services, Caddy, the server's own firewall),
+  `padova-life.service` (runs `tsx server/src/index.ts` as the `padova`
+  user, read-only system, private /tmp), `backup.sh` with its nightly timer
+  (custom-format `pg_dump`, checked with `pg_restore --list`, 14 days kept,
+  optional rclone copy off the machine), `restore.sh` (a drill into a
+  scratch database by default; replacing the live database only after the
+  database name is typed), `update.sh` (backup, pull, build, restart; new
+  migrations run on start). Status: written and checked (shellcheck,
+  `systemd-analyze verify`, backup and restore on PostgreSQL 16 here); not
+  yet run on a real server, and Caddy's configuration has only been checked
+  by eye (`setup.sh` validates it on the server before using it).
+
+### The options compared for Q15 and Q16 (2026-10-28)
+
+The comparison below led to D-047; the owner's budget (free to under $5 a
+month) then pointed to Oracle Cloud's free tier, which isn't in the table.
+It compared the ways to put the game
 online for the first test with people outside the project (M12 part 2),
-so the product owner can answer Q15 (hosting, domain, budget) and Q16 (the
+so the product owner could answer Q15 (hosting, domain, budget) and Q16 (the
 accounts sign-in needs). Prices were read on 2026-10-28, partly from
 third-party summaries; several providers raised prices in 2026, so check
 the provider's own page when signing up.
@@ -688,7 +728,7 @@ can't hold WebSocket rooms, so they are out.
 | Good | Cheapest, full control, everything in one place | Database safety handled; still cheap | Least for the owner to do; HTTPS and deploys automatic |
 | Less good | Most steps for the owner (SSH key, firewall); one machine for everything | Two pieces to set up; we still patch the server | Less control; each deploy restarts the process and drops players for a moment; costs grow faster with size; less than one CPU on the $7 plan (to be checked with the load test there) |
 
-**Recommendation: C (Render, Frankfurt) for the first tests**, because it
+Claude first recommended **C** (Render, Frankfurt), before the budget was known (D-047 chose Oracle's free tier instead), because it
 asks the least of the product owner as operator and fits the measured load,
 with A as the cheaper choice if the budget is tight. Either way a **domain**
 costs about €10–15 a year (.com, .it or .eu). It must not suggest a link
@@ -738,7 +778,7 @@ Sources (read 2026-10-28): [Hetzner prices 2026](https://agentdeals.dev/hetzner-
   enough for M3 menus and the M5 character panel; see D-007.
 - Real sign-in: decided (sign in with Google and with email and password; guests can upgrade without losing characters, D-042), to be built in M12.
 - Moderation decisions (warnings, mutes, bans) and the owner's admin page for reports (M12, D-042; the page needs a signed-in account, so it comes with sign-in); text chat.
-- Hosting, managed PostgreSQL and backups (Q15; options compared in "Deployment options for Q15 and Q16"). Health checks, status, JSON logs and a load test exist (M12 part 1).
+- Going online: the server kit exists (D-047, "Deployment"), but no server runs it yet; off-site backup copies need the owner's storage account.
 - Authored character models (rigged glTF/VRM) to replace the procedural
   Stage-1 characters — requirements in `ASSET_PIPELINE.md`.
 - Level of detail for characters (far characters still use full geometry)
@@ -749,4 +789,4 @@ Sources (read 2026-10-28): [Hetzner prices 2026](https://agentdeals.dev/hetzner-
   profile exist; distance LOD doesn't).
 - Camera collision: the camera can stray into buildings near the edges;
   they fade (D-033) instead of the camera moving closer.
-- Deployment pipeline.
+- An automatic deployment pipeline (updates are `deploy/update.sh`, run by hand).

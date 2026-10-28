@@ -5,12 +5,17 @@
 // JSON log format; and a finding of the load test: clients at the title
 // screen get no state for the player map they can't see.
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Room } from "@colyseus/sdk";
 import { ClientMessage, DEFAULT_APPEARANCE, ERROR_INVALID_GUEST_TOKEN, PROFILE_VERSION, cloneAppearance, type ProfilePayload } from "@padova/shared";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "../src/db/database.ts";
 import { migrate } from "../src/db/migrate.ts";
+import { createGameServer } from "../src/app.ts";
 import { formatLine } from "../src/log.ts";
+import { resolveStaticFile } from "../src/staticFiles.ts";
 import { createGuestWithCharacter, deleteAccount, type Owner } from "../src/profiles/profileRepository.ts";
 import { addStoryEvent, blockAccount, insertReport } from "../src/social/socialRepository.ts";
 import { connect, joinWithNewCharacter, sleep, startTestServer, waitFor, type ProfileClient, type TestServer } from "./helpers/gameClient.ts";
@@ -205,6 +210,54 @@ describe("clients at the title screen (load test finding)", () => {
       await Promise.all(rooms.map((room) => Promise.race([room.leave(true).catch(() => undefined), sleep(500)])));
       await server.stop();
     }
+  });
+});
+
+describe("serving the built client (production)", () => {
+  const dist = mkdtempSync(join(tmpdir(), "padova-dist-"));
+  mkdirSync(join(dist, "assets"));
+  writeFileSync(join(dist, "index.html"), "<!doctype html><title>Padova</title>");
+  writeFileSync(join(dist, "assets", "index-abc123.js"), "console.log(1)");
+  writeFileSync(join(dist, ".env"), "SECRET=1");
+  writeFileSync(join(dist, "..", "padova-outside.txt"), "outside");
+  let stop: () => Promise<void>;
+  const url = "http://127.0.0.1:2651";
+  beforeAll(async () => {
+    const db = await migratedTestDatabase();
+    const server = createGameServer({ db, clientDist: dist, tuning: { guestCreationsPerIpPerHour: 10_000, npcs: false } });
+    await server.listen(2651, "127.0.0.1");
+    stop = async () => {
+      await server.gracefullyShutdown(false);
+      await db.close();
+    };
+  });
+  afterAll(async () => {
+    await stop();
+    rmSync(dist, { recursive: true, force: true });
+    rmSync(join(dist, "..", "padova-outside.txt"), { force: true });
+  });
+
+  it("serves the page and its assets with the right types and caching, and nothing else", async () => {
+    const page = await fetch(`${url}/`);
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(page.headers.get("cache-control")).toBe("no-cache");
+    expect(await page.text()).toContain("<title>Padova</title>");
+    const asset = await fetch(`${url}/assets/index-abc123.js`);
+    expect(asset.headers.get("content-type")).toContain("text/javascript");
+    expect(asset.headers.get("cache-control")).toContain("immutable");
+    expect(asset.headers.get("x-content-type-options")).toBe("nosniff");
+    expect((await fetch(`${url}/index.html`, { method: "HEAD" })).status).toBe(200);
+    for (const path of ["/.env", "/missing.js", "/%2e%2e/padova-outside.txt", "/assets/..%2f..%2fpadova-outside.txt", "/..%5cpadova-outside.txt"]) {
+      expect((await fetch(`${url}${path}`)).status, path).toBe(404);
+    }
+    expect((await fetch(`${url}/`, { method: "POST" })).status).toBe(404);
+    expect(resolveStaticFile(dist, "/../padova-outside.txt")).toBeNull();
+    // The game's own routes and matchmaking still work beside it.
+    expect(await (await fetch(`${url}/health`)).json()).toEqual({ status: "ok" });
+    const client = await connect("ws://127.0.0.1:2651");
+    expect(client.lastProfile()?.status).toBe("lobby");
+    await client.room.leave(true);
   });
 });
 

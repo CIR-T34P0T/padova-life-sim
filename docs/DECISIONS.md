@@ -835,3 +835,37 @@ owner can change.
   players in different copies don't see each other. Interest management
   (send only what is near) would let one world hold more people; it stays
   in "Technical work that waits for a trigger".
+
+## D-047 — The product owner's answers on hosting and sign-in accounts (2026-10-28)
+
+- **Q16 (accounts sign-in needs):** answered "ok" to the proposal: email
+  through **Resend's free plan** (3,000 a month, 100 a day); a Google OAuth
+  client created by the product owner in the Google Cloud Console. Both
+  need the game's domain; their secrets go only into the server's settings.
+- **Q15 (hosting):** budget **free to under $5 a month**. From the owner's
+  shortlist, Claude recommended **one Oracle Cloud Always Free VM** (Ampere
+  Arm, Ubuntu 24.04) in an EU home region (Milan or Frankfurt; it can't be
+  changed later), with everything on it. Fallback if Oracle's sign-up or
+  capacity fails: a small EU VPS (about €5–7 a month after 2026's price
+  rises). Caveats recorded: Oracle halved the free Arm allowance in June 2026
+  (now 2 cores and 12 GB, still plenty) and may reclaim free VMs that look
+  idle (ours would), so the account is upgraded to pay-as-you-go, which keeps
+  the free allowance and, by reports, ends idle reclamation, with a budget
+  alert. Free platform tiers were set aside: Render's free service sleeps
+  and its free database is deleted after 30 days with no backups; Neon's
+  free compute hours wouldn't last a month for an always-on server; Fly.io
+  has no free tier now.
+- **Kept:** PostgreSQL (D-015; MongoDB, suggested in the owner's research,
+  would mean a rewrite of the ledger and migrations) and no Redis (live
+  state already sits in the game server's memory; nothing to cache yet).
+- **Shape of the deployment** (built as `deploy/`, not yet run on a real
+  server): Caddy (HTTPS, automatic certificates) → the game server on
+  127.0.0.1, which also serves the built client (`CLIENT_DIST`) so page,
+  matchmaking and WebSockets share one address → PostgreSQL on the same VM.
+  Caddy sets `X-Real-IP` to the real visitor, because the game reads it for
+  the guest limit. A nightly `pg_dump` (14 days kept, optional off-site copy
+  with rclone) and a restore drill that restores into a scratch database and
+  compares row counts. Updates with `deploy/update.sh` (backup first).
+- The address stays private (the product owner's own testing) until
+  sign-in and the reports admin page are in: D-035 puts M12 before any test
+  with people outside the project.

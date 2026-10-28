@@ -1,0 +1,11 @@
+# Runs the database backup every night (M12, D-047).
+[Unit]
+Description=Nightly Padova Life SIM database backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

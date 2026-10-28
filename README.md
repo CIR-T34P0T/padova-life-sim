@@ -211,6 +211,66 @@ for a rented room, empty or furnished. Neither page is linked from the game.
 
 Landscape gives the best view; portrait works.
 
+### Putting the game online (Oracle Cloud free server; not done yet)
+
+The plan (docs/DECISIONS.md D-047): one free Oracle Cloud server runs the
+game, its database and HTTPS. The scripts are in `deploy/`; they have been
+checked here but **not yet run on a real server**, so do the first run with
+Claude reading the output. Keep the address to yourself until sign-in and
+the reports page are built (D-035).
+
+1. **Oracle account:** sign up at <https://www.oracle.com/cloud/free/>.
+   Choose an EU home region, **Italy Northwest (Milan)** or **Germany
+   Central (Frankfurt)**; it can't be changed later. Then, under *Billing &
+   Cost Management*, upgrade the account to **Pay As You Go** (the free
+   allowance stays free, and by reports Oracle then stops reclaiming free
+   servers that look idle, as ours would) and create a **budget** with an
+   alert at €1.
+2. **SSH key** on your laptop (PowerShell): `ssh-keygen -t ed25519`, then
+   `Get-Content $HOME\.ssh\id_ed25519.pub` and copy the line.
+3. **The server:** *Compute → Instances → Create instance*: image **Ubuntu
+   24.04**, shape **VM.Standard.A1.Flex** (Ampere) with 2 OCPUs and 12 GB
+   (marked "Always Free-eligible"), paste your public key. If it says "Out
+   of capacity", try another availability domain or try again later.
+4. **Open the web ports:** in the instance's virtual cloud network, open its
+   default security list and add an ingress rule: source `0.0.0.0/0`, TCP,
+   destination ports `80,443`.
+5. **Domain:** buy one (about €10–15 a year; nothing suggesting the
+   University of Padua) and add an **A record** pointing at the server's
+   public IP.
+6. **Connect and get the code** (PowerShell: `ssh ubuntu@<public IP>`), then
+   on the server:
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/padova_deploy -N "" && cat ~/.ssh/padova_deploy.pub
+   ```
+   Add that line on GitHub: the repository → *Settings → Deploy keys → Add
+   deploy key* (read-only). Then:
+   ```bash
+   sudo mkdir -p /opt/padova-life && sudo chown "$USER" /opt/padova-life
+   git -c core.sshCommand="ssh -i ~/.ssh/padova_deploy" clone git@github.com:CIR-T34P0T/padova-life-sim.git /opt/padova-life
+   cd /opt/padova-life && git config core.sshCommand "ssh -i ~/.ssh/padova_deploy"
+   sudo bash deploy/setup.sh play.your-domain.example
+   ```
+7. **Check:** `https://play.your-domain.example` shows the title screen and
+   `/status` the numbers. Logs: `journalctl -u padova-life -f`.
+
+**Backups:** every night at about 03:30 (`/var/backups/padova-life`, 14 days
+kept). Back up now, then try a restore (into a scratch database; the game
+isn't touched):
+
+```bash
+sudo systemctl start padova-life-backup
+sudo -u padova bash -c 'set -a; . /etc/padova-life/env; set +a; /opt/padova-life/deploy/restore.sh "$(ls -t /var/backups/padova-life/*.dump | head -1)"'
+```
+
+Copies that survive losing the server need a storage account (for example
+Oracle Object Storage, free up to 20 GB) and `BACKUP_RCLONE_REMOTE` in
+`/etc/padova-life/env`; Claude can set that up with you.
+
+**Updates:** `cd /opt/padova-life && sudo bash deploy/update.sh` (backs up,
+pulls `main`, builds, restarts; players online are disconnected for a few
+seconds).
+
 ## Commands
 
 | Command | What it does |
@@ -258,6 +318,8 @@ browser already playing) open a second, separate copy of the square.
 | --- | --- | --- | --- |
 | `PORT` | server | `2567` | WebSocket server port |
 | `LOG_LEVEL` | server | `info` | `debug`, `info`, `warn`, `error`, `silent` |
+| `HOST` | server | `0.0.0.0` | Address the server listens on; `127.0.0.1` behind an HTTPS proxy (production) |
+| `CLIENT_DIST` | server | unset | Folder of the built client (`client/dist`, relative to the repository) to serve from the game server's own address (production); unset in development, where Vite serves the page |
 | `LOG_FORMAT` | server | plain lines | `json` writes one JSON object per line (`time`, `level`, `scope`, `message`) for a hosting provider's log collector |
 | `CLIENT_PORT` | client | `5173` | Vite dev server port |
 | `VITE_SERVER_URL` | client | `ws://<page host>:2567` | Game server address |

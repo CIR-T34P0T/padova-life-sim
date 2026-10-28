@@ -22,7 +22,7 @@ Statuses: planned · in progress · blocked · implemented · tested · verified
 | M9 | Relationships, public profiles and safety | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | Player cards, *Chat*, friendships grown from greetings, chats, studying and lectures together; blocks and reports between accounts (reports deleted after 90 days, `npm run reports`); a private story log (D-042, D-043) |
 | M10 | A place to live | Tested (persistence verified on PGlite and PostgreSQL 16); numbers not yet play-tested; real phone and Windows not yet | A rented room in the student housing (weekly rent, grace period, cheaper room, never debt), sleep, comfort, a small furniture catalogue in fixed spots, storage |
 | M11 | NPCs with routines | Tested (desktop and phone emulation; tick budget measured); not yet seen by the product owner | Four deterministic locals (a barista, three students) on game-time schedules, using the same movement, seats and actions as players; greet them; tick time measured against a budget |
-| M12 | Sign-in, deployment and operations | Part 1 tested (deleting a guest profile, health and status, JSON logs, a load test; D-046); sign-in, hosting and the admin page wait for Q15 and Q16; before people outside the project play (D-035) | Real sign-in, account deletion, hosting with backups, HTTPS/WSS, monitoring, a load test |
+| M12 | Sign-in, deployment and operations | Part 1 tested (deleting a guest profile, health and status, JSON logs, a load test; D-046). Part 2 in progress: the server kit for one Oracle Cloud free VM is written (D-047; not yet run on a real server); sign-in and the admin page next. Before people outside the project play (D-035) | Real sign-in, account deletion, hosting with backups, HTTPS/WSS, monitoring, a load test |
 
 After M7: **playable multiplayer prototype** (earn and spend). The order
 M7 → M7b → M8 → M9 → M10 → M11 was approved on 2026-10-20 (D-035), with M12
@@ -410,7 +410,12 @@ interaction systems, used unchanged.
 
 **Part 1 built** (2026-10-27): deleting a guest profile, health and
 status, JSON logs and a load test; see "M12 part 1 operations: acceptance
-criteria" above and D-046. The rest waits for Q15 and Q16.
+criteria" above and D-046. **Part 2 started** (2026-10-28, D-047): the game
+server can serve the built client from one address, and `deploy/` holds the
+setup, update, backup and restore scripts for one Ubuntu VM (Oracle Cloud
+Always Free) behind Caddy; backup and restore were tested on PostgreSQL
+here, the setup script has not run on a real server yet (README → "Putting
+the game online"). Sign-in and the admin page come next.
 
 Depends on: the sign-in method (Q5, answered: D-042), a Google OAuth client
 and an email-sending service (owned by the product owner), hosting and
@@ -451,7 +456,7 @@ budget decisions. Comes before any test with people outside the project
 | M9 social | Done (2026-10-27) |
 | M10 home | M7 income (done); areas and doors (M7c) |
 | M11 NPCs | M7 and M8 places |
-| M12 operations | Part 1 done (2026-10-27); the rest needs a Google OAuth client and an email-sending service (Q16) and hosting decisions (Q15) |
+| M12 operations | Part 1 done (2026-10-27); Q15 and Q16 answered (D-047); going online needs the owner's Oracle account, a domain and the first setup run; sign-in needs the Google OAuth client and the Resend account |
 
 ## Decisions for the product owner
 
@@ -475,8 +480,8 @@ marked **waiting**.
 | Q12 | Day and night lighting | Approved: right after M7 | Done in M7b (D-037) |
 | Q13 | Who reviews player reports, and how long reports are kept | Answered 2026-10-27: **A, 90 days**, the owner reviews reports on an admin page; report details deleted after 90 days (D-042) | Reports collected in M9; the admin page comes with sign-in in M12 |
 | Q14 | How to build indoor rooms, and when | Answered 2026-10-26: option C (areas inside the one server room, doors); each building gets its rooms when it has a use, one room per use (D-039) | Built in M7c |
-| Q15 | Hosting for the first deployment (M12): where the game runs, a domain name, and a monthly budget | **Waiting.** Compared on 2026-10-28 in ARCHITECTURE.md "Deployment options for Q15 and Q16": A, one small EU server (about €14 or $15 a month); B, an EU server with managed PostgreSQL (about $22); C, a platform service in Frankfurt (about $13–26). Recommended: C, plus a domain (€10–15 a year) | M12's hosting part |
-| Q16 | Accounts the sign-in needs (D-042): a Google OAuth client and an email-sending service, created and owned by the product owner | **Waiting.** Steps and a comparison in the same section; recommended: Resend's free allowance for email. Both need the domain from Q15 first. The keys stay with the owner and on the server, never in the repository | M12's sign-in part |
+| Q15 | Hosting for the first deployment (M12): where the game runs, a domain name, and a monthly budget | Answered 2026-10-28: a budget of free to under $5 a month; one **Oracle Cloud Always Free** VM in an EU region, a small EU VPS as the fallback (D-047). The owner creates the account and buys a domain | M12's hosting part: `deploy/` |
+| Q16 | Accounts the sign-in needs (D-042): a Google OAuth client and an email-sending service, created and owned by the product owner | Answered 2026-10-28: as proposed, **Resend's free plan** for email and a Google OAuth client (D-047); both are created once the domain exists | M12's sign-in part |
 
 ## Current state (handoff, 2026-10-27, after M12 part 1)
 
@@ -555,13 +560,15 @@ saved in the creator and device settings live only in that browser. The world cl
 | 2 | Run the full play loop on Windows (create, café → study, reload) and report | Partly done: the game has run on Windows (after M5); no full report | Product owner |
 | 3 | Real-phone test using the manual checklist in `docs/TESTING.md` (steps 1–49) | Planned | Product owner |
 | 4 | Play-test the balance (need rates, prices, the €7.50 allowance, study XP, wages, shift length, the daily shift limit, the lecture timetable and exam sittings, the grade targets, relationship gains and daily caps, rents, the grace period, furniture prices, comfort and sleep) and adjust `shared/src/life/config.ts` | Planned | Product owner feedback, then Claude |
-| 5 | Decisions for the product owner | Q15 (hosting, domain, budget) and Q16 (Google OAuth client, email service) wait for M12's hosting and sign-in parts | Product owner |
+| 5 | Going online (D-047): an Oracle Cloud account (EU home region, pay-as-you-go with a budget alert), a free VM, a domain pointing at it, then the first `deploy/setup.sh` run with the output sent to Claude; later a Google OAuth client and a Resend account | Planned | Product owner, with Claude |
 
-**Recommended next task:** the product owner answers **Q15** (hosting,
-domain, budget) and **Q16** (a Google OAuth client and an email-sending
-service); then **M12 part 2**: sign-in with a guest upgrade, the admin page
-for reports, and hosting with HTTPS/WSS and restored backups (see "Planned
-milestones"). Until then, Claude can take the follow-ups below.
+**Recommended next task:** for Claude, **M12 part 2, sign-in**: email and
+password, and a guest upgrading without losing characters (Google sign-in
+once the owner's OAuth client exists; emails go to the server log until the
+Resend account exists), then the admin page for reports. For the product
+owner, open item 5: the Oracle account, the VM and a domain, so the first
+setup run can happen (README → "Putting the game online"). The address
+stays private until sign-in and the admin page are in (D-035).
 Meanwhile the owner tries M9, M10, M11 and the profile deletion. In parallel the product owner looks at the district by day and at night, the title screen,
 the creation flow and the characters on Windows and a phone (item 1; the
 world lab, `/world-lab.html?time=23:00`, shows every corner at any hour).
