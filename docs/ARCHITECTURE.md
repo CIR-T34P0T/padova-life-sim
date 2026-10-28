@@ -74,7 +74,17 @@ the client, `tsx` runs it on the server.
     shared rule or server module reads the light (guarded by
     `server/test/boundaries.test.ts`);
   - the district is built just after the title screen appears
-    (`{ defer: true }`); `ready` / `isReady()` let entering the world wait for it.
+    (`{ defer: true }`); `ready` / `isReady()` let entering the world wait for it;
+  - once it is built and the browser is idle, `Game.warmUpShaders` compiles
+    the square's shaders and the characters' (from two stand-in characters,
+    one patterned and one shown as away, added for the compile and removed)
+    with `renderer.compileAsync`, or `compile` where the parallel-compile
+    extension is missing; nothing is drawn. Character materials are shared
+    and never disposed, so their programs stay. Skipped if the player has
+    already entered. The debug hook reports it (`warmUp`) and the last entry
+    (`entry`: time to the first frame showing your character, its slowest
+    frame, shader programs compiled meanwhile). Indoor rooms and shadow maps
+    still compile on first use.
 - `client/world-lab.html` shows the district without a server (developer page), at any time of day with `?time=HH:MM`.
 - `render/quality.ts` picks a profile: phones (coarse pointer) get pixel ratio
   ≤ 1.5, no shadows, no antialiasing. The Graphics setting (title screen →
@@ -651,13 +661,84 @@ players built on the Colyseus client SDK (a server dev dependency) join a
 running server as guests, play for a while, read `/status`, and delete
 their profiles at the end. Results in TESTING.md.
 
+## Deployment options for Q15 and Q16 (Proposed, for the product owner)
+
+Nothing here is decided or built. It compares the ways to put the game
+online for the first test with people outside the project (M12 part 2),
+so the product owner can answer Q15 (hosting, domain, budget) and Q16 (the
+accounts sign-in needs). Prices were read on 2026-10-28, partly from
+third-party summaries; several providers raised prices in 2026, so check
+the provider's own page when signing up.
+
+**What the game needs.** One always-on Node.js 22 process (Colyseus with
+WebSockets; one process, because sessions and the guest-creation limit live
+in its memory); PostgreSQL 16 with daily backups and a restore that has
+been tried; HTTPS/WSS; the built client's static files; an EU location
+(players in Italy, GDPR). Measured load with 16 players and the locals:
+about 150 MB of memory and under 10 % of one CPU core (TESTING.md, M12 load
+test). Serverless function hosts (Vercel, Netlify functions and the like)
+can't hold WebSocket rooms, so they are out.
+
+| | A. One small EU server for everything | B. EU server + managed PostgreSQL | C. Platform service, EU region |
+| --- | --- | --- | --- |
+| Example | Hetzner Cloud CPX12 (1 vCPU, 2 GB, Germany or Finland) or a DigitalOcean 2 GB Droplet (Frankfurt) | DigitalOcean in Frankfurt: a 1 GB Droplet for the game + Managed PostgreSQL (1 GB) | Render in Frankfurt: a 512 MB web service + Render Postgres + a free static site for the client |
+| Monthly cost (approx.) | about €14 (Hetzner) or $15 (DigitalOcean), backups included | about $22 ($6 + $1.20 backups + $15) | $13 with the 256 MB database, $26 with the 1 GB one |
+| Who keeps it running | Us: system updates, PostgreSQL, HTTPS (Caddy renews certificates by itself), a nightly database dump copied off the machine | Us for the game server; the provider for the database (daily backups, point-in-time recovery) | The provider; deploys from GitHub on each push |
+| Backups and restore | Provider's daily server copies (7 kept) + our nightly `pg_dump`; we test a restore | Provider's; we test a restore | Point-in-time recovery for 3 days (Hobby workspace); we test a restore |
+| Good | Cheapest, full control, everything in one place | Database safety handled; still cheap | Least for the owner to do; HTTPS and deploys automatic |
+| Less good | Most steps for the owner (SSH key, firewall); one machine for everything | Two pieces to set up; we still patch the server | Less control; each deploy restarts the process and drops players for a moment; costs grow faster with size; less than one CPU on the $7 plan (to be checked with the load test there) |
+
+**Recommendation: C (Render, Frankfurt) for the first tests**, because it
+asks the least of the product owner as operator and fits the measured load,
+with A as the cheaper choice if the budget is tight. Either way a **domain**
+costs about €10–15 a year (.com, .it or .eu). It must not suggest a link
+with the University of Padua (no "unipd", no university names or logos).
+Rough budget: €25–35 a month with C and the 1 GB database, domain included.
+
+**Q16, the accounts sign-in needs (D-042).** Both are created and owned by
+the product owner; their secrets go only into the host's environment
+settings, never into the repository or a chat.
+
+1. *Google sign-in* (free): in the Google Cloud Console, create a project,
+   set up the OAuth consent screen (external; app name, support email; the
+   basic scopes openid, email and profile) and create an OAuth client of type
+   "Web application" whose redirect address is on the game's domain (plus
+   `http://localhost` for development). It gives a client id and a client
+   secret. So the domain comes first.
+2. *An email-sending service* for confirming addresses and resetting
+   passwords:
+
+   | Service | Free allowance | First paid plan | Note |
+   | --- | --- | --- | --- |
+   | Resend | 3,000 a month, 100 a day, one domain | $20 a month | Simple API |
+   | Brevo | 300 a day (with Brevo's logo in the email) | $9 a month | EU company |
+   | Amazon SES | none to speak of | about $0.10 per 1,000 emails | Most setup |
+
+   Recommendation: **Resend's free allowance** for the tests. Each needs
+   DNS records on the domain (SPF and DKIM) so emails aren't marked as spam.
+
+**Order once the answers are in:** buy the domain → create the host
+account (the owner pays; Claude writes the step-by-step) → email service
+and its DNS records → Google client with the domain's redirect address →
+Claude builds sign-in and the deployment configuration, and tries a restore
+from a backup before anyone outside the project plays.
+
+Sources (read 2026-10-28): [Hetzner prices 2026](https://agentdeals.dev/hetzner-pricing-2026),
+[Render pricing](https://render.com/pricing),
+[DigitalOcean pricing summary](https://kuberns.com/blogs/digitalocean-pricing/),
+[managed PostgreSQL comparison](https://sliplane.io/blog/cheap-managed-postgres-providers),
+[Scaleway managed databases](https://www.scaleway.com/en/pricing/managed-databases/)
+(another EU option: about €11 a month for its smallest PostgreSQL, Paris),
+[Resend free tier](https://automationatlas.io/answers/resend-free-tier-explained-2026/),
+[Brevo plans](https://dreamlit.ai/blog/brevo-review).
+
 ## Not yet decided or built
 
 - UI framework for larger panels (inventory, build mode). Plain DOM was
   enough for M3 menus and the M5 character panel; see D-007.
 - Real sign-in: decided (sign in with Google and with email and password; guests can upgrade without losing characters, D-042), to be built in M12.
 - Moderation decisions (warnings, mutes, bans) and the owner's admin page for reports (M12, D-042; the page needs a signed-in account, so it comes with sign-in); text chat.
-- Hosting, managed PostgreSQL and backups (Q15). Health checks, status, JSON logs and a load test exist (M12 part 1).
+- Hosting, managed PostgreSQL and backups (Q15; options compared in "Deployment options for Q15 and Q16"). Health checks, status, JSON logs and a load test exist (M12 part 1).
 - Authored character models (rigged glTF/VRM) to replace the procedural
   Stage-1 characters — requirements in `ASSET_PIPELINE.md`.
 - Level of detail for characters (far characters still use full geometry)

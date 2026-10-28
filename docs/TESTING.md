@@ -511,7 +511,9 @@ the review ("Changes to save: Hair."); deleting with the typed name; another
 player sees the saved look. In the world: Cancel changes nothing; Save
 changes the look but not money, ledger, skills or traits (needs within
 normal drift); **a simulated network drop reconnects into the same
-character with the same look**; a reload returns through Continue. Phone
+character with the same look**; a reload returns through Continue, after the
+title screen's shader warm-up finished, and entering compiles at most 3 shader
+programs. Phone
 (390×844 touch, then 844×390): every menu item, category tab and footer
 button on screen, menu items at least 44 px tall, preview above the
 categories, **one-finger drag turns and a two-finger pinch zooms the
@@ -844,6 +846,9 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-28 (shader warm-up) | entry measurement | 2–3 shader programs compiled on entering instead of 10–11; slowest entry frame 36–91 ms instead of 71–182 ms | A script with a fresh browser per run (cold shader cache), a returning guest pressing *Continue* after 8 s at the title screen, against a dev server in the cloud workspace (software rendering, no parallel-compile extension); two or three runs per quality level, before and after. The warm-up itself took 0.12–0.15 s at the title screen. Time from *Continue* to playing: 1.2–1.4 s before and 1.0–1.5 s after on Performance, 2.2–2.7 s before and 2.1–3.3 s after on Quality: no measurable change here, as the first frames' compiling was a small part of it on this machine. The old "2.4 s first world frame" from M6b no longer applies (it was measured before later changes). Not measured on a real GPU or phone |
+| 2026-10-28 (shader warm-up) | typecheck + client tests | Pass, 178/178 | `npm run typecheck`; `client/test` (shared and server code unchanged since the M12 run: 599/599) |
+| 2026-10-28 (shader warm-up) | e2e | 35/35 pass (44.4 min) | The full suite with the warm-up running at every title screen; the title-flow spec now waits for it and checks that entering compiles at most 3 programs. No warm-up failures or extension warnings in the log |
 | 2026-10-27 (M12 part 1) | typecheck + build | Pass | `npm run check` typecheck and `npm run build` (client and server) |
 | 2026-10-27 (M12 part 1) | unit + integration | 599/599 pass (38 files) | In-memory PGlite. New: 7 operations tests (`server/test/operations.test.ts`: profile deletion through the room and its refusals, the database cascade, `/health`, `/status`, log formats, and the title-screen regression below) |
 | 2026-10-27 (M12 part 1) | unit + integration on PostgreSQL 16.15 | 668/668 pass (38 files) | `TEST_DATABASE_URL` on a throwaway PostgreSQL 16.15 (609 s): the database tests repeated on PostgreSQL, including the profile-deletion cascade |
@@ -1021,12 +1026,19 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
   several seconds in software-rendered test browsers (shader compilation),
   not measured on real devices.
 - **M6b title screen limitations:**
-  - Sessions at the title screen still receive the shared room state (other
-    players' positions) and count toward the room's player limit; the client
-    builds no avatars for them until it enters. Interest management later.
-  - Entering the world takes about 4 s on this machine with software
-    rendering (0.9 s server, 2.4 s first world frame, 1.25 s welcome
-    screen); not measured on a real GPU. Shaders are not precompiled yet.
+  - Sessions at the title screen receive no players (M7c `StateView`; since
+    M12 nothing about the player map at all) but count toward the room's
+    player limit.
+  - Entering the world (M12 measurement, cold shader cache, software
+    rendering in the cloud workspace): about 1.1–1.4 s from *Continue* to
+    playing on Performance and 2.1–3.2 s on Quality, mostly the server's
+    answer, the first frames and the welcome screen. The shaders of the
+    square and of characters now compile while the title screen is open
+    (about 0.13 s there), so the first frames compile 2–3 shader programs
+    instead of 10–11 and the slowest entry frame fell from 71–182 ms to
+    36–91 ms; the total time didn't change measurably on this machine.
+    Not measured on a real GPU or phone, where compiling usually costs more.
+    Avatars are still built in one go as players appear (a short stall each).
   - The fallback that draws a default body part when a part can't be built,
     the portrait fallback without WebGL and the creator's no-WebGL message
     have no automated test.

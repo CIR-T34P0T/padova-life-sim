@@ -475,8 +475,8 @@ marked **waiting**.
 | Q12 | Day and night lighting | Approved: right after M7 | Done in M7b (D-037) |
 | Q13 | Who reviews player reports, and how long reports are kept | Answered 2026-10-27: **A, 90 days**, the owner reviews reports on an admin page; report details deleted after 90 days (D-042) | Reports collected in M9; the admin page comes with sign-in in M12 |
 | Q14 | How to build indoor rooms, and when | Answered 2026-10-26: option C (areas inside the one server room, doors); each building gets its rooms when it has a use, one room per use (D-039) | Built in M7c |
-| Q15 | Hosting for the first deployment (M12): where the game runs, a domain name, and a monthly budget | **Waiting.** Options to compare when M12 starts: a small virtual server with managed PostgreSQL, or a platform service; both with HTTPS/WSS and daily backups | M12's hosting part |
-| Q16 | Accounts the sign-in needs (D-042): a Google OAuth client and an email-sending service, created and owned by the product owner | **Waiting.** Claude can write the step-by-step setup; the keys stay with the owner and on the server, never in the repository | M12's sign-in part |
+| Q15 | Hosting for the first deployment (M12): where the game runs, a domain name, and a monthly budget | **Waiting.** Compared on 2026-10-28 in ARCHITECTURE.md "Deployment options for Q15 and Q16": A, one small EU server (about €14 or $15 a month); B, an EU server with managed PostgreSQL (about $22); C, a platform service in Frankfurt (about $13–26). Recommended: C, plus a domain (€10–15 a year) | M12's hosting part |
+| Q16 | Accounts the sign-in needs (D-042): a Google OAuth client and an email-sending service, created and owned by the product owner | **Waiting.** Steps and a comparison in the same section; recommended: Resend's free allowance for email. Both need the domain from Q15 first. The keys stay with the owner and on the server, never in the repository | M12's sign-in part |
 
 ## Current state (handoff, 2026-10-27, after M12 part 1)
 
@@ -566,7 +566,6 @@ Meanwhile the owner tries M9, M10, M11 and the profile deletion. In parallel the
 the creation flow and the characters on Windows and a phone (item 1; the
 world lab, `/world-lab.html?time=23:00`, shows every corner at any hour).
 Follow-ups not covered by "Technical work that waits for a trigger":
-precompile the world's shaders while the title screen is open (entering
-takes about 4 s with software rendering, 2.4 s of it the first world frame);
-per-object level of detail for the
-district if real phones need it.
+per-object level of detail for the district if real phones need it. (The
+title screen now compiles the square's shaders ahead of time; measurements
+in TESTING.md.)

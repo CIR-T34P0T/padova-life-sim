@@ -4,6 +4,8 @@
 import * as THREE from "three";
 import { CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
 import {
+  APPEARANCE_PRESETS,
+  DEFAULT_APPEARANCE,
   GAME_CONFIG,
   AREAS,
   PLAZA_AREA,
@@ -44,6 +46,16 @@ interface RemoteEntity {
   view: AvatarView | null;
   buffer: SnapshotBuffer;
   latest: ReplicatedPlayer;
+}
+
+/** How entering the world went (debug hook). */
+interface EntryTiming {
+  ms: number;
+  /** Characters built before the first frame showing ours (everyone in the area), and the time spent building them. */
+  avatars: number;
+  avatarsMs: number;
+  slowestFrameMs: number;
+  newPrograms: number;
 }
 
 /** Profile events the page (main.ts) reacts to. */
@@ -98,6 +110,10 @@ export class Game {
   private worldVisibleWaiters: (() => void)[] = [];
   /** The light of the frame that first showed our character after entering, and the clock then (M7b checks). */
   private entryLight: { daylight: ReturnType<WorldScene["stats"]>["daylight"]; gameMinute: number | null } | null = null;
+  /** Entering the world (debug hook): time to the first frame showing our character, its slowest frame, and the shader programs compiled meanwhile. */
+  private entry: { startedAt: number; programsBefore: number; slowestFrameMs: number; avatars: number; avatarsMs: number; result: EntryTiming | null } | null = null;
+  /** The shader warm-up at the title screen (debug hook). */
+  private warmUp: { state: "waiting" | "running" | "done" | "skipped" | "failed"; ms: number; programs: number } = { state: "waiting", ms: 0, programs: 0 };
 
   constructor(
     private readonly container: HTMLElement,
@@ -284,6 +300,45 @@ export class Game {
   async connect(options: JoinOptionsWithIdentity): Promise<void> {
     await this.connection.join(options);
     this.exposeDebugHook();
+    if (this.warmUp.state === "waiting") void this.warmUpShaders();
+  }
+
+  /**
+   * Compiles the square's shaders, and the characters' (from two stand-in
+   * characters: one patterned, one shown as away), while the title screen is
+   * open, so the first frames after entering don't stop to compile them.
+   * Only compiles: nothing is drawn. If it fails, the first frame compiles
+   * them as before.
+   */
+  private async warmUpShaders(): Promise<void> {
+    this.warmUp.state = "running";
+    const world = this.sceneFor(PLAZA_AREA);
+    await world.ready;
+    await new Promise<void>((resolve) => {
+      if ("requestIdleCallback" in window) requestIdleCallback(() => resolve(), { timeout: 2000 });
+      else setTimeout(resolve, 300);
+    });
+    if (this.inWorld) {
+      this.warmUp.state = "skipped"; // the first frame compiled them already
+      return;
+    }
+    const started = performance.now();
+    const look = APPEARANCE_PRESETS.find((p) => p.appearance.outfit.pattern !== "plain")?.appearance ?? DEFAULT_APPEARANCE;
+    const standIns = [createAvatar("warm-up-1", look, true, this.quality), createAvatar("warm-up-2", look, false, this.quality)];
+    standIns[1]!.setAway(true);
+    for (const avatar of standIns) world.scene.add(avatar.root);
+    try {
+      // Without the parallel-compile extension three.js warns on compileAsync; compile() starts the same work.
+      if (this.renderer.extensions.has("KHR_parallel_shader_compile")) await this.renderer.compileAsync(world.scene, this.rig.camera);
+      else this.renderer.compile(world.scene, this.rig.camera);
+      this.warmUp = { state: "done", ms: performance.now() - started, programs: this.programCount() };
+    } catch (error) {
+      console.warn("Shader warm-up failed; the first frame will compile them", error);
+      this.warmUp.state = "failed";
+    } finally {
+      // The characters' materials are shared and stay alive, so their compiled shaders stay too.
+      for (const avatar of standIns) avatar.dispose();
+    }
   }
 
   /** The scene of the area our character is in. */
@@ -455,6 +510,7 @@ export class Game {
     const self = this.connection.sessionId ? this.entities.get(this.connection.sessionId) : undefined;
     if (self?.latest.area) this.areaId = this.resolveArea(self.latest.area);
     this.inWorld = true;
+    this.entry = { startedAt: performance.now(), programsBefore: this.programCount(), slowestFrameMs: 0, avatars: 0, avatarsMs: 0, result: null };
     this.moveInput = { forward: 0, right: 0 };
     this.lastSentDirection = { dx: 0, dz: 0 };
     this.rig.snapToNextTarget();
@@ -487,6 +543,10 @@ export class Game {
       this.dropScene(home);
     }
     document.body.classList.remove("in-world");
+  }
+
+  private programCount(): number {
+    return this.renderer.info.programs?.length ?? 0;
   }
 
   /** Name and traits for the character panel, from the saved profile. */
@@ -559,8 +619,19 @@ export class Game {
     this.perf.parts.worldMs += (t2 - t1 - this.perf.parts.worldMs) * 0.05;
     this.perf.parts.renderMs += (t3 - t2 - this.perf.parts.renderMs) * 0.05;
     this.perf.parts.labelsMs += (t4 - t3 - this.perf.parts.labelsMs) * 0.05;
+    const entry = this.entry;
+    if (entry && !entry.result) entry.slowestFrameMs = Math.max(entry.slowestFrameMs, t4 - now);
     if (selfShown && this.world.isReady() && this.worldVisibleWaiters.length > 0) {
       this.entryLight = { daylight: this.world.stats().daylight, gameMinute: this.lastGameMinute };
+      if (entry && !entry.result) {
+        entry.result = {
+          ms: performance.now() - entry.startedAt,
+          avatars: entry.avatars,
+          avatarsMs: entry.avatarsMs,
+          slowestFrameMs: entry.slowestFrameMs,
+          newPrograms: this.programCount() - entry.programsBefore,
+        };
+      }
       for (const resolve of this.worldVisibleWaiters.splice(0)) resolve();
     }
     // Rolling averages for the performance readout (debug hook only).
@@ -623,7 +694,12 @@ export class Game {
 
   private buildView(id: string, player: ReplicatedPlayer): AvatarView {
     const isSelf = id === this.connection.sessionId;
+    const started = performance.now();
     const view = createAvatar(id, appearanceOf(player), isSelf, this.quality);
+    if (this.entry && !this.entry.result) {
+      this.entry.avatars++;
+      this.entry.avatarsMs += performance.now() - started;
+    }
     view.setName(player.name);
     view.setRole(player.role ?? "");
     view.setAway(!player.connected);
@@ -718,6 +794,18 @@ export class Game {
       /** True while our character is in the world (not at the title screen). */
       get inWorld() {
         return game.inWorld;
+      },
+      /** The last entry into the world: ms to the first frame showing our character, the slowest frame, new shader programs. */
+      get entry() {
+        return game.entry?.result ?? null;
+      },
+      /** Shader programs the renderer holds. */
+      get programs() {
+        return game.programCount();
+      },
+      /** The shader warm-up at the title screen: state, ms, programs afterwards. */
+      get warmUp() {
+        return { ...game.warmUp };
       },
       /** The area drawn: "plaza" or an indoor room's id (M7c). */
       get area() {

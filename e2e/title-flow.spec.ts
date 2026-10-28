@@ -2,7 +2,8 @@
 // title menu, Settings and Credits, New life (name → look → review →
 // enter), Continue, Manage characters (edit from the title screen, cancel,
 // delete), editing in the world without touching needs / money / skills,
-// a network drop and a reload, other players seeing the look, and the
+// a network drop and a reload (with the shaders compiled while the title
+// screen was open), other players seeing the look, and the
 // screens on a phone in portrait and landscape (Chromium mobile emulation,
 // not a physical device).
 
@@ -250,10 +251,15 @@ test("editing the look in the world keeps needs, money and skills; cancel change
   expect(await page.evaluate(() => (window as any).__padova.inWorld)).toBe(true);
   expect(lookOf(await self(page))).toMatchObject({ hair: { style: "twists" }, outfit: { headwear: "beanie" } });
 
-  // A reload: title screen, Continue, same look.
+  // A reload: title screen, Continue, same look. While the title screen is
+  // open the square's and the characters' shaders compile, so entering
+  // compiles almost none (about ten without the warm-up).
   await page.reload();
+  await waitForTitle(page);
+  await expect.poll(() => page.evaluate(() => (window as any).__padova.warmUp.state), { timeout: 20_000 }).toBe("done");
   await continueFromTitle(page, "Vale");
   expect(lookOf(await self(page))).toMatchObject({ hair: { style: "twists" }, outfit: { headwear: "beanie" } });
+  expect((await page.evaluate(() => (window as any).__padova.entry)).newPrograms).toBeLessThanOrEqual(3);
 });
 
 test("phone portrait and landscape: the screens fit, touch turns and pinches the preview, creating works", async ({ browser }) => {
