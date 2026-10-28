@@ -102,6 +102,18 @@ package-lock.json would be overwritten". Fix that with
   `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 - When Windows Firewall asks about Node.js, allow it on private networks
   (needed for phones on the same Wi-Fi).
+- Commands in these docs with `<...>` (like `ssh ubuntu@<public IP>`) need
+  the whole `<...>` replaced, brackets included: PowerShell reads `<` as a
+  redirection and stops with `RedirectionNotSupported`.
+- Newer npm versions list packages whose install scripts need approval.
+  `package.json` (`allowScripts`) approves esbuild's (Vite and tsx need it)
+  and declines msgpackr-extract's (an optional speed-up that would try to
+  compile native code; the game uses its prebuilt or plain JavaScript
+  version instead).
+- After `npm audit fix` or an install changes `package-lock.json` on your
+  laptop, `git pull` may refuse to overwrite it. Run
+  `git checkout -- package-lock.json` (the fixes are in the repository), then
+  `git pull` and `npm ci`.
 - If `npm run dev` fails, start the two parts in separate terminals:
   `npm run dev -w server` and `npm run dev -w client`, and report the error
   (the combined script has not been tested on Windows yet).

@@ -848,6 +848,7 @@ position. The repository itself was not changed by this check.
 
 | Date | Suite | Result | Notes |
 | --- | --- | --- | --- |
+| 2026-10-28 (dependency fix) | typecheck + networking tests | Pass, 29/29 | body-parser 2.3.0 → 2.4.0 in the lockfile (the only change), `allowScripts` in `package.json`; typecheck, then the plaza, lobby and operations server tests (matchmaking, joining, reconnecting, profiles, status and serving the client over HTTP) |
 | 2026-10-28 (deployment kit) | typecheck + unit + integration | 600/600 pass (38 files) | `npm run check` on PGlite; the browser suite wasn't rerun: development (which it uses) is unchanged, and the production path was checked in a browser below |
 | 2026-10-28 (deployment kit) | static serving | Pass | New server test: the page (`no-cache`), a hashed asset (`immutable`, `nosniff`), HEAD; 404 for a dotfile, a missing file, three ways of climbing out of the folder and POST; `/health` and matchmaking still work beside it |
 | 2026-10-28 (deployment kit) | production build in a browser | Pass | `npm run build`, then the server with `CLIENT_DIST=client/dist` and `HOST=127.0.0.1` on one port: Chromium loaded the page from the game server, its WebSocket went to the same address, a new character entered the square (screenshot), no page errors |
@@ -986,6 +987,13 @@ Untested or limited (behaviour that is unverified, or limited by design for now)
     radial menu's stacked layout on narrow desktop windows have no automated
     test. Camera occlusion is not handled: buildings can hide characters at
     the south edge of the piazza.
+- **Dependency audit (2026-10-28):** `npm audit` reported body-parser
+  2.3.0 (high: denial of service with a compressed request body), which
+  Colyseus's HTTP server uses for matchmaking; updated to 2.4.0. Left: 9 low
+  and moderate findings in Colyseus's bundled OAuth helper
+  (`@colyseus/auth` → `grant` → `elliptic`, `uuid`), which the game never
+  loads; npm's only fix downgrades Colyseus to 0.17, so they wait for a
+  Colyseus update.
 - **M4 identity and persistence limitations:**
   - Guest identity only (D-017): no sign-in, recovery or cross-device play;
     clearing site data loses the character; a script injected into the page
